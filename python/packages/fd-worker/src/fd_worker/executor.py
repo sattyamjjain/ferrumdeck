@@ -207,6 +207,34 @@ class StepExecutor:
         max_tokens = step_input.get("max_tokens", 4096)
         temperature = step_input.get("temperature", 0.7)
 
+        # Build messages from task if no explicit messages provided
+        if not messages:
+            task = step_input.get("task")
+            system_prompt = step_input.get(
+                "system_prompt",
+                "You are a helpful AI assistant. Complete the requested task.",
+            )
+            if task:
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": str(task)},
+                ]
+            else:
+                # Try to build from any available input
+                content = step_input.get("content") or step_input.get("prompt")
+                if content:
+                    messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": str(content)},
+                    ]
+                else:
+                    # Last resort: use the entire step_input as context
+                    import json
+                    messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": f"Process this input: {json.dumps(step_input)}"},
+                    ]
+
         # Determine the LLM system from model name
         if "claude" in model.lower():
             system = "anthropic"

@@ -521,17 +521,34 @@ name = "fd-evals"
 version = "0.1.0"
 source = { editable = "python/packages/fd-evals" }
 dependencies = [
-    { name = "fd-runtime" },
+    { name = "httpx" },
     { name = "pydantic" },
     { name = "rich" },
+    { name = "typer" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+schema = [
+    { name = "jsonschema" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "fd-runtime", editable = "python/packages/fd-runtime" },
-    { name = "pydantic", specifier = ">=2.0" },
-    { name = "rich", specifier = ">=13.0" },
+    { name = "httpx", specifier = ">=0.25.0" },
+    { name = "jsonschema", marker = "extra == 'schema'", specifier = ">=4.20.0" },
+    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
+    { name = "rich", specifier = ">=13.0.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+    { name = "typer", specifier = ">=0.9.0" },
 ]
+provides-extras = ["dev", "schema"]
 
 [[package]]
 name = "fd-mcp-router"
@@ -605,6 +622,8 @@ source = { editable = "." }
 
 [package.dev-dependencies]
 dev = [
+    { name = "fd-evals" },
+    { name = "fd-runtime" },
     { name = "pre-commit" },
     { name = "pyright" },
     { name = "pytest" },
@@ -617,6 +636,8 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "fd-evals", editable = "python/packages/fd-evals" },
+    { name = "fd-runtime", editable = "python/packages/fd-runtime" },
     { name = "pre-commit", specifier = ">=4.0" },
     { name = "pyright", specifier = ">=1.1" },
     { name = "pytest", specifier = ">=8.0" },

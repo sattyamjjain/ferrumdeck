@@ -4,6 +4,7 @@ pub mod approvals;
 pub mod health;
 pub mod registry;
 pub mod runs;
+pub mod workflows;
 
 use axum::{
     http::StatusCode,

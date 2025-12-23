@@ -1,0 +1,14 @@
+{
+  "artifact_id": "c12ced22f3c53a69",
+  "run_id": "run_01KD6BYVPC5B50MD4HSRWACD8N",
+  "step_id": "stp_01KD6BYVPHEYZG99RFMEW9ZSNY",
+  "artifact_type": "output",
+  "name": "step-stp_01KD6BYVPHEYZG99RFMEW9ZSNY-output.json",
+  "size_bytes": 1018,
+  "content_type": "application/json",
+  "checksum": "3c211f91bffb1d770ab199d6b70691b6b023f1734ad76e75f509ebd09eed86a2",
+  "created_at": "2025-12-23T19:46:19.586050+00:00",
+  "metadata": {
+    "step_type": "llm"
+  }
+}

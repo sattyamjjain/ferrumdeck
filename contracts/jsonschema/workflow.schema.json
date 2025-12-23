@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ferrumdeck.io/schemas/workflow.schema.json",
+  "title": "Workflow Definition",
+  "description": "Schema for defining agent workflows with step sequences",
+  "type": "object",
+  "required": ["id", "name", "steps"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique workflow identifier"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable workflow name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Workflow description"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version"
+    },
+    "steps": {
+      "type": "array",
+      "description": "Ordered list of workflow steps",
+      "items": {
+        "$ref": "#/definitions/step"
+      },
+      "minItems": 1
+    },
+    "on_error": {
+      "type": "string",
+      "enum": ["fail", "continue", "retry"],
+      "default": "fail",
+      "description": "Error handling strategy"
+    },
+    "max_iterations": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 10,
+      "description": "Maximum loop iterations for agentic workflows"
+    }
+  },
+  "definitions": {
+    "step": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Step identifier within workflow"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable step name"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["llm", "tool", "condition", "loop", "parallel", "approval"],
+          "description": "Step type"
+        },
+        "config": {
+          "type": "object",
+          "description": "Step-specific configuration"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Step IDs this step depends on"
+        },
+        "condition": {
+          "type": "string",
+          "description": "JSONPath condition for conditional execution"
+        },
+        "retry": {
+          "$ref": "#/definitions/retry_config"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "description": "Step timeout in milliseconds"
+        }
+      }
+    },
+    "retry_config": {
+      "type": "object",
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3
+        },
+        "delay_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 1000
+        },
+        "backoff_multiplier": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 5.0,
+          "default": 2.0
+        }
+      }
+    }
+  }
+}

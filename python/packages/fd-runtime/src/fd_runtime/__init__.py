@@ -28,6 +28,12 @@ from fd_runtime.tracing import (
     trace_step_execution,
     trace_tool_call,
 )
+from fd_runtime.workflow import (
+    Workflow,
+    WorkflowContext,
+    WorkflowEngine,
+    WorkflowStep,
+)
 
 __all__ = [
     "ArtifactMetadata",
@@ -42,6 +48,10 @@ __all__ = [
     "Step",
     "StepStatus",
     "StepType",
+    "Workflow",
+    "WorkflowContext",
+    "WorkflowEngine",
+    "WorkflowStep",
     "calculate_cost",
     "create_artifact_store",
     "extract_context",

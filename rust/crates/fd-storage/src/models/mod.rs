@@ -10,6 +10,7 @@ pub mod policies;
 pub mod runs;
 pub mod steps;
 pub mod tools;
+pub mod workflows;
 
 pub use agents::*;
 pub use api_keys::*;
@@ -18,3 +19,4 @@ pub use policies::*;
 pub use runs::*;
 pub use steps::*;
 pub use tools::*;
+pub use workflows::*;

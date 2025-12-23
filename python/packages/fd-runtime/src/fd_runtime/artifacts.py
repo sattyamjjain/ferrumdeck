@@ -10,7 +10,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -136,7 +136,7 @@ class LocalFilesystemStore(ArtifactStore):
         self, run_id: str, name: str, step_id: str | None
     ) -> str:
         """Generate a unique artifact ID."""
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(tz=UTC).isoformat()
         components = [run_id, step_id or "run", name, timestamp]
         hash_input = ":".join(components).encode()
         return hashlib.sha256(hash_input).hexdigest()[:16]
@@ -179,7 +179,7 @@ class LocalFilesystemStore(ArtifactStore):
             size_bytes=len(content),
             content_type=content_type,
             checksum=checksum,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(tz=UTC),
             metadata=metadata or {},
         )
 

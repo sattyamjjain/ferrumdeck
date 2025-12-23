@@ -16,11 +16,11 @@ members = [
 ]
 
 [tool.uv.sources]
-fd-runtime = { workspace = true }
 fd-worker = { workspace = true }
 fd-mcp-router = { workspace = true }
-fd-evals = { workspace = true }
 fd-cli = { workspace = true }
+fd-evals = { workspace = true }
+fd-runtime = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -30,6 +30,8 @@ dev = [
     "ruff>=0.8",
     "pyright>=1.1",
     "pre-commit>=4.0",
+    "fd-evals",
+    "fd-runtime",
 ]
 
 [tool.ruff]

@@ -3,7 +3,7 @@
 use axum::{middleware, routing::get, routing::post, routing::put, Router};
 
 use crate::handlers;
-use crate::middleware::{auth_middleware, request_id_middleware};
+use crate::middleware::{auth_middleware, rate_limit_middleware, request_id_middleware};
 use crate::state::AppState;
 
 /// Build the full application router
@@ -48,6 +48,47 @@ pub fn build_router(state: AppState) -> Router {
                 )
                 .route("/registry/tools", get(handlers::registry::list_tools))
                 .route("/registry/tools", post(handlers::registry::create_tool))
+                // Workflows
+                .route("/workflows", post(handlers::workflows::create_workflow))
+                .route("/workflows", get(handlers::workflows::list_workflows))
+                .route(
+                    "/workflows/{workflow_id}",
+                    get(handlers::workflows::get_workflow),
+                )
+                .route(
+                    "/workflows/{workflow_id}/runs",
+                    get(handlers::workflows::list_workflow_runs),
+                )
+                // Workflow Runs
+                .route(
+                    "/workflow-runs",
+                    post(handlers::workflows::create_workflow_run),
+                )
+                .route(
+                    "/workflow-runs/{run_id}",
+                    get(handlers::workflows::get_workflow_run),
+                )
+                .route(
+                    "/workflow-runs/{run_id}/cancel",
+                    post(handlers::workflows::cancel_workflow_run),
+                )
+                .route(
+                    "/workflow-runs/{run_id}/executions",
+                    get(handlers::workflows::list_step_executions),
+                )
+                .route(
+                    "/workflow-runs/{run_id}/executions",
+                    post(handlers::workflows::create_step_execution),
+                )
+                .route(
+                    "/workflow-runs/{run_id}/executions/{execution_id}",
+                    post(handlers::workflows::submit_step_execution_result),
+                )
+                // Apply rate limiting after auth (so we can use tenant ID)
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    rate_limit_middleware,
+                ))
                 // Apply auth middleware to all v1 routes
                 .layer(middleware::from_fn_with_state(
                     state.clone(),

@@ -1,6 +1,26 @@
-"""FerrumDeck Evaluation Harness."""
+"""FerrumDeck Evaluation Framework."""
 
-from fd_evals.scorer import Scorer, ScoreResult
-from fd_evals.suite import EvalSuite
+from fd_evals.runner import EvalRunner
+from fd_evals.scorers import (
+    BaseScorer,
+    CompositeScorer,
+    FilesChangedScorer,
+    LintScorer,
+    PRCreatedScorer,
+    SchemaScorer,
+    TestPassScorer,
+)
+from fd_evals.task import EvalResult, EvalTask
 
-__all__ = ["EvalSuite", "ScoreResult", "Scorer"]
+__all__ = [
+    "BaseScorer",
+    "CompositeScorer",
+    "EvalResult",
+    "EvalRunner",
+    "EvalTask",
+    "FilesChangedScorer",
+    "LintScorer",
+    "PRCreatedScorer",
+    "SchemaScorer",
+    "TestPassScorer",
+]

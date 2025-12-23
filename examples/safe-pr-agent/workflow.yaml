@@ -1,0 +1,257 @@
+# Safe PR Agent Workflow
+# ======================
+# Defines the step sequence for safely creating pull requests
+
+id: safe-pr-agent-workflow
+name: Safe PR Agent Workflow
+description: |
+  A structured workflow for safely creating pull requests:
+  1. Understand the task and repository context
+  2. Analyze existing code structure
+  3. Plan and implement changes
+  4. Validate changes with tests
+  5. Create PR with human approval gate
+
+version: "1.0.0"
+
+# Workflow configuration
+max_iterations: 5  # Max agentic loops per phase
+on_error: fail
+
+# Step definitions
+steps:
+  # ============================================================================
+  # Phase 1: Context Gathering
+  # ============================================================================
+  - id: understand_task
+    name: Understand Task
+    type: llm
+    config:
+      model: claude-sonnet-4-20250514
+      system_prompt: |
+        You are analyzing a task request. Extract:
+        1. What needs to be done (the objective)
+        2. Which files/modules are likely involved
+        3. Any constraints or requirements mentioned
+        4. Success criteria
+
+        Respond with a structured analysis in JSON format:
+        {
+          "objective": "...",
+          "likely_files": ["..."],
+          "constraints": ["..."],
+          "success_criteria": ["..."]
+        }
+      max_tokens: 1000
+      temperature: 0.3
+    timeout_ms: 30000
+
+  - id: explore_repo
+    name: Explore Repository Structure
+    type: tool
+    depends_on: [understand_task]
+    config:
+      tool_name: list_directory
+      tool_input:
+        path: "."
+        recursive: false
+    timeout_ms: 10000
+
+  - id: read_relevant_files
+    name: Read Relevant Files
+    type: loop
+    depends_on: [explore_repo]
+    config:
+      max_iterations: 10
+      steps:
+        - id: select_file
+          type: llm
+          config:
+            model: claude-sonnet-4-20250514
+            system_prompt: |
+              Based on the task analysis and repository structure,
+              select the next most relevant file to read.
+              If no more files are needed, respond with {"done": true}.
+              Otherwise respond with {"file_path": "path/to/file"}.
+            max_tokens: 200
+        - id: read_file
+          type: tool
+          condition: "$.select_file.done != true"
+          config:
+            tool_name: read_file
+            tool_input_from: "$.select_file.file_path"
+
+  # ============================================================================
+  # Phase 2: Analysis & Planning
+  # ============================================================================
+  - id: analyze_code
+    name: Analyze Code Structure
+    type: llm
+    depends_on: [read_relevant_files]
+    config:
+      model: claude-sonnet-4-20250514
+      system_prompt: |
+        Analyze the codebase you've read and create a detailed plan.
+        Consider:
+        - Existing patterns and conventions
+        - Dependencies between modules
+        - Test coverage requirements
+        - Potential risks or edge cases
+
+        Provide your analysis as JSON:
+        {
+          "patterns": ["..."],
+          "dependencies": ["..."],
+          "risks": ["..."],
+          "implementation_plan": [
+            {"step": 1, "action": "...", "file": "...", "rationale": "..."}
+          ]
+        }
+      max_tokens: 2000
+      temperature: 0.5
+    timeout_ms: 60000
+
+  # ============================================================================
+  # Phase 3: Implementation
+  # ============================================================================
+  - id: implement_changes
+    name: Implement Changes
+    type: loop
+    depends_on: [analyze_code]
+    config:
+      max_iterations: 15
+      steps:
+        - id: plan_next_change
+          type: llm
+          config:
+            model: claude-sonnet-4-20250514
+            system_prompt: |
+              Based on your implementation plan, determine the next change.
+              If all changes are complete, respond with {"done": true}.
+              Otherwise respond with:
+              {
+                "action": "create|modify|delete",
+                "file_path": "...",
+                "content": "...",
+                "rationale": "..."
+              }
+            max_tokens: 4000
+        - id: write_change
+          type: tool
+          condition: "$.plan_next_change.done != true"
+          config:
+            tool_name: write_file
+            requires_approval: true  # Human approval gate
+            tool_input_from: "$.plan_next_change"
+
+  # ============================================================================
+  # Phase 4: Validation
+  # ============================================================================
+  - id: run_tests
+    name: Run Test Suite
+    type: tool
+    depends_on: [implement_changes]
+    config:
+      tool_name: run_tests
+      tool_input:
+        test_command: "npm test"  # or project-specific
+        timeout_ms: 120000
+    retry:
+      max_attempts: 2
+      delay_ms: 5000
+    timeout_ms: 180000
+
+  - id: validate_changes
+    name: Validate Changes
+    type: llm
+    depends_on: [run_tests]
+    config:
+      model: claude-sonnet-4-20250514
+      system_prompt: |
+        Review the test results and implementation.
+        Determine if the changes are ready for PR or need fixes.
+
+        Respond with:
+        {
+          "ready_for_pr": true|false,
+          "issues": ["..."],
+          "summary": "..."
+        }
+      max_tokens: 1000
+    timeout_ms: 30000
+
+  - id: fix_issues
+    name: Fix Validation Issues
+    type: loop
+    depends_on: [validate_changes]
+    condition: "$.validate_changes.ready_for_pr == false"
+    config:
+      max_iterations: 3
+      steps:
+        - id: analyze_issue
+          type: llm
+          config:
+            model: claude-sonnet-4-20250514
+            system_prompt: "Analyze the issue and propose a fix."
+        - id: apply_fix
+          type: tool
+          config:
+            tool_name: write_file
+            requires_approval: true
+
+  # ============================================================================
+  # Phase 5: PR Creation
+  # ============================================================================
+  - id: generate_pr_content
+    name: Generate PR Description
+    type: llm
+    depends_on: [validate_changes, fix_issues]
+    condition: "$.validate_changes.ready_for_pr == true"
+    config:
+      model: claude-sonnet-4-20250514
+      system_prompt: |
+        Generate a comprehensive PR description including:
+        - Title (concise, descriptive)
+        - Summary of changes
+        - Testing done
+        - Any breaking changes or notes
+
+        Format as JSON:
+        {
+          "title": "...",
+          "body": "...",
+          "labels": ["..."]
+        }
+      max_tokens: 1500
+    timeout_ms: 30000
+
+  - id: create_pull_request
+    name: Create Pull Request
+    type: approval
+    depends_on: [generate_pr_content]
+    config:
+      tool_name: create_pull_request
+      requires_approval: true
+      approval_message: |
+        Ready to create PR:
+        Title: {{$.generate_pr_content.title}}
+
+        Please review the changes and approve to create the PR.
+      tool_input_from: "$.generate_pr_content"
+    timeout_ms: 300000  # 5 min for human approval
+
+# Output schema
+output:
+  type: object
+  properties:
+    pr_url:
+      type: string
+      description: URL of the created PR
+    files_changed:
+      type: array
+      items:
+        type: string
+    test_results:
+      type: object
+    cost_breakdown:
+      type: object

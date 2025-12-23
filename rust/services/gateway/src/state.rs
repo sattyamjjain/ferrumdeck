@@ -3,10 +3,12 @@
 use fd_policy::PolicyEngine;
 use fd_storage::{
     AgentsRepo, ApiKeysRepo, AuditRepo, DbPool, PoliciesRepo, QueueClient, RunsRepo, StepsRepo,
-    ToolsRepo,
+    ToolsRepo, WorkflowsRepo,
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+use crate::middleware::{create_rate_limiter, RateLimiter};
 
 /// Shared application state
 #[derive(Clone)]
@@ -20,6 +22,9 @@ pub struct AppState {
 
     /// Queue client for job publishing
     pub queue: Arc<RwLock<QueueClient>>,
+
+    /// Rate limiter for API requests
+    pub rate_limiter: RateLimiter,
 
     /// Repositories (lazy-initialized from db pool)
     repos: Repos,
@@ -65,6 +70,10 @@ impl Repos {
     pub fn audit(&self) -> AuditRepo {
         AuditRepo::new(self.db.clone())
     }
+
+    pub fn workflows(&self) -> WorkflowsRepo {
+        WorkflowsRepo::new(self.db.clone())
+    }
 }
 
 impl AppState {
@@ -91,10 +100,14 @@ impl AppState {
         // Create policy engine with defaults
         let policy_engine = Arc::new(PolicyEngine::default());
 
+        // Create rate limiter
+        let rate_limiter = create_rate_limiter();
+
         Ok(Self {
             db: db.clone(),
             policy_engine,
             queue: Arc::new(RwLock::new(queue)),
+            rate_limiter,
             repos: Repos::new(db),
         })
     }

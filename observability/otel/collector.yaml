@@ -54,16 +54,12 @@ processors:
           - "ready.*"
 
   # Attributes processor for GenAI spans
-  attributes:
+  attributes/genai:
     actions:
-      # Normalize model names for easier querying
-      - key: gen_ai.model_family
-        value: claude
-        action: upsert
-        from_attribute: gen_ai.request.model
+      # Add default provider attribute if not set
       - key: gen_ai.provider
         value: anthropic
-        action: upsert
+        action: insert
 
 exporters:
   # Export to Jaeger for trace visualization
@@ -96,7 +92,7 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, resource, transform, attributes, filter, batch]
+      processors: [memory_limiter, resource, transform, attributes/genai, filter, batch]
       exporters: [otlp/jaeger, debug]
 
     metrics:

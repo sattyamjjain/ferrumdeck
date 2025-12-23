@@ -9,6 +9,7 @@ pub mod policies;
 pub mod runs;
 pub mod steps;
 pub mod tools;
+pub mod workflows;
 
 pub use agents::AgentsRepo;
 pub use api_keys::ApiKeysRepo;
@@ -17,3 +18,4 @@ pub use policies::PoliciesRepo;
 pub use runs::RunsRepo;
 pub use steps::StepsRepo;
 pub use tools::ToolsRepo;
+pub use workflows::WorkflowsRepo;
