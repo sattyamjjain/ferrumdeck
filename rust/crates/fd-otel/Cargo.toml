@@ -1,0 +1,28 @@
+[package]
+name = "fd-otel"
+description = "FerrumDeck OpenTelemetry helpers with GenAI semantic conventions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+fd-core = { path = "../fd-core" }
+
+# OpenTelemetry
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Async
+tokio = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }

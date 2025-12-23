@@ -1,0 +1,23 @@
+[package]
+name = "fd-policy"
+description = "FerrumDeck policy engine: allowlists, budgets, approvals"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+fd-core = { path = "../fd-core" }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Tracing
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }

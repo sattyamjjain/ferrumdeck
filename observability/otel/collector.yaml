@@ -1,0 +1,116 @@
+# OpenTelemetry Collector Configuration for FerrumDeck
+# =====================================================
+# Configured for GenAI/LLM observability with semantic conventions
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  # Add resource attributes
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: development
+        action: upsert
+      - key: service.namespace
+        value: ferrumdeck
+        action: upsert
+
+  # Transform processor to calculate costs from token counts
+  transform:
+    trace_statements:
+      - context: span
+        statements:
+          # Calculate estimated cost for Claude models (per 1M tokens pricing as attributes)
+          # Sonnet 4: $3/M input, $15/M output
+          # Opus 4: $15/M input, $75/M output
+          - set(attributes["gen_ai.usage.cost_usd"],
+              (attributes["gen_ai.usage.input_tokens"] * 0.000003 +
+               attributes["gen_ai.usage.output_tokens"] * 0.000015))
+            where attributes["gen_ai.system"] == "anthropic" and
+                  IsMatch(attributes["gen_ai.request.model"], ".*sonnet.*")
+
+  # Filter out health check spans (optional)
+  filter:
+    spans:
+      exclude:
+        match_type: regexp
+        span_names:
+          - "health.*"
+          - "ready.*"
+
+  # Attributes processor for GenAI spans
+  attributes:
+    actions:
+      # Normalize model names for easier querying
+      - key: gen_ai.model_family
+        value: claude
+        action: upsert
+        from_attribute: gen_ai.request.model
+      - key: gen_ai.provider
+        value: anthropic
+        action: upsert
+
+exporters:
+  # Export to Jaeger for trace visualization
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  # Debug logging (development only)
+  debug:
+    verbosity: detailed
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+  # Prometheus metrics (optional)
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: ferrumdeck
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+service:
+  extensions: [health_check, pprof]
+
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, transform, attributes, filter, batch]
+      exporters: [otlp/jaeger, debug]
+
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus, debug]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]
+
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      address: 0.0.0.0:8888

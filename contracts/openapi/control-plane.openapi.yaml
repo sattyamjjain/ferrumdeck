@@ -1,0 +1,474 @@
+openapi: 3.1.0
+info:
+  title: FerrumDeck Control Plane API
+  description: |
+    REST API for the FerrumDeck AgentOps Control Plane.
+
+    This API provides endpoints for:
+    - Managing agent runs and steps
+    - Registry operations (agents, tools, prompts)
+    - Policy management
+    - Audit log access
+  version: 0.1.0
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: https://api.ferrumdeck.io
+    description: Production server
+
+tags:
+  - name: runs
+    description: Run lifecycle management
+  - name: registry
+    description: Agent, tool, and prompt registry
+  - name: policy
+    description: Policy rules and decisions
+  - name: audit
+    description: Audit log access
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /v1/runs:
+    post:
+      summary: Create a new run
+      operationId: createRun
+      tags: [runs]
+      security:
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRunRequest'
+      responses:
+        '201':
+          description: Run created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/runs/{runId}:
+    get:
+      summary: Get run by ID
+      operationId: getRun
+      tags: [runs]
+      security:
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/runId'
+      responses:
+        '200':
+          description: Run details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/runs/{runId}/steps:
+    get:
+      summary: List steps for a run
+      operationId: listSteps
+      tags: [runs]
+      security:
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/runId'
+      responses:
+        '200':
+          description: List of steps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Step'
+
+  /v1/runs/{runId}/steps/{stepId}:
+    post:
+      summary: Submit step result
+      operationId: submitStepResult
+      tags: [runs]
+      security:
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/runId'
+        - $ref: '#/components/parameters/stepId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitStepResultRequest'
+      responses:
+        '200':
+          description: Step result accepted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/registry/agents:
+    get:
+      summary: List agents
+      operationId: listAgents
+      tags: [registry]
+      security:
+        - apiKey: []
+      responses:
+        '200':
+          description: List of agents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Agent'
+
+    post:
+      summary: Create agent
+      operationId: createAgent
+      tags: [registry]
+      security:
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentRequest'
+      responses:
+        '201':
+          description: Agent created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+
+  /v1/registry/tools:
+    get:
+      summary: List tools
+      operationId: listTools
+      tags: [registry]
+      security:
+        - apiKey: []
+      responses:
+        '200':
+          description: List of tools
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tool'
+
+    post:
+      summary: Create tool
+      operationId: createTool
+      tags: [registry]
+      security:
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateToolRequest'
+      responses:
+        '201':
+          description: Tool created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tool'
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: API key
+
+  parameters:
+    runId:
+      name: runId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^run_[0-9A-HJKMNP-TV-Z]{26}$'
+      description: Run ID (ULID with run_ prefix)
+
+    stepId:
+      name: stepId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^stp_[0-9A-HJKMNP-TV-Z]{26}$'
+      description: Step ID (ULID with stp_ prefix)
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, version]
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        version:
+          type: string
+
+    CreateRunRequest:
+      type: object
+      required: [agent_id, input]
+      properties:
+        agent_id:
+          type: string
+          description: ID of the agent to run
+        input:
+          type: object
+          description: Input data for the run
+        config:
+          type: object
+          description: Optional runtime configuration
+        budget:
+          $ref: '#/components/schemas/Budget'
+
+    Run:
+      type: object
+      required: [id, agent_id, status, created_at]
+      properties:
+        id:
+          type: string
+        agent_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/RunStatus'
+        input:
+          type: object
+        output:
+          type: object
+        budget:
+          $ref: '#/components/schemas/Budget'
+        usage:
+          $ref: '#/components/schemas/BudgetUsage'
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+
+    RunStatus:
+      type: string
+      enum:
+        - created
+        - queued
+        - running
+        - waiting_approval
+        - completed
+        - failed
+        - budget_killed
+        - policy_blocked
+
+    Step:
+      type: object
+      required: [id, run_id, step_type, status]
+      properties:
+        id:
+          type: string
+        run_id:
+          type: string
+        step_type:
+          $ref: '#/components/schemas/StepType'
+        status:
+          $ref: '#/components/schemas/StepStatus'
+        input:
+          type: object
+        output:
+          type: object
+        error:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        usage:
+          $ref: '#/components/schemas/BudgetUsage'
+
+    StepType:
+      type: string
+      enum: [llm, tool, retrieval, sandbox, approval]
+
+    StepStatus:
+      type: string
+      enum: [pending, running, completed, failed, skipped]
+
+    SubmitStepResultRequest:
+      type: object
+      required: [output, status]
+      properties:
+        output:
+          type: object
+        status:
+          $ref: '#/components/schemas/StepStatus'
+        usage:
+          $ref: '#/components/schemas/BudgetUsage'
+
+    Budget:
+      type: object
+      properties:
+        max_input_tokens:
+          type: integer
+        max_output_tokens:
+          type: integer
+        max_total_tokens:
+          type: integer
+        max_tool_calls:
+          type: integer
+        max_wall_time_ms:
+          type: integer
+        max_cost_cents:
+          type: integer
+
+    BudgetUsage:
+      type: object
+      properties:
+        input_tokens:
+          type: integer
+          default: 0
+        output_tokens:
+          type: integer
+          default: 0
+        tool_calls:
+          type: integer
+          default: 0
+        wall_time_ms:
+          type: integer
+          default: 0
+        cost_cents:
+          type: integer
+          default: 0
+
+    Agent:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        current_version_id:
+          type: string
+
+    CreateAgentRequest:
+      type: object
+      required: [name, system_prompt, default_model]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        system_prompt:
+          type: string
+        allowed_tools:
+          type: array
+          items:
+            type: string
+        default_model:
+          type: string
+
+    Tool:
+      type: object
+      required: [id, name, risk_level]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        risk_level:
+          $ref: '#/components/schemas/ToolRiskLevel'
+
+    CreateToolRequest:
+      type: object
+      required: [name, risk_level, input_schema, output_schema]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        risk_level:
+          $ref: '#/components/schemas/ToolRiskLevel'
+        input_schema:
+          type: object
+        output_schema:
+          type: object
+
+    ToolRiskLevel:
+      type: string
+      enum: [low, medium, high, critical]
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

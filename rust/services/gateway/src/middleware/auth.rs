@@ -1,0 +1,201 @@
+//! API Key authentication middleware
+
+use axum::{
+    extract::{Request, State},
+    http::{header, StatusCode},
+    middleware::Next,
+    response::{IntoResponse, Response},
+    Json,
+};
+use fd_storage::ApiKeysRepo;
+use serde_json::json;
+use sha2::{Digest, Sha256};
+use tracing::{debug, warn};
+
+use crate::state::AppState;
+
+/// Authenticated tenant context
+#[derive(Debug, Clone)]
+pub struct AuthContext {
+    pub api_key_id: String,
+    pub tenant_id: String,
+    #[allow(dead_code)]
+    pub scopes: Vec<String>,
+}
+
+impl AuthContext {
+    #[allow(dead_code)]
+    pub fn has_scope(&self, scope: &str) -> bool {
+        self.scopes.contains(&scope.to_string()) || self.scopes.contains(&"admin".to_string())
+    }
+}
+
+/// API key authentication middleware
+pub async fn auth_middleware(
+    State(state): State<AppState>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    // Extract API key from Authorization header
+    let auth_header = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok());
+
+    let api_key = match extract_api_key(auth_header) {
+        Some(key) => key,
+        None => {
+            return unauthorized("Missing or invalid Authorization header");
+        }
+    };
+
+    // Hash the API key
+    let key_hash = hash_api_key(&api_key);
+
+    // Look up the key in the database
+    let api_keys_repo = ApiKeysRepo::new(state.db.clone());
+    let api_key_record = match api_keys_repo.get_by_hash(&key_hash).await {
+        Ok(Some(key)) => key,
+        Ok(None) => {
+            warn!(key_prefix = %&api_key[..8.min(api_key.len())], "Invalid API key");
+            return unauthorized("Invalid API key");
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "Database error during authentication");
+            return internal_error("Authentication failed");
+        }
+    };
+
+    // Check if key is valid (not revoked, not expired)
+    if !api_key_record.is_valid() {
+        warn!(key_id = %api_key_record.id, "API key is revoked or expired");
+        return unauthorized("API key is revoked or expired");
+    }
+
+    // Update last used timestamp (fire and forget)
+    {
+        let repo = api_keys_repo.clone();
+        let key_id = api_key_record.id.clone();
+        tokio::spawn(async move {
+            let _ = repo.touch(&key_id).await;
+        });
+    }
+
+    debug!(
+        key_id = %api_key_record.id,
+        tenant_id = %api_key_record.tenant_id,
+        "Authenticated request"
+    );
+
+    // Create auth context and add to request extensions
+    let auth_context = AuthContext {
+        api_key_id: api_key_record.id,
+        tenant_id: api_key_record.tenant_id,
+        scopes: api_key_record.scopes,
+    };
+    request.extensions_mut().insert(auth_context);
+
+    next.run(request).await
+}
+
+/// Extract API key from Authorization header
+fn extract_api_key(auth_header: Option<&str>) -> Option<String> {
+    let header = auth_header?;
+
+    // Support both "Bearer <key>" and "ApiKey <key>" formats
+    if header.starts_with("Bearer ") {
+        Some(header[7..].to_string())
+    } else if header.starts_with("ApiKey ") {
+        Some(header[7..].to_string())
+    } else {
+        None
+    }
+}
+
+/// Hash an API key using SHA256
+fn hash_api_key(key: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(key.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn unauthorized(message: &str) -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({
+            "error": {
+                "code": "UNAUTHORIZED",
+                "message": message
+            }
+        })),
+    )
+        .into_response()
+}
+
+fn internal_error(message: &str) -> Response {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": message
+            }
+        })),
+    )
+        .into_response()
+}
+
+/// Scope requirement middleware factory
+#[allow(dead_code)]
+pub fn require_scope(scope: &'static str) -> impl Fn(Request, Next) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>> + Clone {
+    move |request: Request, next: Next| {
+        Box::pin(async move {
+            let auth = request.extensions().get::<AuthContext>();
+
+            match auth {
+                Some(ctx) if ctx.has_scope(scope) => next.run(request).await,
+                Some(_) => (
+                    StatusCode::FORBIDDEN,
+                    Json(json!({
+                        "error": {
+                            "code": "FORBIDDEN",
+                            "message": format!("Missing required scope: {}", scope)
+                        }
+                    })),
+                )
+                    .into_response(),
+                None => unauthorized("Not authenticated"),
+            }
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_api_key_bearer() {
+        let key = extract_api_key(Some("Bearer my_api_key_123"));
+        assert_eq!(key, Some("my_api_key_123".to_string()));
+    }
+
+    #[test]
+    fn test_extract_api_key_apikey() {
+        let key = extract_api_key(Some("ApiKey my_api_key_123"));
+        assert_eq!(key, Some("my_api_key_123".to_string()));
+    }
+
+    #[test]
+    fn test_extract_api_key_none() {
+        assert!(extract_api_key(None).is_none());
+        assert!(extract_api_key(Some("Invalid")).is_none());
+    }
+
+    #[test]
+    fn test_hash_api_key() {
+        let hash = hash_api_key("test_key");
+        assert!(!hash.is_empty());
+        assert_eq!(hash.len(), 64); // SHA256 hex = 64 chars
+    }
+}

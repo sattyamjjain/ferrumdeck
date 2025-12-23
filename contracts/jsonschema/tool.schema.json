@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ferrumdeck.io/schemas/tool.schema.json",
+  "title": "Tool",
+  "description": "Tool definition in the FerrumDeck registry",
+  "type": "object",
+  "required": ["id", "name", "risk_level"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^tol_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Unique tool identifier"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Tool name (snake_case)"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable tool description"
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"],
+      "description": "Risk classification for policy enforcement"
+    },
+    "current_version_id": {
+      "type": ["string", "null"],
+      "pattern": "^tov_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Current active version"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ferrumdeck.io/schemas/policy.schema.json",
+  "title": "Policy",
+  "description": "Policy rules for the FerrumDeck control plane",
+  "type": "object",
+  "required": ["id", "name", "rules"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^pol_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Unique policy identifier"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "description": "Human-readable policy name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Policy description"
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether this policy is active"
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 100,
+      "description": "Policy evaluation priority (lower = higher priority)"
+    },
+    "rules": {
+      "type": "object",
+      "properties": {
+        "tool_allowlist": {
+          "$ref": "#/$defs/ToolAllowlist"
+        },
+        "budget": {
+          "$ref": "#/$defs/BudgetPolicy"
+        },
+        "approval_gates": {
+          "$ref": "#/$defs/ApprovalGates"
+        }
+      }
+    },
+    "scope": {
+      "$ref": "#/$defs/PolicyScope",
+      "description": "Where this policy applies"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "ToolAllowlist": {
+      "type": "object",
+      "description": "Tool allowlist rules (deny-by-default)",
+      "properties": {
+        "allowed_tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tools that are allowed without approval"
+        },
+        "approval_required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tools that require approval before execution"
+        },
+        "denied_tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tools that are explicitly denied"
+        }
+      }
+    },
+    "BudgetPolicy": {
+      "type": "object",
+      "description": "Budget enforcement rules",
+      "properties": {
+        "default_budget": {
+          "type": "object",
+          "properties": {
+            "max_input_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_output_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_total_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_tool_calls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_wall_time_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_cost_cents": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "enforce": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to enforce budget limits"
+        },
+        "action_on_exceed": {
+          "type": "string",
+          "enum": ["warn", "block"],
+          "default": "block",
+          "description": "Action when budget is exceeded"
+        }
+      }
+    },
+    "ApprovalGates": {
+      "type": "object",
+      "description": "Approval requirements",
+      "properties": {
+        "require_approval_for": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["write_tools", "high_risk_tools", "critical_tools", "external_comms", "all_tools"]
+          },
+          "description": "Categories that require approval"
+        },
+        "auto_approve_after_ms": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Auto-approve after this many milliseconds (null = never)"
+        },
+        "approvers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "User IDs who can approve"
+        }
+      }
+    },
+    "PolicyScope": {
+      "type": "object",
+      "description": "Where the policy applies",
+      "properties": {
+        "tenant_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Apply to these tenants (empty = all)"
+        },
+        "agent_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Apply to these agents (empty = all)"
+        },
+        "workspace_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Apply to these workspaces (empty = all)"
+        }
+      }
+    }
+  }
+}

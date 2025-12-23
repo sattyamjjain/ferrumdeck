@@ -1,0 +1,24 @@
+# Regression test evaluation suite
+# =================================
+# Full suite for detecting regressions before deployment
+
+name: regression
+description: Full regression tests for deployment gating
+
+datasets:
+  - path: datasets/safe-pr-agent
+
+scorers:
+  - type: schema_valid
+  - type: no_policy_violations
+  - type: budget_compliance
+  - type: expected_output_match
+
+settings:
+  timeout_ms: 300000
+  max_parallel: 4
+
+gates:
+  pass_rate_threshold: 0.95
+  max_cost_increase_percent: 10
+  require_all_categories_pass: true

@@ -1,0 +1,19 @@
+# Smoke test evaluation suite
+# ============================
+# Quick validation that the system works end-to-end
+
+name: smoke
+description: Quick smoke tests for basic functionality
+
+datasets:
+  - path: datasets/safe-pr-agent
+    filter:
+      categories: [documentation]
+
+scorers:
+  - type: schema_valid
+  - type: no_policy_violations
+
+settings:
+  timeout_ms: 60000
+  max_parallel: 1

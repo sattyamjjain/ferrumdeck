@@ -1,0 +1,235 @@
+# FerrumDeck - Development Makefile
+# ================================
+
+.PHONY: help dev-up dev-down build test fmt lint clean install
+
+# Default target
+help:
+	@echo "FerrumDeck Development Commands"
+	@echo "================================"
+	@echo ""
+	@echo "Setup:"
+	@echo "  make install      - Install all dependencies (Rust + Python)"
+	@echo ""
+	@echo "Development:"
+	@echo "  make dev-up       - Start local dev environment (Docker)"
+	@echo "  make dev-down     - Stop local dev environment"
+	@echo "  make dev-logs     - Tail logs from all services"
+	@echo ""
+	@echo "Build:"
+	@echo "  make build        - Build all (Rust + Python)"
+	@echo "  make build-rust   - Build Rust services"
+	@echo "  make build-python - Build Python packages"
+	@echo ""
+	@echo "Test:"
+	@echo "  make test         - Run all tests"
+	@echo "  make test-rust    - Run Rust tests"
+	@echo "  make test-python  - Run Python tests"
+	@echo ""
+	@echo "Code Quality:"
+	@echo "  make fmt          - Format all code"
+	@echo "  make lint         - Lint all code"
+	@echo "  make check        - Run all checks (fmt + lint + test)"
+	@echo ""
+	@echo "Database:"
+	@echo "  make db-migrate   - Run database migrations"
+	@echo "  make db-reset     - Reset database (drop + migrate + seed)"
+	@echo ""
+	@echo "Clean:"
+	@echo "  make clean        - Clean build artifacts"
+
+# =============================================================================
+# Setup
+# =============================================================================
+
+install: install-rust install-python
+	@echo "All dependencies installed"
+
+install-rust:
+	@echo "Installing Rust dependencies..."
+	cargo fetch
+
+install-python:
+	@echo "Installing Python dependencies..."
+	uv sync
+
+# =============================================================================
+# Development Environment
+# =============================================================================
+
+dev-up:
+	@echo "Starting development environment..."
+	docker compose -f deploy/docker/compose.dev.yaml up -d
+	@echo ""
+	@echo "Services started:"
+	@echo "  - PostgreSQL: localhost:5432"
+	@echo "  - Redis:      localhost:6379"
+	@echo "  - Jaeger UI:  http://localhost:16686"
+	@echo "  - OTel:       localhost:4317 (gRPC), localhost:4318 (HTTP)"
+
+dev-down:
+	@echo "Stopping development environment..."
+	docker compose -f deploy/docker/compose.dev.yaml down
+
+dev-logs:
+	docker compose -f deploy/docker/compose.dev.yaml logs -f
+
+dev-ps:
+	docker compose -f deploy/docker/compose.dev.yaml ps
+
+# =============================================================================
+# Build
+# =============================================================================
+
+build: build-rust build-python
+	@echo "Build complete"
+
+build-rust:
+	@echo "Building Rust services..."
+	cargo build --workspace
+
+build-python:
+	@echo "Building Python packages..."
+	uv build
+
+build-release:
+	@echo "Building release binaries..."
+	cargo build --workspace --release
+
+# =============================================================================
+# Test
+# =============================================================================
+
+test: test-rust test-python
+	@echo "All tests passed"
+
+test-rust:
+	@echo "Running Rust tests..."
+	cargo test --workspace
+
+test-python:
+	@echo "Running Python tests..."
+	uv run pytest
+
+test-integration:
+	@echo "Running integration tests..."
+	cargo test --workspace -- --ignored
+	uv run pytest -m integration
+
+# =============================================================================
+# Code Quality
+# =============================================================================
+
+fmt: fmt-rust fmt-python
+	@echo "Formatting complete"
+
+fmt-rust:
+	@echo "Formatting Rust code..."
+	cargo fmt --all
+
+fmt-python:
+	@echo "Formatting Python code..."
+	uv run ruff format python/
+
+lint: lint-rust lint-python
+	@echo "Linting complete"
+
+lint-rust:
+	@echo "Linting Rust code..."
+	cargo clippy --workspace --all-targets -- -D warnings
+
+lint-python:
+	@echo "Linting Python code..."
+	uv run ruff check python/
+	uv run pyright python/
+
+check: fmt lint test
+	@echo "All checks passed"
+
+# =============================================================================
+# Database
+# =============================================================================
+
+db-migrate:
+	@echo "Running database migrations..."
+	cargo run --package fd-storage --bin migrate
+
+db-reset:
+	@echo "Resetting database..."
+	docker compose -f deploy/docker/compose.dev.yaml exec -T postgres psql -U ferrumdeck -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+	$(MAKE) db-migrate
+
+db-seed:
+	@echo "Seeding database..."
+	cargo run --package fd-storage --bin seed
+
+# =============================================================================
+# Services (Development)
+# =============================================================================
+
+run-gateway:
+	@echo "Starting Gateway service..."
+	cargo run --package gateway
+
+run-worker:
+	@echo "Starting Python worker..."
+	uv run python -m fd_worker
+
+# =============================================================================
+# Contracts / Code Generation
+# =============================================================================
+
+gen-openapi:
+	@echo "Generating OpenAPI clients..."
+	./scripts/gen_openapi.sh
+
+gen-schemas:
+	@echo "Validating JSON schemas..."
+	./scripts/gen_schemas.sh
+
+# =============================================================================
+# Evals
+# =============================================================================
+
+eval-run:
+	@echo "Running evaluation suite..."
+	uv run python -m fd_evals run
+
+eval-report:
+	@echo "Generating evaluation report..."
+	uv run python -m fd_evals report
+
+# =============================================================================
+# Clean
+# =============================================================================
+
+clean: clean-rust clean-python clean-docker
+	@echo "Clean complete"
+
+clean-rust:
+	@echo "Cleaning Rust artifacts..."
+	cargo clean
+
+clean-python:
+	@echo "Cleaning Python artifacts..."
+	rm -rf python/packages/*/.ruff_cache
+	rm -rf python/packages/*/__pycache__
+	rm -rf .pytest_cache
+	rm -rf .ruff_cache
+
+clean-docker:
+	@echo "Cleaning Docker volumes..."
+	docker compose -f deploy/docker/compose.dev.yaml down -v
+
+# =============================================================================
+# CI Helpers
+# =============================================================================
+
+ci-check:
+	@echo "Running CI checks..."
+	cargo fmt --all -- --check
+	cargo clippy --workspace --all-targets -- -D warnings
+	cargo test --workspace
+	uv run ruff check python/
+	uv run ruff format --check python/
+	uv run pytest

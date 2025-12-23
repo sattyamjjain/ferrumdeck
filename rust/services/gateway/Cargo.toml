@@ -1,0 +1,61 @@
+[package]
+name = "gateway"
+description = "FerrumDeck API Gateway service"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "gateway"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace crates
+fd-core = { path = "../../crates/fd-core" }
+fd-storage = { path = "../../crates/fd-storage" }
+fd-policy = { path = "../../crates/fd-policy" }
+fd-registry = { path = "../../crates/fd-registry" }
+fd-audit = { path = "../../crates/fd-audit" }
+fd-otel = { path = "../../crates/fd-otel" }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Web framework
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Database
+sqlx = { workspace = true }
+
+# Redis
+redis = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Configuration
+dotenvy = { workspace = true }
+
+# Tracing
+tracing = { workspace = true }
+
+# IDs
+ulid = { workspace = true }
+uuid = { workspace = true }
+
+# Time
+chrono = { workspace = true }
+
+# Crypto
+sha2 = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }

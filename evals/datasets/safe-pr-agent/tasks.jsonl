@@ -1,0 +1,3 @@
+{"id": "task_001", "input": {"repo": "example/hello-world", "task": "Add a README.md file"}, "expected": {"has_readme": true}, "metadata": {"category": "documentation"}}
+{"id": "task_002", "input": {"repo": "example/hello-world", "task": "Fix typo in main.py"}, "expected": {"files_changed": ["main.py"]}, "metadata": {"category": "bugfix"}}
+{"id": "task_003", "input": {"repo": "example/hello-world", "task": "Add unit tests for utils module"}, "expected": {"tests_pass": true}, "metadata": {"category": "testing"}}

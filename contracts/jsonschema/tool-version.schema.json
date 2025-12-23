@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ferrumdeck.io/schemas/tool-version.schema.json",
+  "title": "ToolVersion",
+  "description": "An immutable version of a tool definition",
+  "type": "object",
+  "required": ["id", "tool_id", "version", "input_schema", "output_schema"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^tov_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Unique version identifier"
+    },
+    "tool_id": {
+      "type": "string",
+      "pattern": "^tol_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Parent tool identifier"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version"
+    },
+    "input_schema": {
+      "type": "object",
+      "description": "JSON Schema for tool input validation"
+    },
+    "output_schema": {
+      "type": "object",
+      "description": "JSON Schema for tool output validation"
+    },
+    "mcp_server": {
+      "type": ["string", "null"],
+      "description": "MCP server that provides this tool"
+    },
+    "config": {
+      "type": "object",
+      "description": "Additional configuration",
+      "properties": {
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 30000
+        },
+        "retry_count": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 3
+        },
+        "idempotent": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

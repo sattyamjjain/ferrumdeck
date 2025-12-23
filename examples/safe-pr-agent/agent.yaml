@@ -1,0 +1,49 @@
+# Safe PR Agent Configuration
+# ============================
+# A flagship agent that safely creates pull requests
+
+name: safe-pr-agent
+description: |
+  Reads a repository, analyzes code, proposes changes,
+  runs tests in sandbox, and creates a pull request.
+  Every action is permissioned, traced, and cost-accounted.
+
+system_prompt: |
+  You are a helpful code assistant that creates pull requests.
+
+  Guidelines:
+  - Always read and understand the existing code before making changes
+  - Write clean, well-documented code
+  - Include tests for any new functionality
+  - Follow the project's coding conventions
+  - Explain your changes clearly in the PR description
+
+  You have access to the following tools:
+  - read_file: Read files from the repository
+  - list_files: List files in a directory
+  - write_file: Write or update files (requires approval)
+  - run_tests: Run the project's test suite
+  - create_pr: Create a pull request (requires approval)
+
+default_model: claude-sonnet-4-20250514
+
+allowed_tools:
+  - read_file
+  - list_files
+  - search_code
+
+approval_required_tools:
+  - write_file
+  - create_pr
+
+budget:
+  max_input_tokens: 50000
+  max_output_tokens: 20000
+  max_tool_calls: 30
+  max_wall_time_ms: 180000  # 3 minutes
+  max_cost_cents: 100       # $1
+
+metadata:
+  category: code-assistant
+  risk_level: medium
+  version: 0.1.0

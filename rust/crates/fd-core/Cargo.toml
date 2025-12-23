@@ -1,0 +1,33 @@
+[package]
+name = "fd-core"
+description = "FerrumDeck core primitives: IDs, errors, config, time helpers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# IDs
+ulid = { workspace = true }
+uuid = { workspace = true }
+
+# Time
+chrono = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Configuration
+config = { workspace = true }
+dotenvy = { workspace = true }
+
+# Tracing
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }

@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ferrumdeck.io/schemas/run.schema.json",
+  "title": "Run",
+  "description": "An agent run in the FerrumDeck control plane",
+  "type": "object",
+  "required": ["id", "agent_id", "tenant_id", "status", "created_at"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Unique run identifier (ULID with run_ prefix)"
+    },
+    "agent_id": {
+      "type": "string",
+      "pattern": "^agt_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Agent identifier"
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^ten_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Tenant identifier"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["created", "queued", "running", "waiting_approval", "completed", "failed", "budget_killed", "policy_blocked"],
+      "description": "Current run status"
+    },
+    "input": {
+      "type": "object",
+      "description": "Input data for the run"
+    },
+    "output": {
+      "type": ["object", "null"],
+      "description": "Output from the run (null if not completed)"
+    },
+    "budget": {
+      "$ref": "#/$defs/Budget",
+      "description": "Budget limits for this run"
+    },
+    "usage": {
+      "$ref": "#/$defs/BudgetUsage",
+      "description": "Current resource usage"
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Step"
+      },
+      "description": "Execution steps"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the run was created"
+    },
+    "started_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "When the run started executing"
+    },
+    "completed_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "When the run completed"
+    },
+    "error": {
+      "type": ["string", "null"],
+      "description": "Error message if run failed"
+    },
+    "agent_version_id": {
+      "type": ["string", "null"],
+      "description": "Pinned agent version for reproducibility"
+    },
+    "config_version": {
+      "type": ["string", "null"],
+      "description": "Configuration version identifier"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional metadata"
+    }
+  },
+  "$defs": {
+    "Budget": {
+      "type": "object",
+      "properties": {
+        "max_input_tokens": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "default": 100000
+        },
+        "max_output_tokens": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "default": 50000
+        },
+        "max_total_tokens": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "default": 150000
+        },
+        "max_tool_calls": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "default": 50
+        },
+        "max_wall_time_ms": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "default": 300000
+        },
+        "max_cost_cents": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "default": 500
+        }
+      }
+    },
+    "BudgetUsage": {
+      "type": "object",
+      "properties": {
+        "input_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "tool_calls": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "wall_time_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "cost_cents": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      }
+    },
+    "Step": {
+      "type": "object",
+      "required": ["id", "run_id", "step_type", "status"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^stp_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "step_type": {
+          "type": "string",
+          "enum": ["llm", "tool", "retrieval", "sandbox", "approval"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "running", "completed", "failed", "skipped"]
+        },
+        "input": {
+          "type": "object"
+        },
+        "output": {
+          "type": ["object", "null"]
+        },
+        "error": {
+          "type": ["string", "null"]
+        },
+        "started_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "completed_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "usage": {
+          "$ref": "#/$defs/BudgetUsage"
+        },
+        "metadata": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}
