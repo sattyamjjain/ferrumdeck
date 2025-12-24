@@ -283,7 +283,7 @@ def run_list(
 ) -> None:
     """List recent runs."""
     with get_client() as client:
-        params = {"limit": limit}
+        params: dict[str, str | int] = {"limit": limit}
         if status:
             params["status"] = status
 

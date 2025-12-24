@@ -61,7 +61,11 @@ class SchemaScorer(BaseScorer):
         try:
             # Try to use jsonschema if available
             import jsonschema
+        except ImportError:
+            # Fall back to basic type checking
+            return self._basic_validation(actual_output, schema)
 
+        try:
             jsonschema.validate(actual_output, schema)
             return ScorerResult(
                 scorer_name=self.name,
@@ -70,11 +74,6 @@ class SchemaScorer(BaseScorer):
                 message="Output matches expected schema",
                 details={"schema": schema},
             )
-
-        except ImportError:
-            # Fall back to basic type checking
-            return self._basic_validation(actual_output, schema)
-
         except jsonschema.ValidationError as e:
             return ScorerResult(
                 scorer_name=self.name,

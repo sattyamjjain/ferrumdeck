@@ -615,7 +615,7 @@ class WorkflowEngine:
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 for step, result in zip(layer, results, strict=False):
-                    if isinstance(result, Exception):
+                    if isinstance(result, BaseException):
                         context.step_results[step.id] = StepResult(
                             step_id=step.id,
                             status=StepStatus.FAILED,
@@ -627,7 +627,7 @@ class WorkflowEngine:
                                 "error": str(result),
                                 "step_id": step.id,
                             }
-                    else:
+                    elif isinstance(result, StepResult):
                         context.step_results[step.id] = result
 
         logger.info(f"Workflow completed: {workflow.name}")

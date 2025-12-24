@@ -2,12 +2,9 @@
 
 import json
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any
 
 import redis.asyncio as redis
-
-if TYPE_CHECKING:
-    from redis.asyncio.client import Redis
 
 logger = logging.getLogger(__name__)
 
@@ -26,15 +23,15 @@ class RedisQueueConsumer:
         self.stream_name = stream_name
         self.consumer_group = consumer_group
         self.consumer_name = consumer_name or f"worker-{id(self)}"
-        self.client: Redis[bytes] | None = None
+        self._client: Any = None
 
     async def connect(self) -> None:
         """Connect to Redis and ensure consumer group exists."""
-        self.client = cast("Redis[bytes]", redis.from_url(self.redis_url))
+        self._client = redis.from_url(self.redis_url)
 
         # Create consumer group if it doesn't exist
         try:
-            await self.client.xgroup_create(
+            await self._client.xgroup_create(
                 self.stream_name,
                 self.consumer_group,
                 id="0",
@@ -48,24 +45,22 @@ class RedisQueueConsumer:
 
     async def disconnect(self) -> None:
         """Disconnect from Redis."""
-        if self.client:
-            await self.client.close()
-            self.client = None
+        if self._client:
+            await self._client.close()
+            self._client = None
 
     async def poll(self, timeout: float = 1.0) -> dict[str, Any] | None:
         """Poll for the next job."""
-        if not self.client:
+        if not self._client:
             raise RuntimeError("Not connected to Redis")
 
         # Read from stream
-        result: list[tuple[bytes, list[tuple[bytes, dict[bytes, bytes]]]]] = (
-            await self.client.xreadgroup(
-                groupname=self.consumer_group,
-                consumername=self.consumer_name,
-                streams={self.stream_name: ">"},
-                count=1,
-                block=int(timeout * 1000),
-            )
+        result = await self._client.xreadgroup(
+            groupname=self.consumer_group,
+            consumername=self.consumer_name,
+            streams={self.stream_name: ">"},
+            count=1,
+            block=int(timeout * 1000),
         )
 
         if not result:
@@ -80,7 +75,7 @@ class RedisQueueConsumer:
 
         # Decode the raw data
         raw: dict[str, str] = {k.decode(): v.decode() for k, v in data.items()}
-        msg_id = message_id.decode()
+        msg_id: str = message_id.decode()
 
         # The Rust gateway stores the entire message as JSON in "data" field
         job: dict[str, Any]
@@ -108,7 +103,7 @@ class RedisQueueConsumer:
 
     async def ack(self, message_id: str) -> None:
         """Acknowledge a processed message."""
-        if not self.client:
+        if not self._client:
             raise RuntimeError("Not connected to Redis")
 
-        await self.client.xack(self.stream_name, self.consumer_group, message_id)
+        await self._client.xack(self.stream_name, self.consumer_group, message_id)

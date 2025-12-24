@@ -149,8 +149,9 @@ class LocalFilesystemStore(ArtifactStore):
     ) -> ArtifactMetadata:
         """Store an artifact to local filesystem."""
         # Read content if it's a file-like object
-        if hasattr(content, "read"):
-            content = content.read()  # type: ignore[union-attr]
+        content_bytes: bytes = (
+            content.read() if hasattr(content, "read") else content  # type: ignore[union-attr,assignment]
+        )
 
         # Generate artifact ID
         artifact_id = self._generate_artifact_id(run_id, name, step_id)
@@ -158,12 +159,12 @@ class LocalFilesystemStore(ArtifactStore):
         artifact_dir.mkdir(parents=True, exist_ok=True)
 
         # Calculate checksum
-        checksum = hashlib.sha256(content).hexdigest()
+        checksum = hashlib.sha256(content_bytes).hexdigest()
 
         # Write content
         content_path = artifact_dir / "content"
         with content_path.open("wb") as f:
-            f.write(content)
+            f.write(content_bytes)
 
         # Create metadata
         artifact_metadata = ArtifactMetadata(
@@ -172,7 +173,7 @@ class LocalFilesystemStore(ArtifactStore):
             step_id=step_id,
             artifact_type=artifact_type,
             name=name,
-            size_bytes=len(content),
+            size_bytes=len(content_bytes),
             content_type=content_type,
             checksum=checksum,
             created_at=datetime.now(tz=UTC),

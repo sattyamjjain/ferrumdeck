@@ -6,6 +6,11 @@
 //! - JWT signature verification
 //! - Claims validation (issuer, audience, expiration)
 //! - Tenant extraction from token claims
+//!
+//! Note: This module provides OAuth2 infrastructure that can be wired in
+//! when OAUTH2_ENABLED=true. Currently not active by default.
+
+#![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::sync::Arc;

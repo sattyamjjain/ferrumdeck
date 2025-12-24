@@ -103,13 +103,10 @@ fn extract_api_key(auth_header: Option<&str>) -> Option<String> {
     let header = auth_header?;
 
     // Support both "Bearer <key>" and "ApiKey <key>" formats
-    if header.starts_with("Bearer ") {
-        Some(header[7..].to_string())
-    } else if header.starts_with("ApiKey ") {
-        Some(header[7..].to_string())
-    } else {
-        None
-    }
+    header
+        .strip_prefix("Bearer ")
+        .or_else(|| header.strip_prefix("ApiKey "))
+        .map(|s| s.to_string())
 }
 
 /// Hash an API key using SHA256

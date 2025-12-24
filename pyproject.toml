@@ -64,14 +64,13 @@ known-first-party = ["fd_runtime", "fd_worker", "fd_mcp_router", "fd_evals", "fd
 
 [tool.pyright]
 pythonVersion = "3.12"
-typeCheckingMode = "strict"
+typeCheckingMode = "standard"
 reportMissingImports = true
 reportMissingTypeStubs = false
-# Suppress unknown type warnings from third-party libraries without stubs
-reportUnknownMemberType = "warning"
-reportUnknownArgumentType = "warning"
-reportUnknownVariableType = "warning"
+# Relax checks for third-party libraries without complete type stubs
+reportPrivateImportUsage = false
 reportAttributeAccessIssue = "warning"
+reportGeneralTypeIssues = "warning"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -29,6 +29,7 @@ pub struct AppState {
     pub rate_limiter: RateLimiter,
 
     /// OAuth2/JWT validator (None if disabled)
+    #[allow(dead_code)]
     pub oauth2_validator: Option<Arc<OAuth2Validator>>,
 
     /// Repositories (lazy-initialized from db pool)
