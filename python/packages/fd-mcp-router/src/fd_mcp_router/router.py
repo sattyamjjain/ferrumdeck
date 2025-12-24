@@ -114,8 +114,7 @@ class MCPRouter:
                 )
 
                 logger.info(
-                    f"Connected to {name}, discovered {len(tools)} tools: "
-                    f"{[t.name for t in tools]}"
+                    f"Connected to {name}, discovered {len(tools)} tools: {[t.name for t in tools]}"
                 )
 
         else:
@@ -276,9 +275,7 @@ class MCPRouter:
             tools.extend(conn.tools)
         return tools
 
-    def validate_tool_input(
-        self, tool_name: str, tool_input: dict[str, Any]
-    ) -> list[str]:
+    def validate_tool_input(self, tool_name: str, tool_input: dict[str, Any]) -> list[str]:
         """Validate tool input against its schema.
 
         Returns a list of validation errors (empty if valid).

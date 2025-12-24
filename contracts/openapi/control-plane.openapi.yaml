@@ -84,6 +84,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Run'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -105,6 +107,10 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Step'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /v1/runs/{runId}/steps/{stepId}:
     post:
@@ -125,6 +131,10 @@ paths:
       responses:
         '200':
           description: Step result accepted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -144,6 +154,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
     post:
       summary: Create agent
@@ -164,6 +176,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /v1/registry/tools:
     get:
@@ -181,6 +197,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Tool'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
     post:
       summary: Create tool
@@ -201,6 +219,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Tool'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
 components:
   securitySchemes:

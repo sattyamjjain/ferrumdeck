@@ -78,9 +78,13 @@ class TestEvalRunner:
         """Test loading tasks with empty lines."""
         dataset_path = tmp_path / "tasks_empty.jsonl"
         with dataset_path.open("w") as f:
-            f.write('{"id": "task_001", "name": "Task 1", "description": "Desc", "input": {}, "expected": {}}\n')
+            f.write(
+                '{"id": "task_001", "name": "Task 1", "description": "Desc", "input": {}, "expected": {}}\n'
+            )
             f.write("\n")
-            f.write('{"id": "task_002", "name": "Task 2", "description": "Desc", "input": {}, "expected": {}}\n')
+            f.write(
+                '{"id": "task_002", "name": "Task 2", "description": "Desc", "input": {}, "expected": {}}\n'
+            )
 
         tasks = runner.load_tasks(dataset_path)
         assert len(tasks) == 2

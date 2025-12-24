@@ -29,10 +29,7 @@ def load_mcp_config() -> tuple[list[MCPServerConfig], ToolAllowlist]:
         with Path(config_path).open() as f:
             config = json.load(f)
 
-        servers = [
-            MCPServerConfig(**s)
-            for s in config.get("servers", [])
-        ]
+        servers = [MCPServerConfig(**s) for s in config.get("servers", [])]
         allowlist = ToolAllowlist(**config.get("allowlist", {}))
         return servers, allowlist
 
@@ -42,21 +39,25 @@ def load_mcp_config() -> tuple[list[MCPServerConfig], ToolAllowlist]:
     # GitHub MCP Server (if configured)
     github_token = os.getenv("GITHUB_TOKEN")
     if github_token:
-        servers.append(MCPServerConfig(
-            name="github",
-            command="npx",
-            args=["-y", "@modelcontextprotocol/server-github"],
-            env={"GITHUB_PERSONAL_ACCESS_TOKEN": github_token},
-        ))
+        servers.append(
+            MCPServerConfig(
+                name="github",
+                command="npx",
+                args=["-y", "@modelcontextprotocol/server-github"],
+                env={"GITHUB_PERSONAL_ACCESS_TOKEN": github_token},
+            )
+        )
 
     # Filesystem MCP Server (if configured)
     workspace_path = os.getenv("WORKSPACE_PATH")
     if workspace_path:
-        servers.append(MCPServerConfig(
-            name="filesystem",
-            command="npx",
-            args=["-y", "@modelcontextprotocol/server-filesystem", workspace_path],
-        ))
+        servers.append(
+            MCPServerConfig(
+                name="filesystem",
+                command="npx",
+                args=["-y", "@modelcontextprotocol/server-filesystem", workspace_path],
+            )
+        )
 
     # Default allowlist for Safe PR Agent
     allowlist = ToolAllowlist(
@@ -111,8 +112,10 @@ async def run_worker() -> None:
     # Load MCP configuration
     mcp_servers, tool_allowlist = load_mcp_config()
     logger.info(f"Loaded {len(mcp_servers)} MCP servers")
-    logger.info(f"Tool allowlist: {len(tool_allowlist.allowed_tools)} allowed, "
-                f"{len(tool_allowlist.approval_required)} require approval")
+    logger.info(
+        f"Tool allowlist: {len(tool_allowlist.allowed_tools)} allowed, "
+        f"{len(tool_allowlist.approval_required)} require approval"
+    )
 
     # Create components
     queue = RedisQueueConsumer(

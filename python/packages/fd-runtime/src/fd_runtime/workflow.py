@@ -240,9 +240,7 @@ class WorkflowEngine:
 
             if not ready:
                 # Circular dependency or missing dependency
-                raise ValueError(
-                    f"Cannot resolve dependencies for steps: {list(remaining.keys())}"
-                )
+                raise ValueError(f"Cannot resolve dependencies for steps: {list(remaining.keys())}")
 
             layers.append(ready)
             for step in ready:
@@ -326,7 +324,9 @@ class WorkflowEngine:
             if dep_output:
                 context_parts.append(f"Output from {dep_id}:\n{json.dumps(dep_output, indent=2)}")
 
-        user_message = "\n\n".join(context_parts) if context_parts else json.dumps(context.input_data)
+        user_message = (
+            "\n\n".join(context_parts) if context_parts else json.dumps(context.input_data)
+        )
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -436,9 +436,7 @@ class WorkflowEngine:
 
             for nested_step in nested_workflow_steps:
                 # Check condition - skip if condition exists and evaluates to false
-                if nested_step.condition and not context.evaluate_condition(
-                    nested_step.condition
-                ):
+                if nested_step.condition and not context.evaluate_condition(nested_step.condition):
                     continue
 
                 result = await self.execute_step(nested_step, context)
@@ -484,6 +482,7 @@ class WorkflowEngine:
         # Resolve message template variables
         # Simple template resolution for {{$.path}} patterns
         import re
+
         pattern = r"\{\{(\$\.[^}]+)\}\}"
         matches = re.findall(pattern, message)
         for match in matches:
@@ -611,6 +610,7 @@ class WorkflowEngine:
             else:
                 # Multiple steps - execute in parallel
                 import asyncio
+
                 tasks = [self.execute_step(s, context) for s in layer]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 

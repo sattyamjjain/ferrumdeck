@@ -92,13 +92,15 @@ class CompositeScorer(BaseScorer):
 
         for scorer in self.scorers:
             result = scorer.score(task, actual_output, run_context)
-            sub_results.append({
-                "scorer": scorer.name,
-                "passed": result.passed,
-                "score": result.score,
-                "weight": scorer.weight,
-                "message": result.message,
-            })
+            sub_results.append(
+                {
+                    "scorer": scorer.name,
+                    "passed": result.passed,
+                    "score": result.score,
+                    "weight": scorer.weight,
+                    "message": result.message,
+                }
+            )
 
             weighted_score += result.score * scorer.weight
             total_weight += scorer.weight

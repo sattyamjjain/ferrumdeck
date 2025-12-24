@@ -40,7 +40,9 @@ class ContainsScorer(Scorer):
     """Score based on whether actual contains expected."""
 
     def score(self, actual: Any, expected: Any) -> ScoreResult:
-        if (isinstance(actual, str) and isinstance(expected, str)) or isinstance(actual, (list, set)):
+        if (isinstance(actual, str) and isinstance(expected, str)) or isinstance(
+            actual, (list, set)
+        ):
             passed = expected in actual
         elif isinstance(actual, dict) and isinstance(expected, dict):
             passed = all(actual.get(k) == v for k, v in expected.items())

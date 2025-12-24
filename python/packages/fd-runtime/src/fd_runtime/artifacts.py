@@ -118,9 +118,7 @@ class LocalFilesystemStore(ArtifactStore):
     """
 
     def __init__(self, base_path: str | None = None):
-        self.base_path = Path(
-            base_path or os.getenv("FD_ARTIFACTS_PATH", "./artifacts")
-        )
+        self.base_path = Path(base_path or os.getenv("FD_ARTIFACTS_PATH", "./artifacts"))
         self.base_path.mkdir(parents=True, exist_ok=True)
         logger.info(f"Artifact store initialized at {self.base_path}")
 
@@ -132,9 +130,7 @@ class LocalFilesystemStore(ArtifactStore):
         """Get the path for a specific artifact."""
         return self._run_path(run_id) / artifact_id
 
-    def _generate_artifact_id(
-        self, run_id: str, name: str, step_id: str | None
-    ) -> str:
+    def _generate_artifact_id(self, run_id: str, name: str, step_id: str | None) -> str:
         """Generate a unique artifact ID."""
         timestamp = datetime.now(tz=UTC).isoformat()
         components = [run_id, step_id or "run", name, timestamp]
@@ -200,9 +196,7 @@ class LocalFilesystemStore(ArtifactStore):
         artifact_dir = self._artifact_path(run_id, artifact_id)
 
         if not artifact_dir.exists():
-            raise FileNotFoundError(
-                f"Artifact {artifact_id} not found for run {run_id}"
-            )
+            raise FileNotFoundError(f"Artifact {artifact_id} not found for run {run_id}")
 
         # Read content
         content_path = artifact_dir / "content"
@@ -258,10 +252,7 @@ class LocalFilesystemStore(ArtifactStore):
                 continue
 
             # Filter by artifact_type if specified
-            if (
-                artifact_type is not None
-                and raw_metadata["artifact_type"] != artifact_type.value
-            ):
+            if artifact_type is not None and raw_metadata["artifact_type"] != artifact_type.value:
                 continue
 
             artifacts.append(

@@ -88,9 +88,7 @@ class EvalRunner:
 
         try:
             # Create and execute the run
-            run_id, actual_output, run_context = self._execute_run(
-                task, agent_id, timeout_ms
-            )
+            run_id, actual_output, run_context = self._execute_run(task, agent_id, timeout_ms)
 
             # Extract metrics
             input_tokens = run_context.get("input_tokens", 0)
@@ -249,9 +247,7 @@ class EvalRunner:
                 passed_count += 1
 
         completed_at = datetime.now(tz=UTC)
-        average_score = (
-            sum(r.total_score for r in results) / len(results) if results else 0.0
-        )
+        average_score = sum(r.total_score for r in results) / len(results) if results else 0.0
 
         return EvalRunSummary(
             run_id=run_id,

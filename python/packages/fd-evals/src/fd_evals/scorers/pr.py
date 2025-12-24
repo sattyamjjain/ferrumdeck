@@ -95,7 +95,9 @@ class PRQualityScorer(BaseScorer):
             ScorerResult based on PR quality.
         """
         pr_title = run_context.get("pr_title") or actual_output.get("pr_title", "")
-        pr_description = run_context.get("pr_description") or actual_output.get("pr_description", "")
+        pr_description = run_context.get("pr_description") or actual_output.get(
+            "pr_description", ""
+        )
 
         issues = []
         score_deductions = 0.0

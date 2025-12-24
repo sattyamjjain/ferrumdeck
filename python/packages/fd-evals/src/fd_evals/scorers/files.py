@@ -136,7 +136,9 @@ class FilesCreatedScorer(BaseScorer):
             # Just check if any file was created
             passed = len(actual_created) > 0
             score = 1.0 if passed else 0.0
-            message = f"Files created: {list(actual_created)}" if passed else "No files were created"
+            message = (
+                f"Files created: {list(actual_created)}" if passed else "No files were created"
+            )
         else:
             # Check specific files
             expected_set = set(files_created) if files_created else {file_created}

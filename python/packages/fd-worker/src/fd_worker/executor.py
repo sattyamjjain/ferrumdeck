@@ -67,9 +67,7 @@ class StepExecutor:
 
         # Retry configuration from environment or defaults
         self.max_retries = max_retries or int(os.getenv("WORKER_MAX_RETRIES", "3"))
-        self.retry_delay_ms = retry_delay_ms or int(
-            os.getenv("WORKER_RETRY_DELAY_MS", "1000")
-        )
+        self.retry_delay_ms = retry_delay_ms or int(os.getenv("WORKER_RETRY_DELAY_MS", "1000"))
 
         # Artifact storage
         self.artifact_store = artifact_store or create_artifact_store("local")
@@ -230,9 +228,13 @@ class StepExecutor:
                 else:
                     # Last resort: use the entire step_input as context
                     import json
+
                     messages = [
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": f"Process this input: {json.dumps(step_input)}"},
+                        {
+                            "role": "user",
+                            "content": f"Process this input: {json.dumps(step_input)}",
+                        },
                     ]
 
         # Determine the LLM system from model name

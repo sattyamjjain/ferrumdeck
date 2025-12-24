@@ -232,7 +232,9 @@ def _display_summary(summary: EvalRunSummary, verbose: bool = False) -> None:
     )
     overview.add_row("Average Score", f"{summary.average_score:.2f}")
     overview.add_row("Total Cost", f"${summary.total_cost_cents / 100:.4f}")
-    overview.add_row("Total Tokens", f"{summary.total_input_tokens + summary.total_output_tokens:,}")
+    overview.add_row(
+        "Total Tokens", f"{summary.total_input_tokens + summary.total_output_tokens:,}"
+    )
     overview.add_row("Execution Time", f"{summary.total_execution_time_ms / 1000:.1f}s")
 
     console.print(overview)
@@ -434,7 +436,9 @@ def _print_markdown_report(data: dict) -> None:
         print("|------|--------|-------|")
         for result in data["results"]:
             status = "PASS" if result.get("passed") else "FAIL"
-            print(f"| {result.get('task_name', 'Unknown')} | {status} | {result.get('total_score', 0):.2f} |")
+            print(
+                f"| {result.get('task_name', 'Unknown')} | {status} | {result.get('total_score', 0):.2f} |"
+            )
 
 
 def main():

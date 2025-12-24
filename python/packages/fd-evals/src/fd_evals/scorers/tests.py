@@ -75,7 +75,7 @@ class TestPassScorer(BaseScorer):
             scorer_name=self.name,
             passed=all_passed,
             score=pass_rate,
-            message=f"Tests: {passed}/{total} passed ({pass_rate*100:.1f}%)",
+            message=f"Tests: {passed}/{total} passed ({pass_rate * 100:.1f}%)",
             details={
                 "passed": passed,
                 "failed": failed,

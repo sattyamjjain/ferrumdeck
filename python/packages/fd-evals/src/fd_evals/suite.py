@@ -54,7 +54,9 @@ class EvalSuite:
 
         logger.info(f"Loaded {len(self.tasks)} evaluation tasks")
 
-    async def run(self, runner: Callable[["EvalTask"], Awaitable["EvalResult"]]) -> list[EvalResult]:
+    async def run(
+        self, runner: Callable[["EvalTask"], Awaitable["EvalResult"]]
+    ) -> list[EvalResult]:
         """Run all tasks through the provided runner."""
         results = []
         for task in self.tasks:

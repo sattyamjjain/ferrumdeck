@@ -41,9 +41,7 @@ def get_client() -> httpx.Client:
 @run_app.command("create")
 def run_create(
     agent_id: Annotated[str, typer.Option("--agent", "-a", help="Agent ID to run")],
-    input_data: Annotated[
-        str | None, typer.Option("--input", "-i", help="JSON input data")
-    ] = None,
+    input_data: Annotated[str | None, typer.Option("--input", "-i", help="JSON input data")] = None,
     input_file: Annotated[
         str | None, typer.Option("--input-file", "-f", help="JSON file with input data")
     ] = None,
@@ -181,7 +179,9 @@ def run_logs(
         status = step.get("status", "unknown")
 
         # Status color
-        status_color = "green" if status == "completed" else "red" if status == "failed" else "yellow"
+        status_color = (
+            "green" if status == "completed" else "red" if status == "failed" else "yellow"
+        )
 
         console.print(f"\n[cyan]━━━ Step {step_id} ({step_type}) ━━━[/cyan]")
         console.print(f"  Status: [{status_color}]{status}[/{status_color}]")
@@ -246,7 +246,9 @@ def run_logs(
                 if step_key not in seen_steps:
                     seen_steps.add(step_key)
                     # Only print if step has progressed (not just pending)
-                    if step_status != "pending" or step_id not in [s.split(":")[0] for s in seen_steps]:
+                    if step_status != "pending" or step_id not in [
+                        s.split(":")[0] for s in seen_steps
+                    ]:
                         print_step(step)
 
             return run_status, steps

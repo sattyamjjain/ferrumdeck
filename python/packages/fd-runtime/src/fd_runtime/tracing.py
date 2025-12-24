@@ -79,10 +79,12 @@ def init_tracing(
 
     endpoint = endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 
-    resource = Resource.create({
-        SERVICE_NAME: service_name,
-        "service.version": "0.1.0",
-    })
+    resource = Resource.create(
+        {
+            SERVICE_NAME: service_name,
+            "service.version": "0.1.0",
+        }
+    )
 
     provider = TracerProvider(resource=resource)
 
