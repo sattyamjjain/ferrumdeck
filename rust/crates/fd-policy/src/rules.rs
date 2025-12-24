@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// A tool allowlist rule
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct ToolAllowlist {
     /// Allowed tool names (exact match)
     pub allowed_tools: Vec<String>,
@@ -15,15 +16,6 @@ pub struct ToolAllowlist {
     pub denied_tools: Vec<String>,
 }
 
-impl Default for ToolAllowlist {
-    fn default() -> Self {
-        Self {
-            allowed_tools: vec![],
-            approval_required: vec![],
-            denied_tools: vec![],
-        }
-    }
-}
 
 impl ToolAllowlist {
     /// Check if a tool is allowed
@@ -59,10 +51,12 @@ pub enum ToolAllowlistResult {
 /// Risk classification for tools
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ToolRiskLevel {
     /// Read-only operations
     Low,
     /// Mutations with limited blast radius
+    #[default]
     Medium,
     /// External communications, writes to important systems
     High,
@@ -70,8 +64,3 @@ pub enum ToolRiskLevel {
     Critical,
 }
 
-impl Default for ToolRiskLevel {
-    fn default() -> Self {
-        Self::Medium
-    }
-}

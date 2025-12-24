@@ -28,7 +28,7 @@ class RedisQueueConsumer:
 
     async def connect(self) -> None:
         """Connect to Redis and ensure consumer group exists."""
-        self.client = cast(Redis[bytes], redis.from_url(self.redis_url))
+        self.client = cast("Redis[bytes]", redis.from_url(self.redis_url))
 
         # Create consumer group if it doesn't exist
         try:

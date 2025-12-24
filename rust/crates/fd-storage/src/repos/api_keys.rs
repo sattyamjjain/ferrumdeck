@@ -32,7 +32,7 @@ impl ApiKeysRepo {
         .bind(&key.key_hash)
         .bind(&key.key_prefix)
         .bind(&key.scopes)
-        .bind(&key.expires_at)
+        .bind(key.expires_at)
         .fetch_one(&self.pool)
         .await
     }

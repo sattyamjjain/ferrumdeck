@@ -28,10 +28,12 @@ pub struct ToolVersion {
 /// Risk classification for tools
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum ToolRiskLevel {
     /// Read-only operations
     Low,
     /// Mutations with limited blast radius
+    #[default]
     Medium,
     /// External communications, writes to important systems
     High,
@@ -39,8 +41,3 @@ pub enum ToolRiskLevel {
     Critical,
 }
 
-impl Default for ToolRiskLevel {
-    fn default() -> Self {
-        Self::Medium
-    }
-}

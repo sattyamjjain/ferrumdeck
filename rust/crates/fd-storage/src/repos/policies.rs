@@ -37,9 +37,9 @@ impl PoliciesRepo {
         .bind(&rule.project_id)
         .bind(&rule.name)
         .bind(&rule.description)
-        .bind(&rule.priority)
+        .bind(rule.priority)
         .bind(&rule.conditions)
-        .bind(&rule.effect)
+        .bind(rule.effect)
         .bind(&rule.created_by)
         .fetch_one(&self.pool)
         .await
@@ -177,10 +177,10 @@ impl PoliciesRepo {
         .bind(&decision.step_id)
         .bind(&decision.action_type)
         .bind(&decision.action_details)
-        .bind(&decision.decision)
+        .bind(decision.decision)
         .bind(&decision.matched_rule_id)
         .bind(&decision.reason)
-        .bind(&decision.evaluation_time_ms)
+        .bind(decision.evaluation_time_ms)
         .fetch_one(&self.pool)
         .await
     }
@@ -248,7 +248,7 @@ impl PoliciesRepo {
         .bind(&approval.action_type)
         .bind(&approval.action_details)
         .bind(&approval.reason)
-        .bind(&approval.expires_at)
+        .bind(approval.expires_at)
         .fetch_one(&self.pool)
         .await
     }
@@ -278,7 +278,7 @@ impl PoliciesRepo {
             "#,
         )
         .bind(id)
-        .bind(&resolution.status)
+        .bind(resolution.status)
         .bind(&resolution.resolved_by)
         .bind(Utc::now())
         .bind(&resolution.resolution_note)

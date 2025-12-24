@@ -6,6 +6,7 @@ use crate::rules::{ToolAllowlist, ToolAllowlistResult};
 use tracing::instrument;
 
 /// The policy engine evaluates actions against configured rules
+#[derive(Default)]
 pub struct PolicyEngine {
     tool_allowlist: ToolAllowlist,
     default_budget: Budget,
@@ -53,14 +54,6 @@ impl PolicyEngine {
     }
 }
 
-impl Default for PolicyEngine {
-    fn default() -> Self {
-        Self {
-            tool_allowlist: ToolAllowlist::default(),
-            default_budget: Budget::default(),
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

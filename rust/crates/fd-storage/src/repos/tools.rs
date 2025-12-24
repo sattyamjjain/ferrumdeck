@@ -31,7 +31,7 @@ impl ToolsRepo {
         .bind(&tool.slug)
         .bind(&tool.description)
         .bind(&tool.mcp_server)
-        .bind(&tool.risk_level)
+        .bind(tool.risk_level)
         .fetch_one(&self.pool)
         .await
     }

@@ -19,7 +19,7 @@ use axum::{
     Json,
 };
 use jsonwebtoken::{
-    decode, decode_header, jwk::JwkSet, Algorithm, DecodingKey, TokenData, Validation,
+    decode, decode_header, jwk::JwkSet, DecodingKey, TokenData, Validation,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -277,7 +277,7 @@ impl OAuth2Validator {
     /// Validate a JWT token and extract claims
     pub async fn validate_token(&self, token: &str) -> Result<JwtClaims, OAuth2Error> {
         // Decode header to get key ID
-        let header = decode_header(token).map_err(|e| OAuth2Error::InvalidTokenFormat)?;
+        let header = decode_header(token).map_err(|_e| OAuth2Error::InvalidTokenFormat)?;
 
         let kid = header.kid.ok_or(OAuth2Error::MissingKid)?;
 
@@ -373,9 +373,7 @@ pub async fn oauth2_auth_middleware(
     };
 
     // Check if it's a Bearer token that looks like a JWT
-    if auth_header.starts_with("Bearer ") {
-        let token = &auth_header[7..];
-
+    if let Some(token) = auth_header.strip_prefix("Bearer ") {
         // JWT tokens have 3 parts separated by dots
         if token.matches('.').count() == 2 {
             if let Some(ref validator) = state.oauth2_validator {
