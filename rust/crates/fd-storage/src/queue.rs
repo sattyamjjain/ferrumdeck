@@ -109,7 +109,11 @@ impl QueueClient {
     ) -> Result<String, RedisError> {
         let key = self.stream_key(queue);
         let payload = serde_json::to_string(message).map_err(|e| {
-            RedisError::from((redis::ErrorKind::TypeError, "JSON serialization error", e.to_string()))
+            RedisError::from((
+                redis::ErrorKind::TypeError,
+                "JSON serialization error",
+                e.to_string(),
+            ))
         })?;
 
         let id: String = redis::cmd("XADD")
@@ -272,8 +276,7 @@ impl QueueClient {
                                             _ => continue,
                                         };
 
-                                        if let redis::Value::Array(fields) = entry_parts.remove(0)
-                                        {
+                                        if let redis::Value::Array(fields) = entry_parts.remove(0) {
                                             let data = self.extract_data_field(&fields)?;
                                             if let Some(msg) = self.parse_message(&data)? {
                                                 messages.push((id, msg));
@@ -335,9 +338,9 @@ impl QueueClient {
             }
         }
 
-        field_map.remove("data").ok_or_else(|| {
-            RedisError::from((redis::ErrorKind::TypeError, "Missing data field"))
-        })
+        field_map
+            .remove("data")
+            .ok_or_else(|| RedisError::from((redis::ErrorKind::TypeError, "Missing data field")))
     }
 
     /// Parse a message from JSON
@@ -345,9 +348,13 @@ impl QueueClient {
         &self,
         data: &str,
     ) -> Result<Option<QueueMessage<T>>, RedisError> {
-        serde_json::from_str(data)
-            .map(Some)
-            .map_err(|e| RedisError::from((redis::ErrorKind::TypeError, "JSON parse error", e.to_string())))
+        serde_json::from_str(data).map(Some).map_err(|e| {
+            RedisError::from((
+                redis::ErrorKind::TypeError,
+                "JSON parse error",
+                e.to_string(),
+            ))
+        })
     }
 }
 

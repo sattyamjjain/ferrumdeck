@@ -2,9 +2,10 @@
 
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 import redis.asyncio as redis
+from redis.asyncio.client import Redis
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +24,11 @@ class RedisQueueConsumer:
         self.stream_name = stream_name
         self.consumer_group = consumer_group
         self.consumer_name = consumer_name or f"worker-{id(self)}"
-        self.client: redis.Redis | None = None
+        self.client: Redis[bytes] | None = None
 
     async def connect(self) -> None:
         """Connect to Redis and ensure consumer group exists."""
-        self.client = redis.from_url(self.redis_url)
+        self.client = cast(Redis[bytes], redis.from_url(self.redis_url))
 
         # Create consumer group if it doesn't exist
         try:
@@ -55,12 +56,14 @@ class RedisQueueConsumer:
             raise RuntimeError("Not connected to Redis")
 
         # Read from stream
-        result = await self.client.xreadgroup(
-            groupname=self.consumer_group,
-            consumername=self.consumer_name,
-            streams={self.stream_name: ">"},
-            count=1,
-            block=int(timeout * 1000),
+        result: list[tuple[bytes, list[tuple[bytes, dict[bytes, bytes]]]]] = (
+            await self.client.xreadgroup(
+                groupname=self.consumer_group,
+                consumername=self.consumer_name,
+                streams={self.stream_name: ">"},
+                count=1,
+                block=int(timeout * 1000),
+            )
         )
 
         if not result:
@@ -74,10 +77,11 @@ class RedisQueueConsumer:
         message_id, data = messages[0]
 
         # Decode the raw data
-        raw = {k.decode(): v.decode() for k, v in data.items()}
+        raw: dict[str, str] = {k.decode(): v.decode() for k, v in data.items()}
         msg_id = message_id.decode()
 
         # The Rust gateway stores the entire message as JSON in "data" field
+        job: dict[str, Any]
         if "data" in raw:
             envelope = json.loads(raw["data"])
             payload = envelope.get("payload", {})
@@ -93,10 +97,10 @@ class RedisQueueConsumer:
             }
         else:
             # Legacy format - direct fields
-            job = raw
+            job = dict(raw)
             job["_message_id"] = msg_id
             if "input" in job:
-                job["input"] = json.loads(job["input"])
+                job["input"] = json.loads(str(job["input"]))
 
         return job
 

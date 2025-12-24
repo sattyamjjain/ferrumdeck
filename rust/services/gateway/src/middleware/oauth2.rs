@@ -26,8 +26,8 @@ use serde_json::json;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
-use crate::state::AppState;
 use super::auth::AuthContext;
+use crate::state::AppState;
 
 /// OAuth2 configuration
 #[derive(Debug, Clone)]
@@ -70,8 +70,10 @@ impl OAuth2Config {
             jwks_uri: std::env::var("OAUTH2_JWKS_URI").unwrap_or_default(),
             issuer: std::env::var("OAUTH2_ISSUER").unwrap_or_default(),
             audience: std::env::var("OAUTH2_AUDIENCE").unwrap_or_default(),
-            tenant_claim: std::env::var("OAUTH2_TENANT_CLAIM").unwrap_or_else(|_| "tenant_id".to_string()),
-            scope_claim: std::env::var("OAUTH2_SCOPE_CLAIM").unwrap_or_else(|_| "scope".to_string()),
+            tenant_claim: std::env::var("OAUTH2_TENANT_CLAIM")
+                .unwrap_or_else(|_| "tenant_id".to_string()),
+            scope_claim: std::env::var("OAUTH2_SCOPE_CLAIM")
+                .unwrap_or_else(|_| "scope".to_string()),
             enabled,
         }
     }
@@ -275,9 +277,7 @@ impl OAuth2Validator {
     /// Validate a JWT token and extract claims
     pub async fn validate_token(&self, token: &str) -> Result<JwtClaims, OAuth2Error> {
         // Decode header to get key ID
-        let header = decode_header(token).map_err(|e| {
-            OAuth2Error::InvalidTokenFormat
-        })?;
+        let header = decode_header(token).map_err(|e| OAuth2Error::InvalidTokenFormat)?;
 
         let kid = header.kid.ok_or(OAuth2Error::MissingKid)?;
 
@@ -507,10 +507,9 @@ mod tests {
         assert_eq!(scopes, vec!["read", "write", "admin"]);
 
         // Test array scopes
-        claims.extra.insert(
-            "scope".to_string(),
-            serde_json::json!(["read", "write"]),
-        );
+        claims
+            .extra
+            .insert("scope".to_string(), serde_json::json!(["read", "write"]));
 
         let scopes = validator.extract_scopes(&claims);
         assert_eq!(scopes, vec!["read", "write"]);

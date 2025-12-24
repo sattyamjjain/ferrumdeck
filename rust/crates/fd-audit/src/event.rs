@@ -23,15 +23,34 @@ pub struct AuditEvent {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AuditEventKind {
     /// Run lifecycle events
-    RunCreated { run_id: RunId },
-    RunStarted { run_id: RunId },
-    RunCompleted { run_id: RunId },
-    RunFailed { run_id: RunId, reason: String },
+    RunCreated {
+        run_id: RunId,
+    },
+    RunStarted {
+        run_id: RunId,
+    },
+    RunCompleted {
+        run_id: RunId,
+    },
+    RunFailed {
+        run_id: RunId,
+        reason: String,
+    },
 
     /// Step events
-    StepStarted { run_id: RunId, step_id: StepId },
-    StepCompleted { run_id: RunId, step_id: StepId },
-    StepFailed { run_id: RunId, step_id: StepId, reason: String },
+    StepStarted {
+        run_id: RunId,
+        step_id: StepId,
+    },
+    StepCompleted {
+        run_id: RunId,
+        step_id: StepId,
+    },
+    StepFailed {
+        run_id: RunId,
+        step_id: StepId,
+        reason: String,
+    },
 
     /// Policy events
     PolicyDecision {
@@ -80,11 +99,17 @@ pub enum AuditEventKind {
     },
 
     /// Authentication events
-    ApiKeyCreated { key_id: String },
-    ApiKeyRevoked { key_id: String },
+    ApiKeyCreated {
+        key_id: String,
+    },
+    ApiKeyRevoked {
+        key_id: String,
+    },
 
     /// Generic event
-    Custom { event_type: String },
+    Custom {
+        event_type: String,
+    },
 }
 
 /// Who performed the action

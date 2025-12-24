@@ -88,7 +88,8 @@ pub async fn list_pending_approvals(
         .list_all_pending_approvals(query.limit)
         .await?;
 
-    let approvals: Vec<ApprovalResponse> = approvals.into_iter().map(approval_to_response).collect();
+    let approvals: Vec<ApprovalResponse> =
+        approvals.into_iter().map(approval_to_response).collect();
 
     Ok(Json(approvals))
 }

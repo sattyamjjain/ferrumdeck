@@ -90,7 +90,11 @@ impl WorkflowsRepo {
         .await
     }
 
-    pub async fn update(&self, id: &str, update: UpdateWorkflow) -> Result<Option<Workflow>, sqlx::Error> {
+    pub async fn update(
+        &self,
+        id: &str,
+        update: UpdateWorkflow,
+    ) -> Result<Option<Workflow>, sqlx::Error> {
         let now = Utc::now();
         sqlx::query_as::<_, Workflow>(
             r#"

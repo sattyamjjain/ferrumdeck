@@ -32,7 +32,7 @@ impl Default for Budget {
             max_total_tokens: Some(150_000),
             max_tool_calls: Some(50),
             max_wall_time_ms: Some(5 * 60 * 1000), // 5 minutes
-            max_cost_cents: Some(500),              // $5
+            max_cost_cents: Some(500),             // $5
         }
     }
 }

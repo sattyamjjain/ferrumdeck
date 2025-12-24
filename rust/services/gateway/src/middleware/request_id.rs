@@ -1,11 +1,6 @@
 //! Request ID middleware
 
-use axum::{
-    extract::Request,
-    http::HeaderValue,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
 use ulid::Ulid;
 
 const REQUEST_ID_HEADER: &str = "x-request-id";
@@ -26,14 +21,18 @@ pub async fn request_id_middleware(mut request: Request, next: Next) -> Response
         .unwrap_or_else(|| format!("req_{}", Ulid::new()));
 
     // Add to extensions for handlers
-    request.extensions_mut().insert(RequestId(request_id.clone()));
+    request
+        .extensions_mut()
+        .insert(RequestId(request_id.clone()));
 
     // Run the handler
     let mut response = next.run(request).await;
 
     // Add to response headers
     if let Ok(header_value) = HeaderValue::from_str(&request_id) {
-        response.headers_mut().insert(REQUEST_ID_HEADER, header_value);
+        response
+            .headers_mut()
+            .insert(REQUEST_ID_HEADER, header_value);
     }
 
     response

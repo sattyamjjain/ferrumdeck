@@ -15,8 +15,6 @@ info:
     url: https://www.apache.org/licenses/LICENSE-2.0
 
 servers:
-  - url: http://localhost:8080
-    description: Local development server
   - url: https://api.ferrumdeck.io
     description: Production server
 
@@ -35,6 +33,7 @@ paths:
     get:
       summary: Health check
       operationId: healthCheck
+      security: []
       responses:
         '200':
           description: Service is healthy
@@ -42,6 +41,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/runs:
     post:

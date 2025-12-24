@@ -1,8 +1,8 @@
 //! Policies repository
 
 use crate::models::{
-    ApprovalRequest, CreateApprovalRequest, CreatePolicyDecision, CreatePolicyRule,
-    PolicyDecision, PolicyEffect, PolicyRule, ResolveApproval, UpdatePolicyRule,
+    ApprovalRequest, CreateApprovalRequest, CreatePolicyDecision, CreatePolicyRule, PolicyDecision,
+    PolicyEffect, PolicyRule, ResolveApproval, UpdatePolicyRule,
 };
 use crate::DbPool;
 use chrono::Utc;
@@ -124,7 +124,10 @@ impl PoliciesRepo {
 
     /// List policy rules for a project (including global rules)
     #[instrument(skip(self))]
-    pub async fn list_rules(&self, project_id: Option<&str>) -> Result<Vec<PolicyRule>, sqlx::Error> {
+    pub async fn list_rules(
+        &self,
+        project_id: Option<&str>,
+    ) -> Result<Vec<PolicyRule>, sqlx::Error> {
         match project_id {
             Some(pid) => {
                 sqlx::query_as::<_, PolicyRule>(

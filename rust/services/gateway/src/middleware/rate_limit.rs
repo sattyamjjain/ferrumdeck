@@ -176,9 +176,8 @@ impl RateLimiterStore {
     /// Remove stale counters
     fn cleanup(&mut self, window: Duration) {
         let cutoff = Instant::now() - window - Duration::from_secs(1);
-        self.counters.retain(|_, counter| {
-            counter.requests.iter().any(|&t| t > cutoff)
-        });
+        self.counters
+            .retain(|_, counter| counter.requests.iter().any(|&t| t > cutoff));
         self.last_cleanup = Instant::now();
     }
 }

@@ -13,7 +13,10 @@ pub enum Error {
     NotFound { entity: &'static str, id: String },
 
     #[error("validation error: {message}")]
-    Validation { message: String, field: Option<String> },
+    Validation {
+        message: String,
+        field: Option<String>,
+    },
 
     #[error("unauthorized: {message}")]
     Unauthorized { message: String },
@@ -31,7 +34,10 @@ pub enum Error {
     // Policy errors
     // ==========================================================================
     #[error("policy denied: {reason}")]
-    PolicyDenied { reason: String, rule_id: Option<String> },
+    PolicyDenied {
+        reason: String,
+        rule_id: Option<String>,
+    },
 
     #[error("budget exceeded: {resource} limit of {limit} reached")]
     BudgetExceeded { resource: String, limit: String },

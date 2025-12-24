@@ -276,7 +276,8 @@ pub async fn list_workflows(
         .list_by_project(&project_id, query.limit, query.offset)
         .await?;
 
-    let workflows: Vec<WorkflowResponse> = workflows.into_iter().map(workflow_to_response).collect();
+    let workflows: Vec<WorkflowResponse> =
+        workflows.into_iter().map(workflow_to_response).collect();
 
     Ok(Json(ListWorkflowsResponse { workflows }))
 }
@@ -460,8 +461,10 @@ pub async fn list_step_executions(
         .list_step_executions_by_run(&run_id)
         .await?;
 
-    let executions: Vec<WorkflowStepExecutionResponse> =
-        executions.into_iter().map(step_execution_to_response).collect();
+    let executions: Vec<WorkflowStepExecutionResponse> = executions
+        .into_iter()
+        .map(step_execution_to_response)
+        .collect();
 
     Ok(Json(serde_json::json!({ "executions": executions })))
 }
@@ -498,7 +501,10 @@ pub async fn create_step_execution(
 
     let execution = repos.workflows().create_step_execution(create).await?;
 
-    Ok((StatusCode::CREATED, Json(step_execution_to_response(execution))))
+    Ok((
+        StatusCode::CREATED,
+        Json(step_execution_to_response(execution)),
+    ))
 }
 
 /// Submit step execution result (from worker)
@@ -526,7 +532,9 @@ pub async fn submit_step_execution_result(
         .ok_or_else(|| ApiError::not_found("WorkflowStepExecution", &execution_id))?;
 
     if execution.workflow_run_id != run_id {
-        return Err(ApiError::bad_request("Execution does not belong to this run"));
+        return Err(ApiError::bad_request(
+            "Execution does not belong to this run",
+        ));
     }
 
     let status = match request.status.as_str() {

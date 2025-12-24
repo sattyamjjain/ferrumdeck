@@ -147,7 +147,10 @@ fn internal_error(message: &str) -> Response {
 
 /// Scope requirement middleware factory
 #[allow(dead_code)]
-pub fn require_scope(scope: &'static str) -> impl Fn(Request, Next) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>> + Clone {
+pub fn require_scope(
+    scope: &'static str,
+) -> impl Fn(Request, Next) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>>
+       + Clone {
     move |request: Request, next: Next| {
         Box::pin(async move {
             let auth = request.extensions().get::<AuthContext>();

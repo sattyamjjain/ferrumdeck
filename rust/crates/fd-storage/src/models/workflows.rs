@@ -131,9 +131,7 @@ impl WorkflowRunStatus {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            WorkflowRunStatus::Completed
-                | WorkflowRunStatus::Failed
-                | WorkflowRunStatus::Cancelled
+            WorkflowRunStatus::Completed | WorkflowRunStatus::Failed | WorkflowRunStatus::Cancelled
         )
     }
 }
@@ -208,7 +206,10 @@ pub struct WorkflowStepExecution {
 
 /// Workflow step execution status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "workflow_step_execution_status", rename_all = "snake_case")]
+#[sqlx(
+    type_name = "workflow_step_execution_status",
+    rename_all = "snake_case"
+)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowStepExecutionStatus {
     Pending,

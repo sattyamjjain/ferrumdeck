@@ -1,6 +1,8 @@
 //! Agents repository
 
-use crate::models::{Agent, AgentStatus, AgentVersion, CreateAgent, CreateAgentVersion, UpdateAgent};
+use crate::models::{
+    Agent, AgentStatus, AgentVersion, CreateAgent, CreateAgentVersion, UpdateAgent,
+};
 use crate::DbPool;
 use tracing::instrument;
 
@@ -50,13 +52,11 @@ impl AgentsRepo {
         project_id: &str,
         slug: &str,
     ) -> Result<Option<Agent>, sqlx::Error> {
-        sqlx::query_as::<_, Agent>(
-            "SELECT * FROM agents WHERE project_id = $1 AND slug = $2",
-        )
-        .bind(project_id)
-        .bind(slug)
-        .fetch_optional(&self.pool)
-        .await
+        sqlx::query_as::<_, Agent>("SELECT * FROM agents WHERE project_id = $1 AND slug = $2")
+            .bind(project_id)
+            .bind(slug)
+            .fetch_optional(&self.pool)
+            .await
     }
 
     /// Update an agent

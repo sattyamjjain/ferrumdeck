@@ -8,7 +8,9 @@ use fd_storage::{
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::middleware::{create_oauth2_validator, create_rate_limiter, OAuth2Validator, RateLimiter};
+use crate::middleware::{
+    create_oauth2_validator, create_rate_limiter, OAuth2Validator, RateLimiter,
+};
 
 /// Shared application state
 #[derive(Clone)]
@@ -82,8 +84,9 @@ impl Repos {
 impl AppState {
     pub async fn new() -> anyhow::Result<Self> {
         // Load configuration from environment
-        let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://ferrumdeck:ferrumdeck@localhost:5433/ferrumdeck".to_string());
+        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://ferrumdeck:ferrumdeck@localhost:5433/ferrumdeck".to_string()
+        });
 
         let redis_url =
             std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());

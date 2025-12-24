@@ -174,7 +174,12 @@ pub async fn list_agents(
 
     let agents = repos
         .agents()
-        .list_by_project(&query.project_id, Some(AgentStatus::Active), query.limit, query.offset)
+        .list_by_project(
+            &query.project_id,
+            Some(AgentStatus::Active),
+            query.limit,
+            query.offset,
+        )
         .await?;
 
     let mut responses = Vec::new();

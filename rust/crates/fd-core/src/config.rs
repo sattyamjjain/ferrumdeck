@@ -162,11 +162,23 @@ impl Config {
                     .try_parsing(true),
             )
             // Database from DATABASE_URL
-            .add_source(config::Environment::default().prefix("DATABASE").separator("_"))
+            .add_source(
+                config::Environment::default()
+                    .prefix("DATABASE")
+                    .separator("_"),
+            )
             // Redis from REDIS_URL
-            .add_source(config::Environment::default().prefix("REDIS").separator("_"))
+            .add_source(
+                config::Environment::default()
+                    .prefix("REDIS")
+                    .separator("_"),
+            )
             // Gateway from GATEWAY_
-            .add_source(config::Environment::default().prefix("GATEWAY").separator("_"))
+            .add_source(
+                config::Environment::default()
+                    .prefix("GATEWAY")
+                    .separator("_"),
+            )
             // OTel from OTEL_
             .add_source(config::Environment::default().prefix("OTEL").separator("_"));
 
