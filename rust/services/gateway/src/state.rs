@@ -8,7 +8,7 @@ use fd_storage::{
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::middleware::{create_rate_limiter, RateLimiter};
+use crate::middleware::{create_oauth2_validator, create_rate_limiter, OAuth2Validator, RateLimiter};
 
 /// Shared application state
 #[derive(Clone)]
@@ -25,6 +25,9 @@ pub struct AppState {
 
     /// Rate limiter for API requests
     pub rate_limiter: RateLimiter,
+
+    /// OAuth2/JWT validator (None if disabled)
+    pub oauth2_validator: Option<Arc<OAuth2Validator>>,
 
     /// Repositories (lazy-initialized from db pool)
     repos: Repos,
@@ -103,11 +106,15 @@ impl AppState {
         // Create rate limiter
         let rate_limiter = create_rate_limiter();
 
+        // Create OAuth2 validator (if enabled via environment)
+        let oauth2_validator = create_oauth2_validator();
+
         Ok(Self {
             db: db.clone(),
             policy_engine,
             queue: Arc::new(RwLock::new(queue)),
             rate_limiter,
+            oauth2_validator,
             repos: Repos::new(db),
         })
     }

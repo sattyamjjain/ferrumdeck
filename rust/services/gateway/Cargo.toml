@@ -56,6 +56,11 @@ chrono = { workspace = true }
 
 # Crypto
 sha2 = { workspace = true }
+jsonwebtoken = { workspace = true }
+base64 = { workspace = true }
+
+# HTTP client (for JWKS fetching)
+reqwest = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

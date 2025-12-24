@@ -57,6 +57,8 @@ redis = { version = "0.27", features = ["tokio-comp", "streams"] }
 
 # Crypto
 sha2 = "0.10"
+jsonwebtoken = "9.3"
+base64 = "0.22"
 
 # Testing
 tokio-test = "0.4"

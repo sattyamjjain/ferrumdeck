@@ -1,0 +1,331 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # =============================================================================
+  # Rust Jobs
+  # =============================================================================
+  rust-check:
+    name: Rust Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --workspace
+
+  rust-test:
+    name: Rust Tests
+    runs-on: ubuntu-latest
+    needs: rust-check
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ferrumdeck
+          POSTGRES_PASSWORD: ferrumdeck
+          POSTGRES_DB: ferrumdeck
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
+          REDIS_URL: redis://localhost:6379
+        run: cargo test --workspace
+
+  # =============================================================================
+  # Python Jobs
+  # =============================================================================
+  python-check:
+    name: Python Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run ruff check
+        run: uv run ruff check python/
+
+      - name: Run ruff format check
+        run: uv run ruff format --check python/
+
+      - name: Run pyright
+        run: uv run pyright python/
+
+  python-test:
+    name: Python Tests
+    runs-on: ubuntu-latest
+    needs: python-check
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ferrumdeck
+          POSTGRES_PASSWORD: ferrumdeck
+          POSTGRES_DB: ferrumdeck
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
+          REDIS_URL: redis://localhost:6379
+        run: uv run pytest --tb=short -v
+
+  # =============================================================================
+  # Contract Validation
+  # =============================================================================
+  contracts:
+    name: Validate Contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate OpenAPI spec
+        run: npx --yes @redocly/cli lint contracts/openapi/control-plane.openapi.yaml --skip-rule=no-unused-components
+
+      - name: Validate JSON schemas
+        run: |
+          for schema in contracts/jsonschema/*.json; do
+            echo "Validating: $schema"
+            python3 -c "import json; json.load(open('$schema'))"
+          done
+
+  # =============================================================================
+  # Eval Gate (on PRs to main)
+  # =============================================================================
+  eval-gate:
+    name: Evaluation Gate
+    runs-on: ubuntu-latest
+    needs: [rust-test, python-test]
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ferrumdeck
+          POSTGRES_PASSWORD: ferrumdeck
+          POSTGRES_DB: ferrumdeck
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
+      - name: Build gateway
+        run: cargo build --package gateway
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
+        run: |
+          for migration in db/migrations/*.sql; do
+            echo "Applying: $migration"
+            PGPASSWORD=ferrumdeck psql -h localhost -U ferrumdeck -d ferrumdeck -f "$migration" || true
+          done
+
+      - name: Start gateway
+        env:
+          DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
+          REDIS_URL: redis://localhost:6379
+          GATEWAY_PORT: 8080
+        run: |
+          cargo run --package gateway &
+          sleep 5
+          curl -f http://localhost:8080/health || exit 1
+
+      - name: Run smoke tests
+        env:
+          FD_CONTROL_PLANE_URL: http://localhost:8080
+          DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
+          REDIS_URL: redis://localhost:6379
+        run: |
+          uv run python -m fd_evals run \
+            --suite smoke \
+            --output evals/reports/smoke_ci.json \
+            --parallel 1
+
+      - name: Check eval results
+        run: |
+          python3 << 'EOF'
+          import json
+          import sys
+
+          with open('evals/reports/smoke_ci.json') as f:
+              report = json.load(f)
+
+          total = report.get('total_tasks', 0)
+          passed = report.get('passed_tasks', 0)
+          pass_rate = (passed / total * 100) if total > 0 else 0
+
+          print(f"Eval Results: {passed}/{total} passed ({pass_rate:.1f}%)")
+
+          # Fail if pass rate < 80%
+          if pass_rate < 80:
+              print("❌ Eval gate FAILED: Pass rate below 80%")
+              sys.exit(1)
+          else:
+              print("✅ Eval gate PASSED")
+          EOF
+
+      - name: Upload eval report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report
+          path: evals/reports/
+          retention-days: 30
+
+  # =============================================================================
+  # Security Scan
+  # =============================================================================
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run cargo audit
+        run: |
+          cargo install cargo-audit || true
+          cargo audit || echo "::warning::Security vulnerabilities found"
+
+      - name: Check for secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified

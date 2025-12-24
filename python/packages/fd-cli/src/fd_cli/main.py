@@ -160,32 +160,118 @@ def run_steps(
 @run_app.command("logs")
 def run_logs(
     run_id: Annotated[str, typer.Argument(help="Run ID to get logs for")],
-    _follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow log output")] = False,
+    follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow log output")] = False,
+    poll_interval: Annotated[
+        float, typer.Option("--interval", "-i", help="Poll interval in seconds")
+    ] = 1.0,
 ) -> None:
-    """View logs for a run."""
-    # TODO: Implement log streaming when _follow is True
-    console.print(f"[yellow]Fetching logs for run {run_id}...[/yellow]")
+    """View logs for a run.
 
-    with get_client() as client:
-        # Get steps
-        response = client.get(f"/v1/runs/{run_id}/steps")
+    Use --follow to stream logs in real-time until the run completes.
+    """
+    import time
 
-        if response.status_code != 200:
-            console.print(f"[red]Error: {response.status_code}[/red]")
-            raise typer.Exit(1)
+    seen_steps: set[str] = set()
+    terminal_statuses = {"completed", "failed", "cancelled", "timeout", "budget_killed"}
 
-        steps = response.json()
+    def print_step(step: dict[str, object]) -> None:
+        """Print a step's log output."""
+        step_id = str(step.get("id", "unknown"))
+        step_type = step.get("step_type", "unknown")
+        status = step.get("status", "unknown")
 
-        for step in steps:
-            console.print(f"\n[cyan]Step {step['id']} ({step['step_type']})[/cyan]")
-            console.print(f"  Status: {step['status']}")
+        # Status color
+        status_color = "green" if status == "completed" else "red" if status == "failed" else "yellow"
 
-            if step.get("output"):
-                console.print("  Output:")
-                rprint(step["output"])
+        console.print(f"\n[cyan]━━━ Step {step_id} ({step_type}) ━━━[/cyan]")
+        console.print(f"  Status: [{status_color}]{status}[/{status_color}]")
 
-            if step.get("error"):
-                console.print(f"  [red]Error: {step['error']}[/red]")
+        # Timing info
+        if step.get("started_at"):
+            console.print(f"  Started: {step['started_at']}")
+        if step.get("completed_at"):
+            console.print(f"  Completed: {step['completed_at']}")
+
+        # Token usage
+        input_tokens = step.get("input_tokens", 0)
+        output_tokens = step.get("output_tokens", 0)
+        if input_tokens or output_tokens:
+            console.print(f"  Tokens: {input_tokens} in / {output_tokens} out")
+
+        # Output
+        if step.get("output"):
+            console.print("  [dim]Output:[/dim]")
+            output = step["output"]
+            if isinstance(output, dict):
+                # Pretty print JSON output
+                for key, value in output.items():
+                    if isinstance(value, str) and len(value) > 200:
+                        value = value[:200] + "..."
+                    console.print(f"    {key}: {value}")
+            else:
+                rprint(f"    {output}")
+
+        # Error
+        if step.get("error"):
+            console.print(f"  [red]Error: {step['error']}[/red]")
+
+    def fetch_and_print() -> tuple[str, list[dict[str, object]]]:
+        """Fetch run status and print new steps."""
+        with get_client() as client:
+            # Get run status
+            run_response = client.get(f"/v1/runs/{run_id}")
+            if run_response.status_code != 200:
+                console.print(f"[red]Error fetching run: {run_response.status_code}[/red]")
+                raise typer.Exit(1)
+
+            run = run_response.json()
+            run_status = str(run.get("status", "unknown"))
+
+            # Get steps
+            steps_response = client.get(f"/v1/runs/{run_id}/steps")
+            if steps_response.status_code != 200:
+                console.print(f"[red]Error fetching steps: {steps_response.status_code}[/red]")
+                raise typer.Exit(1)
+
+            steps: list[dict[str, object]] = steps_response.json()
+
+            # Print new or updated steps
+            for step in steps:
+                step_id = str(step.get("id", ""))
+                step_status = step.get("status", "")
+
+                # Create a unique key for step state
+                step_key = f"{step_id}:{step_status}"
+
+                if step_key not in seen_steps:
+                    seen_steps.add(step_key)
+                    # Only print if step has progressed (not just pending)
+                    if step_status != "pending" or step_id not in [s.split(":")[0] for s in seen_steps]:
+                        print_step(step)
+
+            return run_status, steps
+
+    # Initial fetch
+    console.print(f"[bold]Logs for run: {run_id}[/bold]")
+
+    if follow:
+        console.print("[dim]Following logs... (Ctrl+C to stop)[/dim]\n")
+
+        try:
+            while True:
+                run_status, _ = fetch_and_print()
+
+                if run_status in terminal_statuses:
+                    console.print(f"\n[bold]Run {run_status}[/bold]")
+                    break
+
+                time.sleep(poll_interval)
+
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Stopped following logs[/yellow]")
+    else:
+        fetch_and_print()
+        console.print()  # Final newline
 
 
 @run_app.command("list")

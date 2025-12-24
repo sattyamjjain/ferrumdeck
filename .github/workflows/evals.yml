@@ -1,0 +1,288 @@
+name: Evaluations
+
+on:
+  # Run on schedule (daily at 2 AM UTC)
+  schedule:
+    - cron: '0 2 * * *'
+
+  # Manual trigger with options
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'Evaluation suite to run'
+        required: true
+        default: 'smoke'
+        type: choice
+        options:
+          - smoke
+          - regression
+          - all
+
+      runs:
+        description: 'Number of runs per task (for consistency check)'
+        required: false
+        default: '1'
+        type: string
+
+      parallel:
+        description: 'Number of parallel workers'
+        required: false
+        default: '2'
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  eval:
+    name: Run Evaluations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ferrumdeck
+          POSTGRES_PASSWORD: ferrumdeck
+          POSTGRES_DB: ferrumdeck
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build gateway
+        run: cargo build --package gateway --release
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
+        run: |
+          for migration in db/migrations/*.sql; do
+            echo "Applying: $migration"
+            PGPASSWORD=ferrumdeck psql -h localhost -U ferrumdeck -d ferrumdeck -f "$migration" || true
+          done
+
+      - name: Start gateway
+        env:
+          DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
+          REDIS_URL: redis://localhost:6379
+          GATEWAY_PORT: 8080
+          RUST_LOG: info
+        run: |
+          ./target/release/gateway &
+          sleep 5
+          curl -f http://localhost:8080/health
+
+      - name: Start worker
+        env:
+          FD_CONTROL_PLANE_URL: http://localhost:8080
+          REDIS_URL: redis://localhost:6379
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          uv run python -m fd_worker &
+          sleep 3
+
+      - name: Run evaluations
+        env:
+          FD_CONTROL_PLANE_URL: http://localhost:8080
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          SUITE="${{ inputs.suite || 'smoke' }}"
+          RUNS="${{ inputs.runs || '1' }}"
+          PARALLEL="${{ inputs.parallel || '2' }}"
+
+          echo "Running eval suite: $SUITE"
+          echo "Runs per task: $RUNS"
+          echo "Parallel workers: $PARALLEL"
+
+          uv run python -m fd_evals run \
+            --suite "$SUITE" \
+            --runs "$RUNS" \
+            --parallel "$PARALLEL" \
+            --output "evals/reports/eval_${SUITE}_$(date +%Y%m%d_%H%M%S).json"
+
+      - name: Generate summary
+        run: |
+          python3 << 'EOF'
+          import json
+          import os
+          from pathlib import Path
+
+          reports_dir = Path("evals/reports")
+          latest = sorted(reports_dir.glob("eval_*.json"))[-1] if reports_dir.exists() else None
+
+          if not latest:
+              print("No eval reports found")
+              exit(0)
+
+          with open(latest) as f:
+              report = json.load(f)
+
+          total = report.get('total_tasks', 0)
+          passed = report.get('passed_tasks', 0)
+          failed = total - passed
+          duration = report.get('duration_seconds', 0)
+
+          summary = f"""
+          ## Evaluation Results
+
+          | Metric | Value |
+          |--------|-------|
+          | Suite | {report.get('suite', 'unknown')} |
+          | Total Tasks | {total} |
+          | Passed | {passed} |
+          | Failed | {failed} |
+          | Pass Rate | {100*passed/total:.1f}% |
+          | Duration | {duration:.1f}s |
+
+          """
+
+          # Write to GitHub summary
+          with open(os.environ.get('GITHUB_STEP_SUMMARY', '/dev/null'), 'a') as f:
+              f.write(summary)
+
+          print(summary)
+          EOF
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-reports-${{ github.run_number }}
+          path: evals/reports/
+          retention-days: 90
+
+      - name: Check regression
+        if: github.event_name == 'schedule'
+        run: |
+          # Compare with previous run (if available)
+          python3 << 'EOF'
+          import json
+          from pathlib import Path
+
+          reports = sorted(Path("evals/reports").glob("eval_*.json"))
+          if len(reports) < 2:
+              print("Not enough reports for regression check")
+              exit(0)
+
+          current = json.load(open(reports[-1]))
+          previous = json.load(open(reports[-2]))
+
+          current_rate = current.get('passed_tasks', 0) / max(current.get('total_tasks', 1), 1)
+          previous_rate = previous.get('passed_tasks', 0) / max(previous.get('total_tasks', 1), 1)
+
+          delta = current_rate - previous_rate
+
+          if delta < -0.1:  # More than 10% regression
+              print(f"❌ REGRESSION DETECTED: Pass rate dropped by {abs(delta)*100:.1f}%")
+              exit(1)
+          elif delta < 0:
+              print(f"⚠️ Minor regression: Pass rate dropped by {abs(delta)*100:.1f}%")
+          else:
+              print(f"✅ No regression: Pass rate {'improved' if delta > 0 else 'stable'}")
+          EOF
+
+  # MVP Validation - Run 20x for consistency
+  mvp-validation:
+    name: MVP Validation (20x)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.runs >= 20
+    needs: eval
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download eval reports
+        uses: actions/download-artifact@v4
+        with:
+          name: eval-reports-${{ github.run_number }}
+          path: evals/reports/
+
+      - name: Analyze consistency
+        run: |
+          python3 << 'EOF'
+          import json
+          from pathlib import Path
+          from collections import defaultdict
+
+          reports = list(Path("evals/reports").glob("eval_*.json"))
+          if not reports:
+              print("No reports found")
+              exit(1)
+
+          # Aggregate results across all runs
+          task_results = defaultdict(lambda: {'passed': 0, 'failed': 0})
+
+          for report_path in reports:
+              with open(report_path) as f:
+                  report = json.load(f)
+
+              for result in report.get('results', []):
+                  task_id = result.get('task_id', 'unknown')
+                  if result.get('passed', False):
+                      task_results[task_id]['passed'] += 1
+                  else:
+                      task_results[task_id]['failed'] += 1
+
+          # Calculate consistency
+          print("=" * 60)
+          print("MVP VALIDATION REPORT")
+          print("=" * 60)
+          print()
+
+          total_consistency = []
+          for task_id, counts in sorted(task_results.items()):
+              total = counts['passed'] + counts['failed']
+              consistency = counts['passed'] / total if total > 0 else 0
+              total_consistency.append(consistency)
+
+              status = "✅" if consistency == 1.0 else "⚠️" if consistency >= 0.8 else "❌"
+              print(f"{status} {task_id}: {counts['passed']}/{total} runs passed ({consistency*100:.0f}%)")
+
+          print()
+          print("-" * 60)
+          avg_consistency = sum(total_consistency) / len(total_consistency) if total_consistency else 0
+          print(f"Average Consistency: {avg_consistency*100:.1f}%")
+
+          if avg_consistency >= 0.95:
+              print("✅ MVP CRITERIA MET: >95% average consistency")
+          else:
+              print("❌ MVP CRITERIA NOT MET: <95% average consistency")
+              exit(1)
+          EOF
