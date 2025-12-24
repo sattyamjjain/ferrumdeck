@@ -2,6 +2,7 @@
 
 pub mod approvals;
 pub mod health;
+pub mod orchestrator;
 pub mod registry;
 pub mod runs;
 pub mod workflows;

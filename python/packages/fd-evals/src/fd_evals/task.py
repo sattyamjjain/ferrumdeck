@@ -22,6 +22,7 @@ class EvalTask:
     difficulty: str = "medium"
     category: str = "general"
     tags: list[str] = field(default_factory=list)
+    config: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "EvalTask":
@@ -35,6 +36,7 @@ class EvalTask:
             difficulty=data.get("difficulty", "medium"),
             category=data.get("category", "general"),
             tags=data.get("tags", []),
+            config=data.get("config", {}),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -48,6 +50,7 @@ class EvalTask:
             "difficulty": self.difficulty,
             "category": self.category,
             "tags": self.tags,
+            "config": self.config,
         }
 
 

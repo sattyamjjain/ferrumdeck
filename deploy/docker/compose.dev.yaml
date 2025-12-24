@@ -74,6 +74,65 @@ services:
     networks:
       - ferrumdeck
 
+  # =============================================================================
+  # Gateway - Rust Control Plane API
+  # =============================================================================
+  gateway:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.gateway
+    container_name: fd-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://ferrumdeck:ferrumdeck@postgres:5432/ferrumdeck
+      REDIS_URL: redis://redis:6379
+      GATEWAY_PORT: "8080"
+      RUST_LOG: info,tower_http=debug,gateway=debug
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ferrumdeck
+
+  # =============================================================================
+  # Worker - Python Agent Executor
+  # =============================================================================
+  worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.worker
+    container_name: fd-worker
+    environment:
+      FD_CONTROL_PLANE_URL: http://gateway:8080
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://ferrumdeck:ferrumdeck@postgres:5432/ferrumdeck
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      WORKER_MAX_RETRIES: "3"
+      WORKER_RETRY_DELAY_MS: "1000"
+      SANDBOX_MODE: subprocess
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      gateway:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Mount docker socket for sandbox execution
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - ferrumdeck
+
 volumes:
   postgres_data:
   redis_data:

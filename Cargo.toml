@@ -64,6 +64,9 @@ base64 = "0.22"
 tokio-test = "0.4"
 fake = { version = "3.0", features = ["derive"] }
 
+# Internal crates
+fd-dag = { path = "rust/crates/fd-dag" }
+
 [profile.release]
 lto = true
 codegen-units = 1

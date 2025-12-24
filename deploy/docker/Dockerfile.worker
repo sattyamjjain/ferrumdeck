@@ -1,0 +1,69 @@
+# FerrumDeck Worker Dockerfile
+# Python worker for executing agent steps
+
+# =============================================================================
+# Stage 1: Builder
+# =============================================================================
+FROM python:3.12-slim-bookworm AS builder
+
+WORKDIR /app
+
+# Install uv for fast package management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Copy Python package definitions
+COPY pyproject.toml uv.lock ./
+COPY python/packages/ python/packages/
+
+# Install dependencies
+RUN uv sync --frozen --no-dev
+
+# =============================================================================
+# Stage 2: Runtime
+# =============================================================================
+FROM python:3.12-slim-bookworm AS runtime
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    docker.io \
+    && rm -rf /var/lib/apt/lists/* \
+    && adduser --disabled-password --gecos "" --uid 1000 ferrumdeck \
+    && usermod -aG docker ferrumdeck
+
+WORKDIR /app
+
+# Copy uv and virtual environment from builder
+COPY --from=builder /bin/uv /bin/uv
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/python/packages /app/python/packages
+
+# Copy source code
+COPY python/packages/fd-worker/src /app/python/packages/fd-worker/src
+COPY python/packages/fd-runtime/src /app/python/packages/fd-runtime/src
+COPY python/packages/fd-mcp-router/src /app/python/packages/fd-mcp-router/src
+
+# Set ownership
+RUN chown -R ferrumdeck:ferrumdeck /app
+
+USER ferrumdeck
+
+# Use virtual environment
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/python/packages/fd-worker/src:/app/python/packages/fd-runtime/src:/app/python/packages/fd-mcp-router/src"
+
+# Environment variables (can be overridden)
+ENV FD_CONTROL_PLANE_URL=http://gateway:8080
+ENV REDIS_URL=redis://redis:6379
+ENV WORKER_MAX_RETRIES=3
+ENV WORKER_RETRY_DELAY_MS=1000
+ENV SANDBOX_MODE=docker
+ENV PYTHONUNBUFFERED=1
+
+# Health check - Worker is healthy if it can reach control plane
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f ${FD_CONTROL_PLANE_URL}/health || exit 1
+
+# Run the worker
+CMD ["python", "-m", "fd_worker"]

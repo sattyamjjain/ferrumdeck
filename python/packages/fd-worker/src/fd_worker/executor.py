@@ -365,39 +365,239 @@ class StepExecutor:
     async def _execute_retrieval(self, step_input: dict[str, Any]) -> dict[str, Any]:
         """Execute a retrieval step.
 
-        TODO: Integrate with vector store / RAG system
+        Supports multiple retrieval backends:
+        - httpx: Remote retrieval API (default)
+        - local: Simple keyword matching for testing
+
+        Input schema:
+        - query: str - The search query
+        - collection: str - Collection/namespace to search
+        - top_k: int - Number of results to return (default: 5)
+        - backend: str - Retrieval backend ("httpx", "local")
+        - endpoint: str - API endpoint for httpx backend
         """
         query = step_input.get("query", "")
-        collection = step_input.get("collection")
+        collection = step_input.get("collection", "default")
         top_k = step_input.get("top_k", 5)
+        backend = step_input.get("backend", "httpx")
+        endpoint = step_input.get("endpoint", os.getenv("RETRIEVAL_ENDPOINT"))
 
-        logger.info(f"Retrieval query: {query[:50]}... (top_k={top_k})")
+        if not query:
+            raise ValueError("query is required for retrieval steps")
 
-        # Placeholder - would integrate with pgvector or similar
-        return {
-            "output": {
-                "documents": [],
-                "query": query,
-                "collection": collection,
-                "message": "Retrieval not yet implemented",
-            },
-        }
+        logger.info(f"Retrieval query: {query[:50]}... (top_k={top_k}, backend={backend})")
+
+        if backend == "httpx" and endpoint:
+            # Remote retrieval via HTTP API
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(
+                        endpoint,
+                        json={
+                            "query": query,
+                            "collection": collection,
+                            "top_k": top_k,
+                        },
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    return {
+                        "output": {
+                            "documents": data.get("documents", []),
+                            "query": query,
+                            "collection": collection,
+                            "total_found": data.get("total", len(data.get("documents", []))),
+                        },
+                    }
+            except httpx.HTTPError as e:
+                logger.warning(f"Retrieval API error: {e}")
+                return {
+                    "output": {
+                        "documents": [],
+                        "query": query,
+                        "collection": collection,
+                        "error": str(e),
+                    },
+                }
+
+        elif backend == "local":
+            # Local keyword matching for testing/development
+            documents = step_input.get("documents", [])
+            query_lower = query.lower()
+
+            # Simple keyword scoring
+            scored_docs = []
+            for doc in documents:
+                content = doc.get("content", "").lower()
+                score = sum(1 for word in query_lower.split() if word in content)
+                if score > 0:
+                    scored_docs.append((score, doc))
+
+            scored_docs.sort(key=lambda x: x[0], reverse=True)
+            top_docs = [doc for _, doc in scored_docs[:top_k]]
+
+            return {
+                "output": {
+                    "documents": top_docs,
+                    "query": query,
+                    "collection": collection,
+                    "total_found": len(top_docs),
+                },
+            }
+
+        else:
+            # No backend configured - return empty results
+            logger.warning(f"No retrieval backend configured (backend={backend})")
+            return {
+                "output": {
+                    "documents": [],
+                    "query": query,
+                    "collection": collection,
+                    "message": "No retrieval backend configured",
+                },
+            }
 
     async def _execute_sandbox(self, step_input: dict[str, Any]) -> dict[str, Any]:
-        """Execute code in a sandbox.
+        """Execute code in a secure sandbox.
 
-        TODO: Integrate with container-based sandbox execution
+        Supports two modes:
+        - subprocess: Direct Python subprocess (development only)
+        - docker: Docker container isolation (production)
+
+        Input schema:
+        - code: str - The code to execute
+        - language: str - Programming language (python, bash)
+        - timeout_seconds: int - Execution timeout (default: 30)
+        - mode: str - Execution mode ("subprocess", "docker")
+        - env: dict - Environment variables to pass
+        - files: dict - Files to create in working directory
+
+        Security Notes:
+        - Docker mode uses resource limits and network isolation
+        - Subprocess mode should only be used in development
         """
+        import asyncio
+        import tempfile
+        from pathlib import Path
+
         code = step_input.get("code", "")
         language = step_input.get("language", "python")
+        timeout_seconds = step_input.get("timeout_seconds", 30)
+        mode = step_input.get("mode", os.getenv("SANDBOX_MODE", "subprocess"))
+        env = step_input.get("env", {})
+        files = step_input.get("files", {})
 
-        logger.info(f"Sandbox execution: {language} code ({len(code)} chars)")
+        if not code:
+            raise ValueError("code is required for sandbox steps")
 
-        # Placeholder - would integrate with secure sandbox
-        return {
-            "output": {
-                "status": "not_implemented",
-                "language": language,
-                "message": "Sandbox execution not yet implemented",
-            },
-        }
+        logger.info(f"Sandbox execution: {language} code ({len(code)} chars, mode={mode})")
+
+        # Create temporary directory for execution
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+
+            # Write any input files
+            for filename, content in files.items():
+                filepath = tmppath / filename
+                filepath.parent.mkdir(parents=True, exist_ok=True)
+                with filepath.open("w") as f:
+                    f.write(content)
+
+            # Write the code file
+            if language == "python":
+                code_file = tmppath / "script.py"
+                cmd = ["python", str(code_file)]
+            elif language == "bash":
+                code_file = tmppath / "script.sh"
+                cmd = ["bash", str(code_file)]
+            else:
+                raise ValueError(f"Unsupported language: {language}")
+
+            with code_file.open("w") as f:
+                f.write(code)
+
+            if mode == "docker":
+                # Docker-based isolation
+                docker_image = step_input.get("docker_image", "python:3.12-slim")
+
+                docker_cmd = [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "--network=none",  # No network access
+                    "--memory=256m",  # Memory limit
+                    "--cpus=0.5",  # CPU limit
+                    "--read-only",  # Read-only filesystem
+                    "--tmpfs=/tmp:size=64m",  # Writable /tmp
+                    "-v",
+                    f"{tmpdir}:/work:ro",  # Mount code read-only
+                    "-w",
+                    "/work",
+                ]
+
+                # Add environment variables
+                for key, value in env.items():
+                    docker_cmd.extend(["-e", f"{key}={value}"])
+
+                docker_cmd.extend([docker_image, *cmd])
+                final_cmd = docker_cmd
+            else:
+                # Direct subprocess (development mode)
+                final_cmd = cmd
+
+            process = None
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *final_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=tmpdir if mode != "docker" else None,
+                    env={**os.environ, **env} if mode != "docker" else None,
+                )
+
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=timeout_seconds,
+                )
+
+                return {
+                    "output": {
+                        "status": "completed",
+                        "exit_code": process.returncode,
+                        "stdout": stdout.decode("utf-8", errors="replace"),
+                        "stderr": stderr.decode("utf-8", errors="replace"),
+                        "language": language,
+                        "mode": mode,
+                    },
+                }
+
+            except TimeoutError:
+                # Kill the process on timeout
+                if process is not None and process.returncode is None:
+                    process.kill()
+                    await process.wait()
+
+                return {
+                    "output": {
+                        "status": "timeout",
+                        "exit_code": -1,
+                        "stdout": "",
+                        "stderr": f"Execution timed out after {timeout_seconds} seconds",
+                        "language": language,
+                        "mode": mode,
+                    },
+                }
+
+            except FileNotFoundError:
+                if mode == "docker":
+                    return {
+                        "output": {
+                            "status": "error",
+                            "exit_code": -1,
+                            "stdout": "",
+                            "stderr": "Docker not available. Set SANDBOX_MODE=subprocess for development.",
+                            "language": language,
+                            "mode": mode,
+                        },
+                    }
+                raise

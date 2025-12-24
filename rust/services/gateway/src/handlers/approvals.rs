@@ -6,9 +6,13 @@ use axum::{
     Extension, Json,
 };
 use chrono::Utc;
-use fd_storage::models::{ApprovalStatus, ResolveApproval, RunStatus, StepStatus, UpdateStep};
+use fd_storage::{
+    models::{ApprovalStatus, ResolveApproval, RunStatus, StepStatus, UpdateStep},
+    queue::{JobContext, StepJob},
+    QueueMessage,
+};
 use serde::{Deserialize, Serialize};
-use tracing::instrument;
+use tracing::{info, instrument, warn};
 
 use crate::handlers::ApiError;
 use crate::middleware::AuthContext;
@@ -140,6 +144,20 @@ pub async fn resolve_approval(
 
     // Update the step status based on the decision
     if request.approved {
+        // Get the step details for re-enqueueing
+        let step = repos
+            .steps()
+            .get(&approval.step_id)
+            .await?
+            .ok_or_else(|| ApiError::internal("Step not found for approved request"))?;
+
+        // Get the run details for context
+        let run = repos
+            .runs()
+            .get(&approval.run_id)
+            .await?
+            .ok_or_else(|| ApiError::internal("Run not found for approved request"))?;
+
         // Mark step as running (will be re-processed)
         repos
             .steps()
@@ -159,7 +177,41 @@ pub async fn resolve_approval(
             .await?;
 
         // Re-enqueue the step for processing
-        // TODO: Re-enqueue step job
+        let step_type = format!("{:?}", step.step_type).to_lowercase();
+        let job = StepJob {
+            run_id: approval.run_id.clone(),
+            step_id: approval.step_id.clone(),
+            step_type,
+            input: step.input,
+            context: JobContext {
+                tenant_id: auth.tenant_id.clone(),
+                project_id: run.project_id,
+                trace_id: run.trace_id,
+                span_id: run.span_id,
+            },
+        };
+
+        let message = QueueMessage::new(&approval.step_id, job);
+        match state.enqueue_step(&message).await {
+            Ok(stream_id) => {
+                info!(
+                    step_id = %approval.step_id,
+                    stream_id = %stream_id,
+                    "Re-enqueued approved step for processing"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    step_id = %approval.step_id,
+                    error = %e,
+                    "Failed to re-enqueue approved step"
+                );
+                return Err(ApiError::internal(format!(
+                    "Failed to re-enqueue step: {}",
+                    e
+                )));
+            }
+        }
     } else {
         // Mark step as failed
         repos

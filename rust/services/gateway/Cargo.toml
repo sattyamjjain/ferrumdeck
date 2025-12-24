@@ -18,6 +18,7 @@ fd-policy = { path = "../../crates/fd-policy" }
 fd-registry = { path = "../../crates/fd-registry" }
 fd-audit = { path = "../../crates/fd-audit" }
 fd-otel = { path = "../../crates/fd-otel" }
+fd-dag = { path = "../../crates/fd-dag" }
 
 # Async runtime
 tokio = { workspace = true }

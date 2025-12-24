@@ -1,13 +1,32 @@
 """Evaluation runner for executing eval tasks."""
 
+import asyncio
 import json
+import logging
+import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from fd_evals.scorers.base import BaseScorer, CompositeScorer
 from fd_evals.task import EvalResult, EvalRunSummary, EvalTask, ScorerResult
+
+logger = logging.getLogger(__name__)
+
+# Terminal run statuses
+TERMINAL_STATUSES = {"completed", "failed", "cancelled", "budget_killed", "policy_blocked"}
+
+# Default poll interval in seconds
+DEFAULT_POLL_INTERVAL = 1.0
+
+
+class ControlPlaneError(Exception):
+    """Error communicating with the control plane."""
+
+    pass
 
 
 class EvalRunner:
@@ -20,8 +39,9 @@ class EvalRunner:
     def __init__(
         self,
         scorers: list[BaseScorer] | None = None,
-        control_plane_url: str = "http://localhost:8080",
+        control_plane_url: str | None = None,
         api_key: str | None = None,
+        use_mock: bool = False,
     ):
         """Initialize the eval runner.
 
@@ -29,15 +49,24 @@ class EvalRunner:
             scorers: List of scorers to apply to results.
             control_plane_url: URL of the FerrumDeck control plane.
             api_key: API key for authentication.
+            use_mock: If True, use mock execution instead of real control plane.
         """
         self.scorers = scorers or []
-        self.control_plane_url = control_plane_url
-        self.api_key = api_key
+        self.control_plane_url = (
+            control_plane_url or os.getenv("FD_CONTROL_PLANE_URL") or "http://localhost:8080"
+        ).rstrip("/")
+        self.api_key = api_key or os.getenv("FD_API_KEY")
+        self.use_mock = use_mock
         self._composite_scorer = (
             CompositeScorer(self.scorers, name="EvalScorer", require_all_pass=False)
             if self.scorers
             else None
         )
+
+        # HTTP client headers
+        self.headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self.api_key:
+            self.headers["Authorization"] = f"Bearer {self.api_key}"
 
     def load_tasks(self, dataset_path: str | Path) -> list[EvalTask]:
         """Load evaluation tasks from a JSONL file.
@@ -99,6 +128,7 @@ class EvalRunner:
             error = str(e)
             actual_output = {}
             run_context = {"error": error}
+            logger.exception(f"Task {task.id} failed: {e}")
 
         execution_time_ms = int((time.time() - start_time) * 1000)
 
@@ -158,21 +188,126 @@ class EvalRunner:
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
         """Execute a run via the control plane.
 
-        This is a stub implementation. In a real deployment, this would
-        make HTTP requests to the control plane API.
+        Returns:
+            Tuple of (run_id, output, context).
+        """
+        if self.use_mock:
+            return self._execute_mock_run(task, agent_id)
+
+        # Run the async execution synchronously
+        return asyncio.get_event_loop().run_until_complete(
+            self._execute_run_async(task, agent_id, timeout_ms)
+        )
+
+    async def _execute_run_async(
+        self,
+        task: EvalTask,
+        agent_id: str,
+        timeout_ms: int,
+    ) -> tuple[str, dict[str, Any], dict[str, Any]]:
+        """Execute a run via the control plane (async).
 
         Returns:
             Tuple of (run_id, output, context).
         """
-        # TODO: Implement actual control plane integration
-        # For now, return mock data for testing the framework
+        timeout_seconds = timeout_ms / 1000.0
+        deadline = time.time() + timeout_seconds
 
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Create the run
+            try:
+                response = await client.post(
+                    f"{self.control_plane_url}/v1/runs",
+                    headers=self.headers,
+                    json={
+                        "agent_id": agent_id,
+                        "input": task.input,
+                        "config": task.config or {},
+                    },
+                )
+                response.raise_for_status()
+                run_data = response.json()
+                run_id = run_data["id"]
+                logger.info(f"Created run {run_id} for task {task.id}")
+            except httpx.HTTPStatusError as e:
+                raise ControlPlaneError(f"Failed to create run: {e.response.text}") from e
+            except httpx.RequestError as e:
+                raise ControlPlaneError(f"Failed to connect to control plane: {e}") from e
+
+            # Poll for completion
+            while time.time() < deadline:
+                try:
+                    response = await client.get(
+                        f"{self.control_plane_url}/v1/runs/{run_id}",
+                        headers=self.headers,
+                    )
+                    response.raise_for_status()
+                    run_data = response.json()
+                except httpx.HTTPStatusError as e:
+                    raise ControlPlaneError(f"Failed to get run status: {e.response.text}") from e
+                except httpx.RequestError as e:
+                    raise ControlPlaneError(f"Failed to connect to control plane: {e}") from e
+
+                status = run_data.get("status", "")
+
+                if status in TERMINAL_STATUSES:
+                    logger.info(f"Run {run_id} finished with status: {status}")
+                    break
+
+                # Wait before next poll
+                await asyncio.sleep(DEFAULT_POLL_INTERVAL)
+            else:
+                raise ControlPlaneError(f"Run {run_id} timed out after {timeout_ms}ms")
+
+            # Extract output and context
+            output = run_data.get("output") or {}
+            context = self._build_run_context(run_data)
+
+            # Get step details for additional context
+            try:
+                response = await client.get(
+                    f"{self.control_plane_url}/v1/runs/{run_id}/steps",
+                    headers=self.headers,
+                )
+                if response.status_code == 200:
+                    steps = response.json()
+                    context["steps"] = steps
+                    context["step_count"] = len(steps)
+            except Exception as e:
+                logger.warning(f"Failed to fetch steps for run {run_id}: {e}")
+
+            return run_id, output, context
+
+    def _build_run_context(self, run_data: dict[str, Any]) -> dict[str, Any]:
+        """Build context dictionary from run data."""
+        return {
+            "status": run_data.get("status"),
+            "input_tokens": run_data.get("input_tokens", 0),
+            "output_tokens": run_data.get("output_tokens", 0),
+            "tool_calls": run_data.get("tool_calls", 0),
+            "cost_cents": run_data.get("cost_cents", 0) / 100.0,  # Convert to cents
+            "trace_id": run_data.get("trace_id"),
+            "started_at": run_data.get("started_at"),
+            "completed_at": run_data.get("completed_at"),
+            "project_id": run_data.get("project_id"),
+            "agent_version_id": run_data.get("agent_version_id"),
+        }
+
+    def _execute_mock_run(
+        self,
+        task: EvalTask,
+        agent_id: str,
+    ) -> tuple[str, dict[str, Any], dict[str, Any]]:
+        """Execute a mock run for testing the framework.
+
+        Returns:
+            Tuple of (run_id, output, context).
+        """
         import uuid
 
         run_id = f"run_{uuid.uuid4().hex[:12]}"
 
         # Simulate execution by returning expected values for testing
-        # In production, this calls the actual control plane
         mock_output = {
             "pr_url": "https://github.com/example/project/pull/1",
             "pr_number": 1,
@@ -181,6 +316,7 @@ class EvalRunner:
         }
 
         mock_context = {
+            "status": "completed",
             "files_changed": task.expected.get("files_changed", []),
             "files_created": task.expected.get("files_created", []),
             "test_results": {
@@ -236,6 +372,7 @@ class EvalRunner:
         passed_count = 0
 
         for task in tasks:
+            logger.info(f"Executing task {task.id}: {task.name}")
             result = self.execute_task(task, agent_id, timeout_ms)
             results.append(result)
 
