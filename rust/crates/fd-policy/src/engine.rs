@@ -54,7 +54,6 @@ impl PolicyEngine {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -18,9 +18,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use jsonwebtoken::{
-    decode, decode_header, jwk::JwkSet, DecodingKey, TokenData, Validation,
-};
+use jsonwebtoken::{decode, decode_header, jwk::JwkSet, DecodingKey, TokenData, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::RwLock;

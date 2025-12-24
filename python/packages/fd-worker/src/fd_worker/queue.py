@@ -2,10 +2,12 @@
 
 import json
 import logging
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import redis.asyncio as redis
-from redis.asyncio.client import Redis
+
+if TYPE_CHECKING:
+    from redis.asyncio.client import Redis
 
 logger = logging.getLogger(__name__)
 

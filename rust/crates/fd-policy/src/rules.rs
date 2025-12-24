@@ -3,8 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A tool allowlist rule
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ToolAllowlist {
     /// Allowed tool names (exact match)
     pub allowed_tools: Vec<String>,
@@ -15,7 +14,6 @@ pub struct ToolAllowlist {
     /// Tools that are explicitly denied
     pub denied_tools: Vec<String>,
 }
-
 
 impl ToolAllowlist {
     /// Check if a tool is allowed
@@ -63,4 +61,3 @@ pub enum ToolRiskLevel {
     /// Payments, deployments, security-sensitive
     Critical,
 }
-

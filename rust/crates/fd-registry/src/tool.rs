@@ -40,4 +40,3 @@ pub enum ToolRiskLevel {
     /// Payments, deployments, security-sensitive
     Critical,
 }
-
