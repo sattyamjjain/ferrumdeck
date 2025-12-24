@@ -113,7 +113,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --all-packages --all-packages
 
       - name: Run ruff check
         run: uv run ruff check python/
@@ -165,7 +165,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --all-packages
 
       - name: Run tests
         env:
@@ -242,7 +242,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --all-packages
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
