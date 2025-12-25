@@ -193,9 +193,7 @@ class TestLLMExecution:
     @pytest.mark.asyncio
     async def test_llm_execution_failure(self, executor):
         """Test LLM execution handles errors."""
-        executor.llm_executor.complete = AsyncMock(
-            side_effect=Exception("API error")
-        )
+        executor.llm_executor.complete = AsyncMock(side_effect=Exception("API error"))
 
         job = {
             "run_id": "run_01",

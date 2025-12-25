@@ -91,9 +91,7 @@ class PolicyComplianceScorer(BaseScorer):
         audit_events = run_context.get("audit_events", [])
         tool_calls = run_context.get("tool_calls", [])
 
-        policy_decisions = [
-            e for e in audit_events if e.get("action", "").startswith("policy.")
-        ]
+        policy_decisions = [e for e in audit_events if e.get("action", "").startswith("policy.")]
 
         if tool_calls and len(policy_decisions) < len(tool_calls):
             issues.append(
@@ -105,21 +103,16 @@ class PolicyComplianceScorer(BaseScorer):
 
         # Check 4: Verify no denied tool calls that weren't expected
         total_checks += 1
-        denied_events = [
-            e for e in policy_decisions if e.get("action") == "policy.denied"
-        ]
+        denied_events = [e for e in policy_decisions if e.get("action") == "policy.denied"]
 
         expected_denied = task.expected.get("denied_tools", [])
         unexpected_denied = [
-            e
-            for e in denied_events
-            if e.get("details", {}).get("tool_name") not in expected_denied
+            e for e in denied_events if e.get("details", {}).get("tool_name") not in expected_denied
         ]
 
         if unexpected_denied:
             denied_tools = [
-                e.get("details", {}).get("tool_name", "unknown")
-                for e in unexpected_denied
+                e.get("details", {}).get("tool_name", "unknown") for e in unexpected_denied
             ]
             issues.append(f"Unexpected denied tool calls: {denied_tools}")
         else:
@@ -137,9 +130,7 @@ class PolicyComplianceScorer(BaseScorer):
 
         # Check 6: Verify token limits were respected
         total_checks += 1
-        total_tokens = actual_output.get("input_tokens", 0) + actual_output.get(
-            "output_tokens", 0
-        )
+        total_tokens = actual_output.get("input_tokens", 0) + actual_output.get("output_tokens", 0)
         max_tokens = task.config.get("max_tokens", float("inf"))
 
         if total_tokens > max_tokens:
@@ -319,19 +310,13 @@ class BudgetComplianceScorer(BaseScorer):
         wall_time_ms = run_context.get("execution_time_ms", 0)
 
         if self.max_input_tokens and input_tokens > self.max_input_tokens:
-            violations.append(
-                f"Input tokens: {input_tokens}/{self.max_input_tokens}"
-            )
+            violations.append(f"Input tokens: {input_tokens}/{self.max_input_tokens}")
 
         if self.max_output_tokens and output_tokens > self.max_output_tokens:
-            violations.append(
-                f"Output tokens: {output_tokens}/{self.max_output_tokens}"
-            )
+            violations.append(f"Output tokens: {output_tokens}/{self.max_output_tokens}")
 
         if self.max_total_tokens and total_tokens > self.max_total_tokens:
-            violations.append(
-                f"Total tokens: {total_tokens}/{self.max_total_tokens}"
-            )
+            violations.append(f"Total tokens: {total_tokens}/{self.max_total_tokens}")
 
         if self.max_cost_cents and cost_cents > self.max_cost_cents:
             violations.append(f"Cost: {cost_cents}/{self.max_cost_cents} cents")
