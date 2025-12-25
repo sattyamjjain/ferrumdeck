@@ -1,6 +1,9 @@
 //! OAuth2/JWT authentication middleware
 //!
 //! Supports JWT tokens from OAuth2 providers like Auth0, Okta, Keycloak, etc.
+//!
+//! Note: This module is prepared for future integration. Enable by setting OAUTH2_ENABLED=true.
+#![allow(dead_code)]
 //! Features:
 //! - JWKS (JSON Web Key Set) fetching with caching
 //! - JWT signature verification
