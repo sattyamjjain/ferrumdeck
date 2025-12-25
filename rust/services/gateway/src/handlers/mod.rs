@@ -7,6 +7,9 @@ pub mod registry;
 pub mod runs;
 pub mod workflows;
 
+#[cfg(test)]
+mod tests;
+
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -52,6 +55,25 @@ impl ApiError {
             status: StatusCode::FORBIDDEN,
             code: "FORBIDDEN",
             message: message.into(),
+        }
+    }
+
+    /// Return when a tool call is blocked by policy
+    #[allow(dead_code)]
+    pub fn policy_blocked(reason: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code: "POLICY_BLOCKED",
+            message: reason.into(),
+        }
+    }
+
+    /// Return when budget limits are exceeded
+    pub fn budget_exceeded(reason: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code: "BUDGET_EXCEEDED",
+            message: reason.into(),
         }
     }
 }

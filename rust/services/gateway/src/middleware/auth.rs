@@ -1,4 +1,12 @@
-//! API Key authentication middleware
+//! API Key and OAuth2/JWT authentication middleware
+//!
+//! This middleware supports two authentication methods:
+//! 1. OAuth2/JWT tokens (if enabled via OAUTH2_ENABLED=true)
+//! 2. API key authentication (Bearer <key> or ApiKey <key>)
+//!
+//! For JWT tokens (identified by having 3 dot-separated parts), OAuth2 validation
+//! is attempted first. API key authentication is used as fallback or when OAuth2
+//! is disabled.
 
 use axum::{
     extract::{Request, State},
@@ -30,22 +38,74 @@ impl AuthContext {
     }
 }
 
-/// API key authentication middleware
+/// Combined authentication middleware (OAuth2/JWT with API key fallback)
 pub async fn auth_middleware(
     State(state): State<AppState>,
     mut request: Request,
     next: Next,
 ) -> Response {
-    // Extract API key from Authorization header
+    // Extract token from Authorization header
     let auth_header = request
         .headers()
         .get(header::AUTHORIZATION)
         .and_then(|h| h.to_str().ok());
 
-    let api_key = match extract_api_key(auth_header) {
+    let Some(auth_header) = auth_header else {
+        return unauthorized("Missing Authorization header");
+    };
+
+    // Check for Bearer token
+    if let Some(token) = auth_header.strip_prefix("Bearer ") {
+        // Check if it looks like a JWT (3 parts separated by dots)
+        if token.matches('.').count() == 2 {
+            // Try OAuth2/JWT authentication if enabled
+            if let Some(ref validator) = state.oauth2_validator {
+                match validator.validate_token(token).await {
+                    Ok(claims) => {
+                        // Extract tenant from claims
+                        let tenant_id = match validator.extract_tenant(&claims) {
+                            Ok(t) => t,
+                            Err(e) => {
+                                warn!(error = %e, "Failed to extract tenant from JWT");
+                                return unauthorized("Missing tenant claim in token");
+                            }
+                        };
+
+                        let scopes = validator.extract_scopes(&claims);
+
+                        debug!(
+                            subject = %claims.sub,
+                            tenant_id = %tenant_id,
+                            scopes = ?scopes,
+                            "JWT authentication successful"
+                        );
+
+                        // Create auth context
+                        let auth_context = AuthContext {
+                            api_key_id: format!("jwt:{}", claims.sub),
+                            tenant_id,
+                            scopes,
+                        };
+                        request.extensions_mut().insert(auth_context);
+
+                        return next.run(request).await;
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "JWT validation failed");
+                        return unauthorized(&format!("Invalid token: {}", e));
+                    }
+                }
+            }
+            // If OAuth2 is not enabled, fall through to API key auth
+            // (JWT-looking tokens can still be API keys)
+        }
+    }
+
+    // Fall back to API key authentication
+    let api_key = match extract_api_key(Some(auth_header)) {
         Some(key) => key,
         None => {
-            return unauthorized("Missing or invalid Authorization header");
+            return unauthorized("Invalid Authorization header format");
         }
     };
 
@@ -84,7 +144,7 @@ pub async fn auth_middleware(
     debug!(
         key_id = %api_key_record.id,
         tenant_id = %api_key_record.tenant_id,
-        "Authenticated request"
+        "API key authentication successful"
     );
 
     // Create auth context and add to request extensions

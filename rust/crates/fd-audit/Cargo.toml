@@ -22,5 +22,8 @@ thiserror = { workspace = true }
 # Tracing
 tracing = { workspace = true }
 
+# Regex for sensitive data detection
+regex = { workspace = true }
+
 [dev-dependencies]
 tokio-test = { workspace = true }

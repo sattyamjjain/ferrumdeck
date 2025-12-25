@@ -17,13 +17,22 @@ pub enum RunStatus {
     Failed,
     Cancelled,
     Timeout,
+    /// Run was killed because budget limits were exceeded
+    BudgetKilled,
+    /// Run was blocked by policy engine (tool not allowed, etc.)
+    PolicyBlocked,
 }
 
 impl RunStatus {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            RunStatus::Completed | RunStatus::Failed | RunStatus::Cancelled | RunStatus::Timeout
+            RunStatus::Completed
+                | RunStatus::Failed
+                | RunStatus::Cancelled
+                | RunStatus::Timeout
+                | RunStatus::BudgetKilled
+                | RunStatus::PolicyBlocked
         )
     }
 }

@@ -2,14 +2,18 @@
 //!
 //! Manages the execution of workflow steps using the DAG scheduler.
 //! Handles step completion callbacks and triggers dependent steps.
+//!
+//! Note: This module is implemented but not yet wired into handlers.
+//! It will be integrated in a future phase.
 
-use fd_dag::{DagScheduler, StepCompletionResult, StepDefinition, StepType as DagStepType, WorkflowDag};
+#![allow(dead_code)]
+
+use fd_dag::{DagScheduler, SchedulerState, StepCompletionResult, StepDefinition, StepStatus as DagStepStatus, StepType as DagStepType, WorkflowDag};
 use fd_storage::models::{
     CreateWorkflowStepExecution, UpdateWorkflowRun, UpdateWorkflowStepExecution,
     WorkflowRunStatus, WorkflowStepExecutionStatus, WorkflowStepType,
 };
 use fd_storage::queue::{JobContext, QueueMessage, StepJob};
-use fd_storage::QueueClient;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -125,12 +129,15 @@ impl WorkflowOrchestrator {
         input_tokens: Option<i32>,
         output_tokens: Option<i32>,
     ) -> Result<StepCompletionResult, ApiError> {
+        // Ensure scheduler is available (restore from DB if needed)
+        self.get_or_restore_scheduler(run_id).await?;
+
         // Get scheduler
         let result = {
             let mut cache = self.schedulers.write().await;
             let scheduler = cache
                 .get_mut(run_id)
-                .ok_or_else(|| ApiError::not_found("WorkflowRun scheduler", run_id))?;
+                .ok_or_else(|| ApiError::internal("Scheduler not found after restore"))?;
 
             scheduler.complete_step(step_id, output.clone())
                 .map_err(|e| ApiError::internal(format!("DAG error: {}", e)))?
@@ -196,12 +203,15 @@ impl WorkflowOrchestrator {
         execution_id: &str,
         error: &str,
     ) -> Result<StepCompletionResult, ApiError> {
+        // Ensure scheduler is available (restore from DB if needed)
+        self.get_or_restore_scheduler(run_id).await?;
+
         // Get scheduler and handle failure
         let result = {
             let mut cache = self.schedulers.write().await;
             let scheduler = cache
                 .get_mut(run_id)
-                .ok_or_else(|| ApiError::not_found("WorkflowRun scheduler", run_id))?;
+                .ok_or_else(|| ApiError::internal("Scheduler not found after restore"))?;
 
             scheduler.fail_step(step_id, error)
                 .map_err(|e| ApiError::internal(format!("DAG error: {}", e)))?
@@ -252,11 +262,14 @@ impl WorkflowOrchestrator {
         execution_id: &str,
         reason: &str,
     ) -> Result<StepCompletionResult, ApiError> {
+        // Ensure scheduler is available (restore from DB if needed)
+        self.get_or_restore_scheduler(run_id).await?;
+
         let result = {
             let mut cache = self.schedulers.write().await;
             let scheduler = cache
                 .get_mut(run_id)
-                .ok_or_else(|| ApiError::not_found("WorkflowRun scheduler", run_id))?;
+                .ok_or_else(|| ApiError::internal("Scheduler not found after restore"))?;
 
             scheduler.skip_step(step_id)
                 .map_err(|e| ApiError::internal(format!("DAG error: {}", e)))?
@@ -294,11 +307,14 @@ impl WorkflowOrchestrator {
         step_id: &str,
         execution_id: &str,
     ) -> Result<(), ApiError> {
+        // Ensure scheduler is available (restore from DB if needed)
+        self.get_or_restore_scheduler(run_id).await?;
+
         {
             let mut cache = self.schedulers.write().await;
             let scheduler = cache
                 .get_mut(run_id)
-                .ok_or_else(|| ApiError::not_found("WorkflowRun scheduler", run_id))?;
+                .ok_or_else(|| ApiError::internal("Scheduler not found after restore"))?;
 
             scheduler.mark_waiting_approval(step_id)
                 .map_err(|e| ApiError::internal(format!("DAG error: {}", e)))?;
@@ -336,10 +352,13 @@ impl WorkflowOrchestrator {
 
     /// Get execution layers for a workflow run (for visualization)
     pub async fn get_execution_layers(&self, run_id: &str) -> Result<Vec<Vec<String>>, ApiError> {
+        // Ensure scheduler is available (restore from DB if needed)
+        self.get_or_restore_scheduler(run_id).await?;
+
         let cache = self.schedulers.read().await;
         let scheduler = cache
             .get(run_id)
-            .ok_or_else(|| ApiError::not_found("WorkflowRun scheduler", run_id))?;
+            .ok_or_else(|| ApiError::internal("Scheduler not found after restore"))?;
 
         Ok(scheduler.execution_layers())
     }
@@ -349,6 +368,99 @@ impl WorkflowOrchestrator {
         let mut cache = self.schedulers.write().await;
         cache.remove(run_id);
         debug!(run_id, "Cleaned up scheduler");
+    }
+
+    /// Get or restore scheduler for a workflow run
+    /// This enables surviving gateway restarts by reconstructing scheduler from DB
+    async fn get_or_restore_scheduler(&self, run_id: &str) -> Result<(), ApiError> {
+        // Check if already in cache
+        {
+            let cache = self.schedulers.read().await;
+            if cache.contains_key(run_id) {
+                return Ok(());
+            }
+        }
+
+        // Restore from database
+        let run = self
+            .repos()
+            .workflows()
+            .get_run(run_id)
+            .await?
+            .ok_or_else(|| ApiError::not_found("WorkflowRun", run_id))?;
+
+        // Skip if terminal
+        if run.status.is_terminal() {
+            return Err(ApiError::bad_request(format!(
+                "Workflow run is already terminal: {:?}",
+                run.status
+            )));
+        }
+
+        // Get workflow definition
+        let workflow = self
+            .repos()
+            .workflows()
+            .get(&run.workflow_id)
+            .await?
+            .ok_or_else(|| ApiError::internal("Workflow not found for run"))?;
+
+        // Parse steps and build DAG
+        let steps = self.parse_workflow_steps(&workflow.definition)?;
+        let dag = WorkflowDag::build(steps)
+            .map_err(|e| ApiError::bad_request(format!("Invalid workflow DAG: {}", e)))?;
+
+        // Get step executions to restore state
+        let executions = self
+            .repos()
+            .workflows()
+            .list_step_executions_by_run(run_id)
+            .await?;
+
+        // Build scheduler state from executions
+        let mut step_status = std::collections::HashMap::new();
+        let mut step_outputs = std::collections::HashMap::new();
+
+        // Initialize all steps as pending
+        for step_id in dag.step_ids() {
+            step_status.insert(step_id.clone(), DagStepStatus::Pending);
+        }
+
+        // Update from executions
+        for exec in executions {
+            let status = match exec.status {
+                WorkflowStepExecutionStatus::Pending => DagStepStatus::Pending,
+                WorkflowStepExecutionStatus::Running => DagStepStatus::Running,
+                WorkflowStepExecutionStatus::WaitingApproval => DagStepStatus::WaitingApproval,
+                WorkflowStepExecutionStatus::Completed => DagStepStatus::Completed,
+                WorkflowStepExecutionStatus::Failed => DagStepStatus::Failed,
+                WorkflowStepExecutionStatus::Skipped => DagStepStatus::Skipped,
+                WorkflowStepExecutionStatus::Retrying => DagStepStatus::Running,
+            };
+            step_status.insert(exec.step_id.clone(), status);
+            if let Some(output) = exec.output {
+                step_outputs.insert(exec.step_id, output);
+            }
+        }
+
+        let state = SchedulerState {
+            step_status,
+            step_outputs,
+            on_error: workflow.on_error,
+            max_iterations: workflow.max_iterations as u32,
+            iteration_count: 0,
+        };
+
+        let scheduler = DagScheduler::from_dag_with_state(dag, state);
+
+        // Store in cache
+        {
+            let mut cache = self.schedulers.write().await;
+            cache.insert(run_id.to_string(), scheduler);
+        }
+
+        info!(run_id, "Restored scheduler from database");
+        Ok(())
     }
 
     // =========================================================================

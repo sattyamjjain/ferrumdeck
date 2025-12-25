@@ -7,8 +7,16 @@
 //! - Claims validation (issuer, audience, expiration)
 //! - Tenant extraction from token claims
 //!
-//! Note: This module provides OAuth2 infrastructure that can be wired in
-//! when OAUTH2_ENABLED=true. Currently not active by default.
+//! Configuration (via environment variables):
+//! - OAUTH2_ENABLED: Set to "true" to enable OAuth2 authentication
+//! - OAUTH2_JWKS_URI: URL to fetch JWKS (e.g., https://your-idp/.well-known/jwks.json)
+//! - OAUTH2_ISSUER: Expected token issuer
+//! - OAUTH2_AUDIENCE: Expected token audience
+//! - OAUTH2_TENANT_CLAIM: Claim name for tenant ID (default: "tenant_id")
+//! - OAUTH2_SCOPE_CLAIM: Claim name for scopes (default: "scope")
+//!
+//! Note: This module is implemented but not yet wired into the route stack.
+//! It will be enabled via configuration in a future phase.
 
 #![allow(dead_code)]
 

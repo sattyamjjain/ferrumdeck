@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
 
@@ -103,7 +104,32 @@ class TestEvalRunner:
             },
         )
 
-        result = runner.execute_task(task, "test-agent")
+        # Mock the HTTP client to avoid actual API calls
+        mock_post_response = MagicMock()
+        mock_post_response.status_code = 200
+        mock_post_response.json.return_value = {"id": "run_12345"}
+        mock_post_response.raise_for_status = MagicMock()
+
+        mock_get_response = MagicMock()
+        mock_get_response.status_code = 200
+        mock_get_response.json.return_value = {
+            "id": "run_12345",
+            "status": "completed",
+            "output": {
+                "files_changed": ["src/main.py"],
+                "pr_url": "https://github.com/org/repo/pull/1",
+                "test_results": {"passed": 5, "failed": 0},
+            },
+        }
+        mock_get_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_client.return_value.__aenter__.return_value = mock_instance
+            mock_instance.post.return_value = mock_post_response
+            mock_instance.get.return_value = mock_get_response
+
+            result = runner.execute_task(task, "test-agent")
 
         assert result.task_id == "test_001"
         assert result.task_name == "Test Task"
@@ -113,11 +139,36 @@ class TestEvalRunner:
 
     def test_run_eval(self, runner: EvalRunner, sample_dataset: Path) -> None:
         """Test running a full evaluation."""
-        summary = runner.run_eval(
-            dataset_path=sample_dataset,
-            agent_id="test-agent",
-            max_tasks=2,
-        )
+        # Mock the HTTP client to avoid actual API calls
+        mock_post_response = MagicMock()
+        mock_post_response.status_code = 200
+        mock_post_response.json.return_value = {"id": "run_12345"}
+        mock_post_response.raise_for_status = MagicMock()
+
+        mock_get_response = MagicMock()
+        mock_get_response.status_code = 200
+        mock_get_response.json.return_value = {
+            "id": "run_12345",
+            "status": "completed",
+            "output": {
+                "files_changed": ["README.md"],
+                "pr_url": "https://github.com/org/repo/pull/1",
+                "test_results": {"passed": 5, "failed": 0},
+            },
+        }
+        mock_get_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_client.return_value.__aenter__.return_value = mock_instance
+            mock_instance.post.return_value = mock_post_response
+            mock_instance.get.return_value = mock_get_response
+
+            summary = runner.run_eval(
+                dataset_path=sample_dataset,
+                agent_id="test-agent",
+                max_tasks=2,
+            )
 
         assert summary.total_tasks == 2
         assert summary.run_id.startswith("eval_")
@@ -127,21 +178,71 @@ class TestEvalRunner:
 
     def test_run_eval_max_tasks(self, runner: EvalRunner, sample_dataset: Path) -> None:
         """Test running eval with max_tasks limit."""
-        summary = runner.run_eval(
-            dataset_path=sample_dataset,
-            agent_id="test-agent",
-            max_tasks=1,
-        )
+        # Mock the HTTP client to avoid actual API calls
+        mock_post_response = MagicMock()
+        mock_post_response.status_code = 200
+        mock_post_response.json.return_value = {"id": "run_12345"}
+        mock_post_response.raise_for_status = MagicMock()
+
+        mock_get_response = MagicMock()
+        mock_get_response.status_code = 200
+        mock_get_response.json.return_value = {
+            "id": "run_12345",
+            "status": "completed",
+            "output": {
+                "files_changed": ["README.md"],
+                "pr_url": "https://github.com/org/repo/pull/1",
+                "test_results": {"passed": 5, "failed": 0},
+            },
+        }
+        mock_get_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_client.return_value.__aenter__.return_value = mock_instance
+            mock_instance.post.return_value = mock_post_response
+            mock_instance.get.return_value = mock_get_response
+
+            summary = runner.run_eval(
+                dataset_path=sample_dataset,
+                agent_id="test-agent",
+                max_tasks=1,
+            )
 
         assert summary.total_tasks == 1
         assert len(summary.results) == 1
 
     def test_save_report(self, runner: EvalRunner, sample_dataset: Path, tmp_path: Path) -> None:
         """Test saving evaluation report."""
-        summary = runner.run_eval(
-            dataset_path=sample_dataset,
-            agent_id="test-agent",
-        )
+        # Mock the HTTP client to avoid actual API calls
+        mock_post_response = MagicMock()
+        mock_post_response.status_code = 200
+        mock_post_response.json.return_value = {"id": "run_12345"}
+        mock_post_response.raise_for_status = MagicMock()
+
+        mock_get_response = MagicMock()
+        mock_get_response.status_code = 200
+        mock_get_response.json.return_value = {
+            "id": "run_12345",
+            "status": "completed",
+            "output": {
+                "files_changed": ["README.md"],
+                "pr_url": "https://github.com/org/repo/pull/1",
+                "test_results": {"passed": 5, "failed": 0},
+            },
+        }
+        mock_get_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_client.return_value.__aenter__.return_value = mock_instance
+            mock_instance.post.return_value = mock_post_response
+            mock_instance.get.return_value = mock_get_response
+
+            summary = runner.run_eval(
+                dataset_path=sample_dataset,
+                agent_id="test-agent",
+            )
 
         output_path = tmp_path / "report.json"
         runner.save_report(summary, output_path)

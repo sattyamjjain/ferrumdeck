@@ -38,15 +38,53 @@ def get_default_scorers():
     ]
 
 
+def _resolve_suite_path(suite: str) -> Path:
+    """Resolve a suite name to the dataset path."""
+    # Look for suite definition in evals/suites/
+    evals_dir = Path("evals")
+    suite_file = evals_dir / "suites" / f"{suite}.yaml"
+
+    if suite_file.exists():
+        # Parse the suite YAML to find the dataset
+        import yaml
+
+        with suite_file.open() as f:
+            suite_config = yaml.safe_load(f)
+
+        datasets = suite_config.get("datasets", [])
+        if datasets:
+            # Use the first dataset path
+            dataset_path = evals_dir / datasets[0].get("path", "")
+            tasks_file = dataset_path / "tasks.jsonl"
+            if tasks_file.exists():
+                return tasks_file
+
+    # Fallback: look for tasks.jsonl in common locations
+    fallbacks = [
+        evals_dir / "datasets" / suite / "tasks.jsonl",
+        evals_dir / "datasets" / "safe-pr-agent" / "tasks.jsonl",
+        Path("python/packages/fd-evals/tests/fixtures/tasks.jsonl"),
+    ]
+
+    for path in fallbacks:
+        if path.exists():
+            return path
+
+    raise typer.BadParameter(f"Could not find dataset for suite '{suite}'")
+
+
 @app.command("run")
 def run_eval(
     dataset: Annotated[
-        Path,
+        Path | None,
         typer.Argument(
             help="Path to the evaluation dataset (tasks.jsonl)",
-            exists=True,
         ),
-    ],
+    ] = None,
+    suite: Annotated[
+        str | None,
+        typer.Option("--suite", "-s", help="Evaluation suite name (smoke, regression, all)"),
+    ] = None,
     agent_id: Annotated[
         str,
         typer.Option("--agent", "-a", help="Agent ID to evaluate"),
@@ -59,6 +97,14 @@ def run_eval(
         int | None,
         typer.Option("--max-tasks", "-n", help="Maximum number of tasks to run"),
     ] = None,
+    runs: Annotated[
+        int,
+        typer.Option("--runs", "-r", help="Number of runs per task"),
+    ] = 1,
+    parallel: Annotated[
+        int,
+        typer.Option("--parallel", "-p", help="Number of parallel workers"),
+    ] = 1,
     timeout: Annotated[
         int,
         typer.Option("--timeout", "-t", help="Timeout per task in milliseconds"),
@@ -76,14 +122,31 @@ def run_eval(
         typer.Option("--verbose", "-v", help="Verbose output"),
     ] = False,
 ) -> None:
-    """Run an evaluation against a dataset.
+    """Run an evaluation against a dataset or suite.
 
     This command executes all tasks in the dataset against the specified
     agent and generates a detailed evaluation report.
+
+    Examples:
+        fd-evals run --suite smoke
+        fd-evals run evals/datasets/safe-pr-agent/tasks.jsonl
     """
+    # Resolve dataset from suite or direct path
+    if suite:
+        resolved_dataset = _resolve_suite_path(suite)
+        console.print(f"[cyan]Running suite: {suite}[/cyan]")
+    elif dataset:
+        if not dataset.exists():
+            raise typer.BadParameter(f"Dataset not found: {dataset}")
+        resolved_dataset = dataset
+    else:
+        raise typer.BadParameter("Either --suite or dataset path is required")
+
     console.print("[cyan]Starting evaluation run...[/cyan]")
-    console.print(f"  Dataset: {dataset}")
+    console.print(f"  Dataset: {resolved_dataset}")
     console.print(f"  Agent: {agent_id}")
+    console.print(f"  Runs per task: {runs}")
+    console.print(f"  Parallel workers: {parallel}")
 
     runner = EvalRunner(
         scorers=get_default_scorers(),
@@ -92,7 +155,7 @@ def run_eval(
     )
 
     summary = runner.run_eval(
-        dataset_path=dataset,
+        dataset_path=resolved_dataset,
         agent_id=agent_id,
         max_tasks=max_tasks,
         timeout_ms=timeout,

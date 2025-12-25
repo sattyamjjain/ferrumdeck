@@ -14,7 +14,7 @@ use tracing::{debug, instrument};
 
 mod scheduler;
 
-pub use scheduler::{DagScheduler, StepCompletionResult};
+pub use scheduler::{DagScheduler, SchedulerState, StepCompletionResult};
 
 /// DAG-related errors
 #[derive(Debug, Error)]

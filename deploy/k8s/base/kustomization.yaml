@@ -1,0 +1,55 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: ferrumdeck
+
+namespace: ferrumdeck
+
+labels:
+  - includeSelectors: true
+    pairs:
+      app.kubernetes.io/name: ferrumdeck
+      app.kubernetes.io/managed-by: kustomize
+
+resources:
+  - gateway-deployment.yaml
+  - gateway-service.yaml
+  - worker-deployment.yaml
+  - configmap.yaml
+
+images:
+  - name: ghcr.io/ferrumdeck/gateway
+    newTag: latest
+  - name: ghcr.io/ferrumdeck/worker
+    newTag: latest
+
+commonLabels:
+  app.kubernetes.io/part-of: ferrumdeck
+
+# Override for specific environments by creating overlays
+# Example: deploy/k8s/overlays/production/kustomization.yaml
+#
+# apiVersion: kustomize.config.k8s.io/v1beta1
+# kind: Kustomization
+#
+# resources:
+#   - ../../base
+#
+# namespace: ferrumdeck-prod
+#
+# images:
+#   - name: ghcr.io/ferrumdeck/gateway
+#     newTag: v1.0.0
+#   - name: ghcr.io/ferrumdeck/worker
+#     newTag: v1.0.0
+#
+# replicas:
+#   - name: gateway
+#     count: 3
+#   - name: worker
+#     count: 5
+#
+# patchesStrategicMerge:
+#   - gateway-resources.yaml
+#   - worker-resources.yaml

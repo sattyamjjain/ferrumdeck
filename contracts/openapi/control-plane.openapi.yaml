@@ -6,9 +6,9 @@ info:
 
     This API provides endpoints for:
     - Managing agent runs and steps
-    - Registry operations (agents, tools, prompts)
-    - Policy management
-    - Audit log access
+    - Registry operations (agents, tools)
+    - Approval management
+    - Workflow execution
   version: 0.1.0
   license:
     name: Apache-2.0
@@ -19,20 +19,25 @@ servers:
     description: Production server
 
 tags:
+  - name: health
+    description: Health and readiness checks
   - name: runs
     description: Run lifecycle management
+  - name: approvals
+    description: Approval request management
   - name: registry
-    description: Agent, tool, and prompt registry
-  - name: policy
-    description: Policy rules and decisions
-  - name: audit
-    description: Audit log access
+    description: Agent and tool registry
+  - name: workflows
+    description: Workflow management
+  - name: workflow-runs
+    description: Workflow run execution
 
 paths:
   /health:
     get:
       summary: Health check
       operationId: healthCheck
+      tags: [health]
       security: []
       responses:
         '200':
@@ -48,13 +53,68 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /ready:
+    get:
+      summary: Readiness check
+      operationId: readinessCheck
+      tags: [health]
+      security: []
+      responses:
+        '200':
+          description: Service is ready to accept requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+        '503':
+          description: Service not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /v1/runs:
+    get:
+      summary: List runs
+      operationId: listRuns
+      tags: [runs]
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/RunStatus'
+      responses:
+        '200':
+          description: List of runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Run'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
     post:
       summary: Create a new run
       operationId: createRun
       tags: [runs]
       security:
         - apiKey: []
+        - oauth2: []
       requestBody:
         required: true
         content:
@@ -72,6 +132,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /v1/runs/{runId}:
     get:
@@ -80,6 +142,7 @@ paths:
       tags: [runs]
       security:
         - apiKey: []
+        - oauth2: []
       parameters:
         - $ref: '#/components/parameters/runId'
       responses:
@@ -94,6 +157,30 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /v1/runs/{runId}/cancel:
+    post:
+      summary: Cancel a run
+      operationId: cancelRun
+      tags: [runs]
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - $ref: '#/components/parameters/runId'
+      responses:
+        '200':
+          description: Run cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /v1/runs/{runId}/steps:
     get:
       summary: List steps for a run
@@ -101,6 +188,7 @@ paths:
       tags: [runs]
       security:
         - apiKey: []
+        - oauth2: []
       parameters:
         - $ref: '#/components/parameters/runId'
       responses:
@@ -124,6 +212,7 @@ paths:
       tags: [runs]
       security:
         - apiKey: []
+        - oauth2: []
       parameters:
         - $ref: '#/components/parameters/runId'
         - $ref: '#/components/parameters/stepId'
@@ -136,6 +225,99 @@ paths:
       responses:
         '200':
           description: Step result accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Step'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/runs/{runId}/check-tool:
+    post:
+      summary: Check tool policy
+      operationId: checkToolPolicy
+      tags: [runs]
+      description: |
+        Check if a tool call is allowed by policy before execution.
+        Workers should call this before executing tool steps.
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - $ref: '#/components/parameters/runId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckToolRequest'
+      responses:
+        '200':
+          description: Tool policy decision
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyDecision'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/approvals:
+    get:
+      summary: List pending approvals
+      operationId: listPendingApprovals
+      tags: [approvals]
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: List of pending approvals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApprovalRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/approvals/{approvalId}:
+    put:
+      summary: Resolve an approval
+      operationId: resolveApproval
+      tags: [approvals]
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - $ref: '#/components/parameters/approvalId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveApprovalRequest'
+      responses:
+        '200':
+          description: Approval resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequest'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -150,6 +332,7 @@ paths:
       tags: [registry]
       security:
         - apiKey: []
+        - oauth2: []
       responses:
         '200':
           description: List of agents
@@ -168,6 +351,7 @@ paths:
       tags: [registry]
       security:
         - apiKey: []
+        - oauth2: []
       requestBody:
         required: true
         content:
@@ -186,6 +370,58 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /v1/registry/agents/{agentId}:
+    get:
+      summary: Get agent by ID
+      operationId: getAgent
+      tags: [registry]
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - $ref: '#/components/parameters/agentId'
+      responses:
+        '200':
+          description: Agent details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/registry/agents/{agentId}/versions:
+    post:
+      summary: Create agent version
+      operationId: createAgentVersion
+      tags: [registry]
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - $ref: '#/components/parameters/agentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentVersionRequest'
+      responses:
+        '201':
+          description: Version created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentVersion'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /v1/registry/tools:
     get:
       summary: List tools
@@ -193,6 +429,7 @@ paths:
       tags: [registry]
       security:
         - apiKey: []
+        - oauth2: []
       responses:
         '200':
           description: List of tools
@@ -211,6 +448,7 @@ paths:
       tags: [registry]
       security:
         - apiKey: []
+        - oauth2: []
       requestBody:
         required: true
         content:
@@ -229,12 +467,277 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /v1/workflows:
+    get:
+      summary: List workflows
+      operationId: listWorkflows
+      tags: [workflows]
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of workflows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Workflow'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      summary: Create workflow
+      operationId: createWorkflow
+      tags: [workflows]
+      security:
+        - apiKey: []
+        - oauth2: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkflowRequest'
+      responses:
+        '201':
+          description: Workflow created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/workflows/{workflowId}:
+    get:
+      summary: Get workflow by ID
+      operationId: getWorkflow
+      tags: [workflows]
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - $ref: '#/components/parameters/workflowId'
+      responses:
+        '200':
+          description: Workflow details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workflow'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/workflows/{workflowId}/runs:
+    get:
+      summary: List runs for a workflow
+      operationId: listWorkflowRuns
+      tags: [workflows]
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - $ref: '#/components/parameters/workflowId'
+      responses:
+        '200':
+          description: List of workflow runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkflowRun'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/workflow-runs:
+    post:
+      summary: Create workflow run
+      operationId: createWorkflowRun
+      tags: [workflow-runs]
+      security:
+        - apiKey: []
+        - oauth2: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkflowRunRequest'
+      responses:
+        '201':
+          description: Workflow run created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/workflow-runs/{workflowRunId}:
+    get:
+      summary: Get workflow run by ID
+      operationId: getWorkflowRun
+      tags: [workflow-runs]
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - $ref: '#/components/parameters/workflowRunId'
+      responses:
+        '200':
+          description: Workflow run details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRun'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/workflow-runs/{workflowRunId}/cancel:
+    post:
+      summary: Cancel workflow run
+      operationId: cancelWorkflowRun
+      tags: [workflow-runs]
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - $ref: '#/components/parameters/workflowRunId'
+      responses:
+        '200':
+          description: Workflow run cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/workflow-runs/{workflowRunId}/executions:
+    get:
+      summary: List step executions for a workflow run
+      operationId: listStepExecutions
+      tags: [workflow-runs]
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - $ref: '#/components/parameters/workflowRunId'
+      responses:
+        '200':
+          description: List of step executions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkflowStepExecution'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      summary: Create step execution
+      operationId: createStepExecution
+      tags: [workflow-runs]
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - $ref: '#/components/parameters/workflowRunId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStepExecutionRequest'
+      responses:
+        '201':
+          description: Step execution created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowStepExecution'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /v1/workflow-runs/{workflowRunId}/executions/{executionId}:
+    post:
+      summary: Submit step execution result
+      operationId: submitStepExecutionResult
+      tags: [workflow-runs]
+      security:
+        - apiKey: []
+        - oauth2: []
+      parameters:
+        - $ref: '#/components/parameters/workflowRunId'
+        - $ref: '#/components/parameters/executionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitStepExecutionResultRequest'
+      responses:
+        '200':
+          description: Step execution result accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowStepExecution'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 components:
   securitySchemes:
     apiKey:
       type: http
       scheme: bearer
       bearerFormat: API key
+      description: API key authentication
+
+    oauth2:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: OAuth2/JWT authentication
 
   parameters:
     runId:
@@ -255,6 +758,51 @@ components:
         pattern: '^stp_[0-9A-HJKMNP-TV-Z]{26}$'
       description: Step ID (ULID with stp_ prefix)
 
+    approvalId:
+      name: approvalId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^apr_[0-9A-HJKMNP-TV-Z]{26}$'
+      description: Approval ID (ULID with apr_ prefix)
+
+    agentId:
+      name: agentId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^agt_[0-9A-HJKMNP-TV-Z]{26}$'
+      description: Agent ID (ULID with agt_ prefix)
+
+    workflowId:
+      name: workflowId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^wf_[0-9A-HJKMNP-TV-Z]{26}$'
+      description: Workflow ID (ULID with wf_ prefix)
+
+    workflowRunId:
+      name: workflowRunId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^wfr_[0-9A-HJKMNP-TV-Z]{26}$'
+      description: Workflow Run ID (ULID with wfr_ prefix)
+
+    executionId:
+      name: executionId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^wfse_[0-9A-HJKMNP-TV-Z]{26}$'
+      description: Workflow Step Execution ID (ULID with wfse_ prefix)
+
   schemas:
     HealthResponse:
       type: object
@@ -265,6 +813,20 @@ components:
           enum: [healthy, degraded, unhealthy]
         version:
           type: string
+
+    ReadyResponse:
+      type: object
+      required: [ready]
+      properties:
+        ready:
+          type: boolean
+        checks:
+          type: object
+          properties:
+            database:
+              type: boolean
+            redis:
+              type: boolean
 
     CreateRunRequest:
       type: object
@@ -284,11 +846,13 @@ components:
 
     Run:
       type: object
-      required: [id, agent_id, status, created_at]
+      required: [id, agent_id, project_id, status, created_at]
       properties:
         id:
           type: string
         agent_id:
+          type: string
+        project_id:
           type: string
         status:
           $ref: '#/components/schemas/RunStatus'
@@ -300,6 +864,9 @@ components:
           $ref: '#/components/schemas/Budget'
         usage:
           $ref: '#/components/schemas/BudgetUsage'
+        cost_cents:
+          type: integer
+          description: Total cost in cents
         created_at:
           type: string
           format: date-time
@@ -310,7 +877,7 @@ components:
           type: string
           format: date-time
         error:
-          type: string
+          type: object
 
     RunStatus:
       type: string
@@ -321,6 +888,8 @@ components:
         - waiting_approval
         - completed
         - failed
+        - cancelled
+        - timeout
         - budget_killed
         - policy_blocked
 
@@ -336,20 +905,26 @@ components:
           $ref: '#/components/schemas/StepType'
         status:
           $ref: '#/components/schemas/StepStatus'
+        tool_name:
+          type: string
+        model:
+          type: string
         input:
           type: object
         output:
           type: object
         error:
-          type: string
+          type: object
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
         started_at:
           type: string
           format: date-time
         completed_at:
           type: string
           format: date-time
-        usage:
-          $ref: '#/components/schemas/BudgetUsage'
 
     StepType:
       type: string
@@ -361,14 +936,87 @@ components:
 
     SubmitStepResultRequest:
       type: object
-      required: [output, status]
+      required: [status]
       properties:
         output:
           type: object
         status:
           $ref: '#/components/schemas/StepStatus'
-        usage:
-          $ref: '#/components/schemas/BudgetUsage'
+        error:
+          type: object
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+
+    CheckToolRequest:
+      type: object
+      required: [tool_name]
+      properties:
+        tool_name:
+          type: string
+        tool_input:
+          type: object
+
+    PolicyDecision:
+      type: object
+      required: [allowed, decision]
+      properties:
+        allowed:
+          type: boolean
+        decision:
+          type: string
+          enum: [allow, deny, require_approval]
+        reason:
+          type: string
+        approval_id:
+          type: string
+          description: Present when decision is require_approval
+
+    ApprovalRequest:
+      type: object
+      required: [id, run_id, step_id, status, created_at]
+      properties:
+        id:
+          type: string
+        run_id:
+          type: string
+        step_id:
+          type: string
+        action_type:
+          type: string
+        action_details:
+          type: object
+        reason:
+          type: string
+        status:
+          $ref: '#/components/schemas/ApprovalStatus'
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        resolved_by:
+          type: string
+        resolved_at:
+          type: string
+          format: date-time
+        resolution_note:
+          type: string
+
+    ApprovalStatus:
+      type: string
+      enum: [pending, approved, rejected, expired]
+
+    ResolveApprovalRequest:
+      type: object
+      required: [approved]
+      properties:
+        approved:
+          type: boolean
+        note:
+          type: string
 
     Budget:
       type: object
@@ -407,16 +1055,24 @@ components:
 
     Agent:
       type: object
-      required: [id, name]
+      required: [id, name, project_id]
       properties:
         id:
           type: string
         name:
           type: string
+        project_id:
+          type: string
         description:
           type: string
         current_version_id:
           type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     CreateAgentRequest:
       type: object
@@ -425,6 +1081,43 @@ components:
         name:
           type: string
         description:
+          type: string
+        system_prompt:
+          type: string
+        allowed_tools:
+          type: array
+          items:
+            type: string
+        default_model:
+          type: string
+
+    AgentVersion:
+      type: object
+      required: [id, agent_id, version]
+      properties:
+        id:
+          type: string
+        agent_id:
+          type: string
+        version:
+          type: string
+        system_prompt:
+          type: string
+        allowed_tools:
+          type: array
+          items:
+            type: string
+        default_model:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateAgentVersionRequest:
+      type: object
+      required: [version, system_prompt, default_model]
+      properties:
+        version:
           type: string
         system_prompt:
           type: string
@@ -447,6 +1140,10 @@ components:
           type: string
         risk_level:
           $ref: '#/components/schemas/ToolRiskLevel'
+        input_schema:
+          type: object
+        output_schema:
+          type: object
 
     CreateToolRequest:
       type: object
@@ -465,7 +1162,191 @@ components:
 
     ToolRiskLevel:
       type: string
-      enum: [low, medium, high, critical]
+      enum: [read, write, destructive]
+      description: |
+        Risk level of the tool:
+        - read: Read-only operations
+        - write: Modifying operations
+        - destructive: Irreversible or high-impact operations
+
+    Workflow:
+      type: object
+      required: [id, name, project_id, version, status]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        project_id:
+          type: string
+        description:
+          type: string
+        version:
+          type: string
+        status:
+          $ref: '#/components/schemas/WorkflowStatus'
+        definition:
+          type: object
+        max_iterations:
+          type: integer
+          default: 10
+        on_error:
+          type: string
+          enum: [fail, continue]
+          default: fail
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    WorkflowStatus:
+      type: string
+      enum: [draft, active, deprecated, archived]
+
+    CreateWorkflowRequest:
+      type: object
+      required: [name, version, definition]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        version:
+          type: string
+        definition:
+          type: object
+        max_iterations:
+          type: integer
+          default: 10
+        on_error:
+          type: string
+          enum: [fail, continue]
+          default: fail
+
+    WorkflowRun:
+      type: object
+      required: [id, workflow_id, project_id, status]
+      properties:
+        id:
+          type: string
+        workflow_id:
+          type: string
+        project_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/WorkflowRunStatus'
+        input:
+          type: object
+        context:
+          type: object
+        output:
+          type: object
+        error:
+          type: object
+        current_step_id:
+          type: string
+        step_results:
+          type: object
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        tool_calls:
+          type: integer
+        cost_cents:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    WorkflowRunStatus:
+      type: string
+      enum: [created, running, waiting_approval, completed, failed, cancelled]
+
+    CreateWorkflowRunRequest:
+      type: object
+      required: [workflow_id, input]
+      properties:
+        workflow_id:
+          type: string
+        input:
+          type: object
+
+    WorkflowStepExecution:
+      type: object
+      required: [id, workflow_run_id, step_id, step_type, status]
+      properties:
+        id:
+          type: string
+        workflow_run_id:
+          type: string
+        step_id:
+          type: string
+        step_type:
+          $ref: '#/components/schemas/WorkflowStepType'
+        status:
+          $ref: '#/components/schemas/WorkflowStepExecutionStatus'
+        input:
+          type: object
+        output:
+          type: object
+        error:
+          type: object
+        attempt:
+          type: integer
+          default: 1
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    WorkflowStepType:
+      type: string
+      enum: [llm, tool, condition, loop, parallel, approval]
+
+    WorkflowStepExecutionStatus:
+      type: string
+      enum: [pending, running, waiting_approval, completed, failed, skipped, retrying]
+
+    CreateStepExecutionRequest:
+      type: object
+      required: [step_id, step_type, input]
+      properties:
+        step_id:
+          type: string
+        step_type:
+          $ref: '#/components/schemas/WorkflowStepType'
+        input:
+          type: object
+
+    SubmitStepExecutionResultRequest:
+      type: object
+      required: [status]
+      properties:
+        output:
+          type: object
+        status:
+          $ref: '#/components/schemas/WorkflowStepExecutionStatus'
+        error:
+          type: object
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
 
     Error:
       type: object
@@ -488,6 +1369,13 @@ components:
 
     Unauthorized:
       description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Forbidden:
+      description: Forbidden
       content:
         application/json:
           schema:

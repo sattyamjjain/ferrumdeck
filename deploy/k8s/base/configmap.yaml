@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ferrumdeck-config
+  labels:
+    app: ferrumdeck
+data:
+  # Redis configuration
+  redis-queue-prefix: "fd:queue:"
+
+  # Gateway configuration
+  control-plane-url: "http://gateway:8080"
+
+  # Observability
+  otel-endpoint: "http://otel-collector:4317"
+
+  # Default LLM model
+  default-model: "anthropic/claude-sonnet-4-20250514"
+
+  # Environment
+  environment: "production"
+
+---
+# Example Secret (DO NOT commit real secrets!)
+# Use external secrets operator or sealed secrets in production
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ferrumdeck-secrets
+  labels:
+    app: ferrumdeck
+type: Opaque
+stringData:
+  # Database connection (replace with real values or use external secrets)
+  database-url: "postgres://ferrumdeck:CHANGEME@postgres:5432/ferrumdeck?sslmode=require"
+
+  # Redis connection
+  redis-url: "redis://:CHANGEME@redis:6379"
+
+  # LLM API keys
+  anthropic-api-key: "sk-ant-CHANGEME"
+  openai-api-key: ""
+
+---
+# PodDisruptionBudget for gateway
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: gateway
+
+---
+# PodDisruptionBudget for workers
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: worker-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: worker
+
+---
+# ResourceQuota for the namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ferrumdeck-quota
+spec:
+  hard:
+    requests.cpu: "10"
+    requests.memory: 20Gi
+    limits.cpu: "20"
+    limits.memory: 40Gi
+    pods: "50"
+    services: "10"
+    secrets: "20"
+    configmaps: "20"
+
+---
+# LimitRange for default resource constraints
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: ferrumdeck-limits
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      max:
+        cpu: 4000m
+        memory: 8Gi
+      min:
+        cpu: 50m
+        memory: 64Mi

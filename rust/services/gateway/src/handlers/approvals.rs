@@ -7,7 +7,10 @@ use axum::{
 };
 use chrono::Utc;
 use fd_storage::{
-    models::{ApprovalStatus, ResolveApproval, RunStatus, StepStatus, UpdateStep},
+    models::{
+        action, actor, resource, ApprovalStatus, AuditEventBuilder, ResolveApproval, RunStatus,
+        StepStatus, UpdateStep,
+    },
     queue::{JobContext, StepJob},
     QueueMessage,
 };
@@ -115,6 +118,24 @@ pub async fn resolve_approval(
         .await?
         .ok_or_else(|| ApiError::not_found("Approval", &approval_id))?;
 
+    // Check if expired
+    if let Some(expires_at) = approval.expires_at {
+        if Utc::now() > expires_at {
+            // Auto-expire the approval
+            let expiry_resolution = ResolveApproval {
+                status: ApprovalStatus::Expired,
+                resolved_by: "system".to_string(),
+                resolution_note: Some("Approval expired".to_string()),
+            };
+            let _ = repos
+                .policies()
+                .resolve_approval(&approval_id, expiry_resolution)
+                .await;
+
+            return Err(ApiError::bad_request("Approval has expired"));
+        }
+    }
+
     // Check if already resolved
     if approval.status != ApprovalStatus::Pending {
         return Err(ApiError::bad_request(format!(
@@ -133,7 +154,7 @@ pub async fn resolve_approval(
     let resolution = ResolveApproval {
         status,
         resolved_by: auth.api_key_id.clone(),
-        resolution_note: request.note,
+        resolution_note: request.note.clone(),
     };
 
     let updated = repos
@@ -141,6 +162,28 @@ pub async fn resolve_approval(
         .resolve_approval(&approval_id, resolution)
         .await?
         .ok_or_else(|| ApiError::internal("Failed to resolve approval"))?;
+
+    // Audit log the approval decision
+    let audit_action = if request.approved {
+        action::APPROVAL_APPROVED
+    } else {
+        action::APPROVAL_REJECTED
+    };
+    let audit_event = AuditEventBuilder::new(audit_action, resource::APPROVAL)
+        .actor(actor::API_KEY, Some(auth.api_key_id.clone()))
+        .resource_id(&approval_id)
+        .tenant(auth.tenant_id.clone())
+        .run(&approval.run_id)
+        .details(serde_json::json!({
+            "step_id": approval.step_id,
+            "action_type": approval.action_type,
+            "note": request.note,
+        }))
+        .build();
+
+    if let Err(e) = repos.audit().create(audit_event).await {
+        warn!(error = %e, "Failed to log approval audit event");
+    }
 
     // Update the step status based on the decision
     if request.approved {

@@ -18,6 +18,21 @@ pub struct StepCompletionResult {
     pub error: Option<String>,
 }
 
+/// Scheduler state that can be persisted and restored
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SchedulerState {
+    /// Current status of each step
+    pub step_status: HashMap<String, StepStatus>,
+    /// Step outputs (for condition evaluation)
+    pub step_outputs: HashMap<String, serde_json::Value>,
+    /// On-error policy
+    pub on_error: String,
+    /// Max iterations
+    pub max_iterations: u32,
+    /// Current iteration count
+    pub iteration_count: u32,
+}
+
 /// Scheduler for managing workflow DAG execution
 #[derive(Debug)]
 pub struct DagScheduler {
@@ -397,6 +412,37 @@ impl DagScheduler {
     /// Get execution layers (for visualization)
     pub fn execution_layers(&self) -> Vec<Vec<String>> {
         self.dag.execution_layers()
+    }
+
+    /// Save scheduler state for persistence
+    pub fn save_state(&self) -> SchedulerState {
+        SchedulerState {
+            step_status: self.step_status.clone(),
+            step_outputs: self.step_outputs.clone(),
+            on_error: self.on_error.clone(),
+            max_iterations: self.max_iterations,
+            iteration_count: self.iteration_count,
+        }
+    }
+
+    /// Restore scheduler from persisted state
+    pub fn restore_state(&mut self, state: SchedulerState) {
+        self.step_status = state.step_status;
+        self.step_outputs = state.step_outputs;
+        self.on_error = state.on_error;
+        self.iteration_count = state.iteration_count;
+    }
+
+    /// Create a scheduler from a DAG and restore state
+    pub fn from_dag_with_state(dag: WorkflowDag, state: SchedulerState) -> Self {
+        Self {
+            dag,
+            step_status: state.step_status,
+            step_outputs: state.step_outputs,
+            on_error: state.on_error,
+            max_iterations: state.max_iterations,
+            iteration_count: state.iteration_count,
+        }
     }
 }
 

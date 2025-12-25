@@ -109,7 +109,9 @@ test-rust:
 
 test-python:
 	@echo "Running Python tests..."
-	uv run pytest
+	uv sync --quiet
+	uv run pytest python/packages/fd-evals/tests/ -v
+	uv run pytest python/packages/fd-worker/tests/ -v
 
 test-integration:
 	@echo "Running integration tests..."

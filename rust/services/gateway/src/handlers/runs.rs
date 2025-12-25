@@ -7,13 +7,18 @@ use axum::{
     Extension, Json,
 };
 use chrono::Utc;
+use fd_otel::genai::pricing;
+use fd_policy::budget::BudgetUsage;
 use fd_storage::{
-    models::{CreateRun, CreateStep, RunStatus, StepStatus, StepType, UpdateRun, UpdateStep},
+    models::{
+        action, actor, resource, AuditEventBuilder, CreateRun, CreateStep, RunStatus, StepStatus,
+        StepType, UpdateRun, UpdateStep,
+    },
     queue::{JobContext, StepJob},
     QueueMessage,
 };
 use serde::{Deserialize, Serialize};
-use tracing::instrument;
+use tracing::{info, instrument, warn};
 use ulid::Ulid;
 
 use crate::handlers::ApiError;
@@ -143,7 +148,7 @@ fn step_to_response(step: fd_storage::models::Step) -> StepResponse {
 // =============================================================================
 
 /// Create a new run
-#[instrument(skip(state, auth))]
+#[instrument(skip(state, auth), fields(run_id, agent_id = %request.agent_id))]
 pub async fn create_run(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
@@ -172,8 +177,18 @@ pub async fn create_run(
             .ok_or_else(|| ApiError::bad_request("Agent has no versions"))?,
     };
 
+    // Check initial budget (ensure we're starting with empty budget)
+    let initial_usage = BudgetUsage::default();
+    let budget_decision = state.policy_engine.check_budget(&initial_usage, None);
+    if budget_decision.is_denied() {
+        warn!(reason = %budget_decision.reason, "Initial budget check failed");
+        return Err(ApiError::budget_exceeded(&budget_decision.reason));
+    }
+
     // Create the run
     let run_id = format!("run_{}", Ulid::new());
+    tracing::Span::current().record("run_id", &run_id);
+
     let create_run = CreateRun {
         id: run_id.clone(),
         project_id: agent.project_id.clone(),
@@ -185,6 +200,22 @@ pub async fn create_run(
     };
 
     let run = repos.runs().create(create_run).await?;
+
+    // Audit: Run created
+    let audit_event = AuditEventBuilder::new(action::RUN_CREATED, resource::RUN)
+        .actor(actor::API_KEY, Some(auth.api_key_id.clone()))
+        .resource_id(&run_id)
+        .tenant(auth.tenant_id.clone())
+        .project(&agent.project_id)
+        .run(&run_id)
+        .details(serde_json::json!({
+            "agent_id": request.agent_id,
+            "agent_version_id": agent_version.id,
+        }))
+        .build();
+    if let Err(e) = repos.audit().create(audit_event).await {
+        warn!(error = %e, "Failed to create audit event for run creation");
+    }
 
     // Create the initial LLM step
     let step_id = format!("stp_{}", Ulid::new());
@@ -231,6 +262,8 @@ pub async fn create_run(
     let message = QueueMessage::new(&step_id, job);
     state.enqueue_step(&message).await?;
 
+    info!(run_id = %run_id, "Run created and queued");
+
     Ok((StatusCode::CREATED, Json(run_to_response(run))))
 }
 
@@ -276,10 +309,10 @@ pub async fn list_runs(
 }
 
 /// Cancel a run
-#[instrument(skip(state, _auth))]
+#[instrument(skip(state, auth), fields(run_id = %run_id))]
 pub async fn cancel_run(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthContext>,
+    Extension(auth): Extension<AuthContext>,
     Path(run_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let repos = state.repos();
@@ -311,6 +344,23 @@ pub async fn cancel_run(
         .await?
         .ok_or_else(|| ApiError::internal("Failed to update run"))?;
 
+    // Audit: Run cancelled
+    let audit_event = AuditEventBuilder::new(action::RUN_CANCELLED, resource::RUN)
+        .actor(actor::API_KEY, Some(auth.api_key_id.clone()))
+        .resource_id(&run_id)
+        .tenant(auth.tenant_id)
+        .project(&run.project_id)
+        .run(&run_id)
+        .details(serde_json::json!({
+            "previous_status": format!("{:?}", run.status),
+        }))
+        .build();
+    if let Err(e) = repos.audit().create(audit_event).await {
+        warn!(error = %e, "Failed to create audit event for run cancellation");
+    }
+
+    info!(run_id = %run_id, "Run cancelled by user");
+
     Ok(Json(run_to_response(updated)))
 }
 
@@ -336,7 +386,7 @@ pub async fn list_steps(
 }
 
 /// Submit step result (from worker)
-#[instrument(skip(state, _auth))]
+#[instrument(skip(state, _auth), fields(run_id = %run_id, step_id = %step_id))]
 pub async fn submit_step_result(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthContext>,
@@ -345,7 +395,7 @@ pub async fn submit_step_result(
 ) -> Result<impl IntoResponse, ApiError> {
     let repos = state.repos();
 
-    let _run = repos
+    let run = repos
         .runs()
         .get(&run_id)
         .await?
@@ -370,8 +420,8 @@ pub async fn submit_step_result(
 
     let update = UpdateStep {
         status: Some(status),
-        output: request.output,
-        error: request.error,
+        output: request.output.clone(),
+        error: request.error.clone(),
         input_tokens: request.input_tokens,
         output_tokens: request.output_tokens,
         completed_at: Some(Utc::now()),
@@ -384,11 +434,95 @@ pub async fn submit_step_result(
         .await?
         .ok_or_else(|| ApiError::internal("Failed to update step"))?;
 
-    if let (Some(in_tokens), Some(out_tokens)) = (request.input_tokens, request.output_tokens) {
+    // Update token usage and calculate cost
+    let (new_input_tokens, new_output_tokens, step_cost_cents) =
+        match (request.input_tokens, request.output_tokens) {
+            (Some(in_tokens), Some(out_tokens)) => {
+                // Calculate cost based on model (from step)
+                let model = step.model.as_deref().unwrap_or("gpt-4o");
+                let cost = pricing::calculate_cost_cents(model, in_tokens as u64, out_tokens as u64);
+
+                // Update run with tokens and cost
+                repos
+                    .runs()
+                    .increment_usage(&run_id, in_tokens, out_tokens, 0, cost as i32)
+                    .await?;
+                (in_tokens, out_tokens, cost)
+            }
+            _ => (0, 0, 0),
+        };
+
+    // Audit: Step completed/failed
+    let audit_action = match status {
+        StepStatus::Completed => action::STEP_COMPLETED,
+        StepStatus::Failed => action::STEP_FAILED,
+        _ => action::STEP_STARTED, // For WaitingApproval, use a neutral action
+    };
+    let audit_event = AuditEventBuilder::new(audit_action, resource::STEP)
+        .actor(actor::SYSTEM, None)
+        .resource_id(&step_id)
+        .run(&run_id)
+        .project(&run.project_id)
+        .details(serde_json::json!({
+            "step_type": format!("{:?}", step.step_type),
+            "tool_name": step.tool_name,
+            "model": step.model,
+            "input_tokens": new_input_tokens,
+            "output_tokens": new_output_tokens,
+            "cost_cents": step_cost_cents,
+        }))
+        .build();
+    if let Err(e) = repos.audit().create(audit_event).await {
+        warn!(error = %e, "Failed to create audit event for step completion");
+    }
+
+    // Check budget after step completion
+    let updated_run = repos.runs().get(&run_id).await?.unwrap();
+    let usage = BudgetUsage {
+        input_tokens: updated_run.input_tokens as u64,
+        output_tokens: updated_run.output_tokens as u64,
+        tool_calls: updated_run.tool_calls as u32,
+        wall_time_ms: 0, // TODO: Calculate from created_at to now
+        cost_cents: updated_run.cost_cents as u64,
+    };
+
+    let budget_decision = state.policy_engine.check_budget(&usage, None);
+
+    if budget_decision.is_denied() {
+        warn!(
+            run_id = %run_id,
+            reason = %budget_decision.reason,
+            "Budget exceeded, killing run"
+        );
+
+        // Audit: Budget exceeded
+        let audit_event = AuditEventBuilder::new("budget.exceeded", resource::RUN)
+            .actor(actor::SYSTEM, None)
+            .resource_id(&run_id)
+            .run(&run_id)
+            .project(&run.project_id)
+            .details(serde_json::json!({
+                "reason": budget_decision.reason,
+                "usage": usage,
+            }))
+            .build();
+        let _ = repos.audit().create(audit_event).await;
+
         repos
             .runs()
-            .increment_usage(&run_id, in_tokens, out_tokens, 0, 0)
+            .update(
+                &run_id,
+                UpdateRun {
+                    status: Some(RunStatus::BudgetKilled),
+                    status_reason: Some(budget_decision.reason.clone()),
+                    completed_at: Some(Utc::now()),
+                    ..Default::default()
+                },
+            )
             .await?;
+
+        // Return the step result, but the run is now killed
+        return Ok(Json(step_to_response(updated_step)));
     }
 
     // Check if run is complete
@@ -407,6 +541,23 @@ pub async fn submit_step_result(
                 },
             )
             .await?;
+
+        // Audit: Run completed
+        let audit_event = AuditEventBuilder::new(action::RUN_COMPLETED, resource::RUN)
+            .actor(actor::SYSTEM, None)
+            .resource_id(&run_id)
+            .run(&run_id)
+            .project(&run.project_id)
+            .details(serde_json::json!({
+                "input_tokens": updated_run.input_tokens,
+                "output_tokens": updated_run.output_tokens,
+                "tool_calls": updated_run.tool_calls,
+                "cost_cents": updated_run.cost_cents,
+            }))
+            .build();
+        let _ = repos.audit().create(audit_event).await;
+
+        info!(run_id = %run_id, "Run completed successfully");
     } else if status == StepStatus::Failed {
         repos
             .runs()
@@ -421,12 +572,121 @@ pub async fn submit_step_result(
                 },
             )
             .await?;
+
+        // Audit: Run failed
+        let audit_event = AuditEventBuilder::new(action::RUN_FAILED, resource::RUN)
+            .actor(actor::SYSTEM, None)
+            .resource_id(&run_id)
+            .run(&run_id)
+            .project(&run.project_id)
+            .details(serde_json::json!({
+                "step_id": step_id,
+                "error": updated_step.error,
+            }))
+            .build();
+        let _ = repos.audit().create(audit_event).await;
+
+        warn!(run_id = %run_id, step_id = %step_id, "Run failed due to step failure");
     } else if status == StepStatus::WaitingApproval {
         repos
             .runs()
             .update_status(&run_id, RunStatus::WaitingApproval, None)
             .await?;
+
+        info!(run_id = %run_id, step_id = %step_id, "Run waiting for approval");
     }
 
     Ok(Json(step_to_response(updated_step)))
+}
+
+// =============================================================================
+// Tool Policy Check
+// =============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct CheckToolRequest {
+    pub tool_name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CheckToolResponse {
+    pub allowed: bool,
+    pub requires_approval: bool,
+    pub decision_id: String,
+    pub reason: String,
+}
+
+/// Check if a tool call is allowed by policy
+/// Workers should call this before executing tool steps
+#[instrument(skip(state, _auth), fields(run_id = %run_id, tool_name = %request.tool_name))]
+pub async fn check_tool_policy(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(run_id): Path<String>,
+    Json(request): Json<CheckToolRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let repos = state.repos();
+
+    let run = repos
+        .runs()
+        .get(&run_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Run", &run_id))?;
+
+    // Check tool against policy
+    let decision = state.policy_engine.evaluate_tool_call(&request.tool_name);
+
+    // Audit the policy decision
+    let audit_action = if decision.is_allowed() {
+        action::POLICY_ALLOWED
+    } else if decision.needs_approval() {
+        action::POLICY_APPROVAL_REQUIRED
+    } else {
+        action::POLICY_DENIED
+    };
+
+    let audit_event = AuditEventBuilder::new(audit_action, resource::RUN)
+        .actor(actor::SYSTEM, None)
+        .resource_id(&run_id)
+        .run(&run_id)
+        .project(&run.project_id)
+        .details(serde_json::json!({
+            "tool_name": request.tool_name,
+            "decision": format!("{:?}", decision.kind),
+            "reason": decision.reason,
+        }))
+        .build();
+    if let Err(e) = repos.audit().create(audit_event).await {
+        warn!(error = %e, "Failed to create audit event for policy decision");
+    }
+
+    // If denied, update run status to PolicyBlocked
+    if decision.is_denied() {
+        warn!(
+            run_id = %run_id,
+            tool_name = %request.tool_name,
+            reason = %decision.reason,
+            "Tool call blocked by policy"
+        );
+
+        repos
+            .runs()
+            .update(
+                &run_id,
+                UpdateRun {
+                    status: Some(RunStatus::PolicyBlocked),
+                    status_reason: Some(decision.reason.clone()),
+                    completed_at: Some(Utc::now()),
+                    ..Default::default()
+                },
+            )
+            .await?;
+    }
+
+    Ok(Json(CheckToolResponse {
+        allowed: decision.is_allowed(),
+        requires_approval: decision.needs_approval(),
+        decision_id: decision.id.to_string(),
+        reason: decision.reason,
+    }))
 }

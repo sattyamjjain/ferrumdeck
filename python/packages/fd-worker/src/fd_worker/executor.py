@@ -169,7 +169,7 @@ class StepExecutor:
                 span.set_attribute("step.status", "policy_denied")
 
             except ValueError as e:
-                # Tool requires approval
+                # Tool requires approval or validation error
                 if "requires approval" in str(e).lower():
                     logger.info(f"Step {step_id} requires approval: {e}")
                     await self.client.submit_step_result(
@@ -180,7 +180,15 @@ class StepExecutor:
                     )
                     span.set_attribute("step.status", "requires_approval")
                 else:
-                    raise
+                    # Validation or input error
+                    logger.warning(f"Step {step_id} validation error: {e}")
+                    await self.client.submit_step_result(
+                        run_id=run_id,
+                        step_id=step_id,
+                        output={"error": str(e)},
+                        status=StepStatus.FAILED,
+                    )
+                    span.set_attribute("step.status", "failed")
 
             except Exception as e:
                 logger.exception(f"Step {step_id} failed")

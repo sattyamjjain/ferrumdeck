@@ -8,7 +8,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.80"
 license = "Apache-2.0"
 repository = "https://github.com/ferrumdeck/ferrumdeck"
 
@@ -22,7 +22,7 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "request-id", "timeout"] }
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -57,6 +57,9 @@ redis = { version = "0.27", features = ["tokio-comp", "streams"] }
 
 # Crypto
 sha2 = "0.10"
+
+# Regex
+regex = "1.11"
 jsonwebtoken = "9.3"
 base64 = "0.22"
 

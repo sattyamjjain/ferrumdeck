@@ -26,6 +26,10 @@ pub fn build_router(state: AppState) -> Router {
                     "/runs/{run_id}/steps/{step_id}",
                     post(handlers::runs::submit_step_result),
                 )
+                .route(
+                    "/runs/{run_id}/check-tool",
+                    post(handlers::runs::check_tool_policy),
+                )
                 // Approvals
                 .route(
                     "/approvals",

@@ -32,6 +32,7 @@ dev = [
     "pre-commit>=4.0",
     "fd-evals",
     "fd-runtime",
+    "fd-worker",
 ]
 
 [tool.ruff]

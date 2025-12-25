@@ -1,0 +1,254 @@
+# FerrumDeck Production Docker Compose
+#
+# This configuration is designed for production deployments with:
+# - Resource limits
+# - Restart policies
+# - Log driver configuration
+# - External secrets references
+# - Network isolation
+#
+# Usage:
+#   docker compose -f compose.prod.yaml up -d
+#
+# Prerequisites:
+#   - External PostgreSQL (or managed database)
+#   - External Redis (or managed cache)
+#   - TLS certificates
+#   - External secrets management
+
+services:
+  # =============================================================================
+  # Gateway - Rust Control Plane API
+  # =============================================================================
+  gateway:
+    image: ${GATEWAY_IMAGE:-ghcr.io/ferrumdeck/gateway:latest}
+    container_name: fd-gateway
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    environment:
+      # Database (use external managed database in production)
+      DATABASE_URL: ${DATABASE_URL}
+
+      # Redis (use external managed cache in production)
+      REDIS_URL: ${REDIS_URL}
+      REDIS_QUEUE_PREFIX: ${REDIS_QUEUE_PREFIX:-fd:queue:}
+
+      # Server configuration
+      GATEWAY_HOST: "0.0.0.0"
+      GATEWAY_PORT: "8080"
+
+      # Logging
+      RUST_LOG: ${RUST_LOG:-info}
+
+      # Telemetry
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_ENDPOINT:-http://otel-collector:4317}
+      OTEL_SERVICE_NAME: ferrumdeck-gateway
+
+      # Migrations (disable if using external migration runner)
+      RUN_MIGRATIONS: ${RUN_MIGRATIONS:-false}
+
+      # Security (OAuth2 configuration)
+      OAUTH2_ENABLED: ${OAUTH2_ENABLED:-false}
+      OAUTH2_ISSUER: ${OAUTH2_ISSUER:-}
+      OAUTH2_AUDIENCE: ${OAUTH2_AUDIENCE:-}
+      OAUTH2_JWKS_URL: ${OAUTH2_JWKS_URL:-}
+
+    deploy:
+      mode: replicated
+      replicas: ${GATEWAY_REPLICAS:-2}
+      resources:
+        limits:
+          cpus: "${GATEWAY_CPU_LIMIT:-2}"
+          memory: ${GATEWAY_MEMORY_LIMIT:-1G}
+        reservations:
+          cpus: "${GATEWAY_CPU_RESERVATION:-0.5}"
+          memory: ${GATEWAY_MEMORY_RESERVATION:-256M}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        labels: "service,environment"
+
+    labels:
+      - "service=gateway"
+      - "environment=${ENVIRONMENT:-production}"
+
+    networks:
+      - ferrumdeck
+      - public
+
+    secrets:
+      - db_password
+      - redis_password
+
+  # =============================================================================
+  # Worker - Python Agent Executor
+  # =============================================================================
+  worker:
+    image: ${WORKER_IMAGE:-ghcr.io/ferrumdeck/worker:latest}
+    restart: unless-stopped
+    environment:
+      # Control plane connection
+      FD_CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:-http://gateway:8080}
+
+      # Redis
+      REDIS_URL: ${REDIS_URL}
+
+      # LLM Configuration
+      LITELLM_MODEL: ${LITELLM_MODEL:-anthropic/claude-sonnet-4-20250514}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+      # Telemetry
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_ENDPOINT:-http://otel-collector:4317}
+      OTEL_SERVICE_NAME: ferrumdeck-worker
+
+      # Worker configuration
+      WORKER_MAX_RETRIES: ${WORKER_MAX_RETRIES:-3}
+      WORKER_RETRY_DELAY_MS: ${WORKER_RETRY_DELAY_MS:-1000}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+
+      # Sandbox configuration
+      SANDBOX_MODE: ${SANDBOX_MODE:-docker}
+
+      # Python settings
+      PYTHONUNBUFFERED: "1"
+
+    deploy:
+      mode: replicated
+      replicas: ${WORKER_REPLICAS:-3}
+      resources:
+        limits:
+          cpus: "${WORKER_CPU_LIMIT:-2}"
+          memory: ${WORKER_MEMORY_LIMIT:-2G}
+        reservations:
+          cpus: "${WORKER_CPU_RESERVATION:-0.5}"
+          memory: ${WORKER_MEMORY_RESERVATION:-512M}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: rollback
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        labels: "service,environment"
+
+    labels:
+      - "service=worker"
+      - "environment=${ENVIRONMENT:-production}"
+
+    networks:
+      - ferrumdeck
+
+    secrets:
+      - anthropic_api_key
+      - openai_api_key
+
+  # =============================================================================
+  # OpenTelemetry Collector (optional - can use external collector)
+  # =============================================================================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    restart: unless-stopped
+    profiles:
+      - observability
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus exporter
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+    command: ["--config=/etc/otelcol/config.yaml"]
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+    networks:
+      - ferrumdeck
+
+networks:
+  ferrumdeck:
+    driver: bridge
+    internal: true
+  public:
+    driver: bridge
+
+secrets:
+  db_password:
+    external: true
+  redis_password:
+    external: true
+  anthropic_api_key:
+    external: true
+  openai_api_key:
+    external: true
+
+# =============================================================================
+# Example .env file for production:
+# =============================================================================
+# ENVIRONMENT=production
+# GATEWAY_IMAGE=ghcr.io/ferrumdeck/gateway:v1.0.0
+# WORKER_IMAGE=ghcr.io/ferrumdeck/worker:v1.0.0
+# DATABASE_URL=postgres://user:pass@db.example.com:5432/ferrumdeck?sslmode=require
+# REDIS_URL=redis://:password@redis.example.com:6379
+# OTEL_ENDPOINT=https://otel.example.com:4317
+# GATEWAY_REPLICAS=3
+# WORKER_REPLICAS=5
+# ANTHROPIC_API_KEY=sk-ant-xxx
+# =============================================================================

@@ -19,7 +19,6 @@ pub struct AppState {
     pub db: DbPool,
 
     /// Policy engine for authorization
-    #[allow(dead_code)]
     pub policy_engine: Arc<PolicyEngine>,
 
     /// Queue client for job publishing
@@ -29,7 +28,6 @@ pub struct AppState {
     pub rate_limiter: RateLimiter,
 
     /// OAuth2/JWT validator (None if disabled)
-    #[allow(dead_code)]
     pub oauth2_validator: Option<Arc<OAuth2Validator>>,
 
     /// Repositories (lazy-initialized from db pool)
@@ -72,7 +70,6 @@ impl Repos {
         ApiKeysRepo::new(self.db.clone())
     }
 
-    #[allow(dead_code)]
     pub fn audit(&self) -> AuditRepo {
         AuditRepo::new(self.db.clone())
     }
@@ -97,6 +94,13 @@ impl AppState {
 
         // Create database pool
         let db = fd_storage::pool::create_pool(&database_url, 20, 5).await?;
+
+        // Run database migrations
+        if std::env::var("RUN_MIGRATIONS").unwrap_or_else(|_| "true".to_string()) == "true" {
+            fd_storage::run_migrations(&db)
+                .await
+                .map_err(|e| anyhow::anyhow!("Migration failed: {}", e))?;
+        }
 
         // Create queue client
         let mut queue = QueueClient::new(&redis_url, &redis_prefix).await?;
