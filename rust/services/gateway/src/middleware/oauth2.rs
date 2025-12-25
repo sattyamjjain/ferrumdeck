@@ -15,10 +15,8 @@
 //! - OAUTH2_TENANT_CLAIM: Claim name for tenant ID (default: "tenant_id")
 //! - OAUTH2_SCOPE_CLAIM: Claim name for scopes (default: "scope")
 //!
-//! Note: This module is implemented but not yet wired into the route stack.
-//! It will be enabled via configuration in a future phase.
-
-#![allow(dead_code)]
+//! Note: OAuth2 authentication is integrated into the auth_middleware.
+//! Enable it by setting OAUTH2_ENABLED=true with appropriate configuration.
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -42,30 +42,6 @@ stringData:
   openai-api-key: ""
 
 ---
-# PodDisruptionBudget for gateway
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: gateway-pdb
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: gateway
-
----
-# PodDisruptionBudget for workers
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: worker-pdb
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: worker
-
----
 # ResourceQuota for the namespace
 apiVersion: v1
 kind: ResourceQuota

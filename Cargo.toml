@@ -63,6 +63,9 @@ regex = "1.11"
 jsonwebtoken = "9.3"
 base64 = "0.22"
 
+# Decimal precision for financial calculations
+rust_decimal = { version = "1.36", features = ["serde"] }
+
 # Testing
 tokio-test = "0.4"
 fake = { version = "3.0", features = ["derive"] }

@@ -1,0 +1,77 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Staging environment overlay for FerrumDeck
+# Deploy: kubectl apply -k deploy/k8s/overlays/staging
+
+namespace: ferrumdeck-staging
+
+resources:
+  - ../../base
+  - ingress.yaml
+  - hpa.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/env: staging
+    includeSelectors: true
+
+images:
+  - name: ghcr.io/ferrumdeck/gateway
+    newTag: staging
+  - name: ghcr.io/ferrumdeck/worker
+    newTag: staging
+
+replicas:
+  - name: gateway
+    count: 2
+  - name: worker
+    count: 3
+
+patches:
+  # Resource limits for staging
+  - target:
+      kind: Deployment
+      name: gateway
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+  - target:
+      kind: Deployment
+      name: worker
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+
+configMapGenerator:
+  - name: ferrumdeck-config
+    behavior: merge
+    literals:
+      - LOG_LEVEL=debug
+      - ENVIRONMENT=staging
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.observability:4317
+      - REDIS_URL=redis://redis-staging:6379
+      - DATABASE_URL=postgres://postgres:staging-password@postgres-staging:5432/ferrumdeck_staging
+
+secretGenerator:
+  - name: ferrumdeck-secrets
+    behavior: merge
+    type: Opaque
+    literals:
+      - API_KEY_SALT=staging-salt-change-me
+    # In practice, use external-secrets or sealed-secrets:
+    # - ANTHROPIC_API_KEY from AWS Secrets Manager / Vault

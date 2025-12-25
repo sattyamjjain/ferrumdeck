@@ -1,155 +1,159 @@
 # Runbook: Worker Failure Recovery
 
 ## Overview
-This runbook covers recovery procedures when Python workers fail or become unresponsive.
 
-## Failure Scenarios
+Workers process step execution jobs from Redis Streams. This runbook covers recovery procedures when workers fail or become unresponsive.
 
-### 1. Worker Process Crash
-**Symptoms:**
-- Container restarts in Kubernetes
-- Jobs stuck in "running" state
-- Redis consumer group has pending messages
+## Symptoms
 
-**Recovery:**
+- Runs stuck in RUNNING status
+- Step queue depth increasing
+- Worker pods in CrashLoopBackOff
+- LLM/tool calls not completing
+
+## Immediate Actions
+
+### 1. Assess Scope
+
 ```bash
-# Check worker status
-kubectl get pods -l app=worker -n ferrumdeck
+# Check worker pod status
+kubectl get pods -n ferrumdeck-prod -l app.kubernetes.io/name=worker
 
-# Check for crash loops
-kubectl describe pod <worker-pod> -n ferrumdeck
+# Check queue depth
+redis-cli -h redis-prod-master XLEN fd:step_queue
 
-# Check logs
-kubectl logs <worker-pod> -n ferrumdeck --previous
+# Check pending messages (claimed but not acked)
+redis-cli -h redis-prod-master XPENDING fd:step_queue workers
 ```
 
-### 2. Worker Hung (Deadlock)
-**Symptoms:**
-- Worker process running but not processing jobs
-- CPU usage near 0%
-- Increasing queue depth
+### 2. Check Worker Logs
 
-**Recovery:**
 ```bash
-# Kill hung worker (Kubernetes will restart)
-kubectl delete pod <worker-pod> -n ferrumdeck
+# Recent logs from all workers
+kubectl logs -n ferrumdeck-prod -l app.kubernetes.io/name=worker --tail=100
 
-# Verify replacement starts
-kubectl get pods -l app=worker -n ferrumdeck -w
+# Logs from specific failing worker
+kubectl logs -n ferrumdeck-prod <pod-name> --previous
 ```
 
-### 3. LLM Provider Outage
-**Symptoms:**
-- All LLM steps failing
-- Errors mention timeout or API errors
-- Other providers may work
+### 3. Common Failure Causes
 
-**Recovery:**
-1. Check provider status page
-2. Consider failover to backup provider
-3. Update `LITELLM_MODEL` if needed
+| Symptom | Likely Cause | Action |
+|---------|--------------|--------|
+| OOMKilled | Memory exhaustion | Increase memory limit |
+| CrashLoopBackOff | Code error or config issue | Check logs, rollback |
+| Pending | Insufficient resources | Scale nodes or reduce requests |
+| LLM timeout | API provider issues | Check provider status, retry |
+
+## Recovery Procedures
+
+### Restart Workers
 
 ```bash
-# Switch to backup model
-kubectl set env deployment/worker \
-  LITELLM_MODEL=anthropic/claude-sonnet-4-20250514 \
-  -n ferrumdeck
+# Rolling restart (zero downtime)
+kubectl rollout restart deployment/worker -n ferrumdeck-prod
+
+# Force delete stuck pods
+kubectl delete pods -n ferrumdeck-prod -l app.kubernetes.io/name=worker --force --grace-period=0
 ```
 
-### 4. MCP Server Unavailable
-**Symptoms:**
-- Tool steps failing
-- Errors mention connection refused
-- LLM steps still work
+### Reclaim Stuck Jobs
 
-**Recovery:**
+If workers crash mid-job, messages become "pending" in Redis. Reclaim them:
+
 ```bash
-# Check MCP server health
-curl http://mcp-server:3000/health
+# View pending messages older than 60 seconds
+redis-cli -h redis-prod-master XPENDING fd:step_queue workers - + 100
 
-# Restart MCP server if needed
-kubectl rollout restart deployment mcp-server -n ferrumdeck
-
-# Workers will automatically reconnect
+# Claim idle messages (transfers to new consumer)
+redis-cli -h redis-prod-master XCLAIM fd:step_queue workers worker-recovery 60000 <message-id>
 ```
 
-## Redis Queue Recovery
+Automated recovery script:
 
-### Check Pending Messages
 ```bash
-# Connect to Redis
-redis-cli -h redis-host
+#!/bin/bash
+# recover-stuck-jobs.sh
 
-# List pending messages
-XPENDING fd:queue:steps workers
+IDLE_TIME_MS=60000  # 60 seconds
 
-# Get details of stuck messages
-XPENDING fd:queue:steps workers - + 10
+# Get pending message IDs older than threshold
+PENDING=$(redis-cli -h redis-prod-master XPENDING fd:step_queue workers - + 1000 | \
+  awk -v idle=$IDLE_TIME_MS '$3 > idle {print $1}')
+
+for MSG_ID in $PENDING; do
+  echo "Reclaiming $MSG_ID"
+  redis-cli -h redis-prod-master XCLAIM fd:step_queue workers recovery $IDLE_TIME_MS $MSG_ID
+done
 ```
 
-### Claim Abandoned Messages
-Messages older than 5 minutes with no ACK can be reclaimed:
+### Cancel Stuck Runs
+
+If runs cannot be recovered, cancel them:
 
 ```bash
-# Claim old messages for reprocessing
-XAUTOCLAIM fd:queue:steps workers new-worker 300000 0-0 COUNT 10
+# Via API
+curl -X POST https://api.ferrumdeck.com/v1/runs/{run_id}/cancel \
+  -H "Authorization: Bearer $API_KEY"
+
+# Direct database update (emergency only)
+psql -h postgres-prod -d ferrumdeck -c \
+  "UPDATE runs SET status='FAILED', error='Worker recovery - manual cancellation' WHERE id='<run_id>'"
 ```
 
 ### Dead Letter Queue
-For messages that repeatedly fail:
+
+After multiple retries, move to DLQ:
 
 ```bash
-# Move to DLQ after 3 failures
-XADD fd:queue:dlq * job_id <id> error "Max retries exceeded"
+# Check DLQ
+redis-cli -h redis-prod-master XLEN fd:step_dlq
 
-# Acknowledge original message
-XACK fd:queue:steps workers <message-id>
+# View DLQ messages
+redis-cli -h redis-prod-master XRANGE fd:step_dlq - + COUNT 10
+
+# Reprocess DLQ message (after fixing issue)
+redis-cli -h redis-prod-master XADD fd:step_queue * <field> <value> ...
 ```
 
-## Stuck Runs Recovery
+## Scaling for Recovery
 
-### Find Stuck Runs
-```sql
--- Runs stuck in 'running' for over 30 minutes
-SELECT id, status, started_at, agent_version_id
-FROM runs
-WHERE status = 'running'
-  AND started_at < NOW() - INTERVAL '30 minutes';
-```
-
-### Fail Stuck Runs
-```sql
--- Mark as failed with explanation
-UPDATE runs
-SET status = 'failed',
-    error = '{"code": "WORKER_TIMEOUT", "message": "Worker did not respond"}'::jsonb,
-    completed_at = NOW()
-WHERE id = 'run_xxx';
-```
-
-### Retry Stuck Steps
-```bash
-# Re-enqueue step (via API)
-curl -X POST http://gateway:8080/v1/runs/<run_id>/steps/<step_id>/retry \
-  -H "Authorization: Bearer $API_KEY"
-```
-
-## Worker Scaling for Recovery
-
-If workers are overwhelmed:
+If backlog is large:
 
 ```bash
-# Scale up workers
-kubectl scale deployment worker -n ferrumdeck --replicas=10
+# Temporarily scale up workers
+kubectl scale deployment worker -n ferrumdeck-prod --replicas=20
 
 # Monitor queue drain
-watch -n 5 'redis-cli XLEN fd:queue:steps'
+watch "redis-cli -h redis-prod-master XLEN fd:step_queue"
+
+# Scale back down after recovery
+kubectl scale deployment worker -n ferrumdeck-prod --replicas=5
 ```
 
-## Post-Recovery Checklist
-- [ ] All workers healthy and processing
-- [ ] Queue depth returning to normal
-- [ ] No runs stuck in invalid states
-- [ ] Alerting confirmed working
-- [ ] Root cause documented
-- [ ] Preventive measures identified
+## Post-Incident
+
+1. **Root Cause Analysis**
+   - Review logs and traces from incident period
+   - Identify trigger (deploy, load spike, external dependency)
+
+2. **Update Monitoring**
+   - Add alerts for symptoms observed
+   - Improve dashboards if visibility was lacking
+
+3. **Document**
+   - Add to incident log
+   - Update this runbook if needed
+
+## Prevention
+
+- Set appropriate resource limits
+- Configure liveness/readiness probes
+- Implement circuit breakers for external APIs
+- Monitor queue depth and alert on growth
+- Regular chaos testing
+
+## Related Runbooks
+
+- [Gateway Scaling](gateway-scaling.md)
+- [Incident Response](incident-response.md)

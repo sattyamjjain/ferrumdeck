@@ -25,6 +25,10 @@ serde_json = { workspace = true }
 # IDs
 ulid = { workspace = true }
 chrono = { workspace = true }
+uuid = { workspace = true }
+
+# Decimal precision
+rust_decimal = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true }

@@ -1,0 +1,139 @@
+# Safe PR Agent Configuration
+#
+# This agent can:
+# - Clone and work with git repositories
+# - Read/write files via GitHub API
+# - Create pull requests
+# - Run tests and linting
+#
+# MCP Servers used:
+# - fd-mcp-git: Local git operations (clone, commit, push, etc.)
+# - github-mcp-server: GitHub API operations (create PR, list files, etc.)
+# - fd-mcp-test-runner: Run tests and linting
+
+name: safe-pr-agent
+version: "1.0.0"
+description: |
+  Safe PR Agent - Autonomous code modification with guardrails.
+
+  Can read repositories, make changes, run tests, and create pull requests.
+  All write operations require approval by default.
+
+model: claude-sonnet-4-20250514
+model_params:
+  temperature: 0.1
+  max_tokens: 8192
+
+system_prompt: |
+  You are a Safe PR Agent that helps developers by making code changes and creating pull requests.
+
+  ## Your Capabilities
+  - Clone and read git repositories
+  - Understand code structure and dependencies
+  - Make targeted code modifications
+  - Run tests to verify changes work
+  - Create well-documented pull requests
+
+  ## Your Constraints
+  - Always run tests after making changes
+  - Never commit broken code
+  - Write clear, descriptive commit messages
+  - Create focused PRs that address one issue at a time
+  - Request approval before destructive operations
+
+  ## Workflow
+  1. Understand the task and requirements
+  2. Clone or read the repository
+  3. Analyze existing code structure
+  4. Plan your changes
+  5. Implement changes incrementally
+  6. Run tests and linting
+  7. Fix any issues
+  8. Create a pull request with clear description
+
+  Be methodical and thorough. Ask for clarification if the task is ambiguous.
+
+# Budget limits for safety
+budget:
+  max_input_tokens: 100000
+  max_output_tokens: 50000
+  max_tool_calls: 50
+  max_wall_time_secs: 300  # 5 minutes
+  max_cost_cents: 500      # $5
+
+# MCP Server configurations
+mcp_servers:
+  # Local git operations
+  - name: fd-git
+    command: fd-mcp-git
+    env:
+      FD_WORKSPACE_DIR: /tmp/fd-workspace
+
+  # Official GitHub MCP server
+  # https://github.com/github/github-mcp-server
+  - name: github
+    command: npx
+    args: ["-y", "@anthropic-ai/github-mcp-server"]
+    env:
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"
+
+  # Test runner
+  - name: fd-test-runner
+    command: fd-mcp-test-runner
+    env:
+      FD_WORKSPACE_DIR: /tmp/fd-workspace
+      FD_TEST_TIMEOUT: "300"
+
+# Tool allowlist with risk classification
+tool_allowlist:
+  # Read operations - always allowed
+  allowed:
+    # Git read operations
+    - git_status
+    - git_diff
+    - git_log
+    - git_branch
+
+    # GitHub read operations (from official MCP)
+    - get_file_contents
+    - search_repositories
+    - list_commits
+    - get_issue
+    - list_issues
+    - search_code
+    - get_pull_request
+    - list_pull_requests
+
+    # Test read operations
+    - check_lint
+    - check_types
+
+  # Write operations - require approval
+  approval_required:
+    # Git write operations
+    - git_clone
+    - git_add
+    - git_commit
+    - git_push
+    - git_checkout
+
+    # GitHub write operations
+    - create_or_update_file
+    - create_pull_request
+    - create_issue
+    - add_issue_comment
+    - create_branch
+    - push_files
+
+    # Test operations that might modify
+    - run_pytest
+    - run_jest
+    - run_cargo_test
+    - run_generic
+
+  # Dangerous operations - always denied
+  denied:
+    - delete_repository
+    - delete_branch
+    - merge_pull_request  # Human should merge
+    - update_pull_request  # Be explicit about changes

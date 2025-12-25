@@ -83,22 +83,60 @@ fn approval_to_response(approval: fd_storage::models::ApprovalRequest) -> Approv
 // =============================================================================
 
 /// List pending approval requests
+///
+/// This handler also checks for and auto-expires any approvals past their expiry time.
 #[instrument(skip(state, _auth))]
 pub async fn list_pending_approvals(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthContext>,
     Query(query): Query<ListApprovalsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let approvals = state
-        .repos()
+    let repos = state.repos();
+    let all_pending = repos
         .policies()
         .list_all_pending_approvals(query.limit)
         .await?;
 
-    let approvals: Vec<ApprovalResponse> =
-        approvals.into_iter().map(approval_to_response).collect();
+    let now = Utc::now();
+    let mut valid_approvals = Vec::new();
 
-    Ok(Json(approvals))
+    for approval in all_pending {
+        // Check if this approval has expired
+        if let Some(expires_at) = approval.expires_at {
+            if now > expires_at {
+                // Auto-expire this approval
+                let expiry_resolution = ResolveApproval {
+                    status: ApprovalStatus::Expired,
+                    resolved_by: "system".to_string(),
+                    resolution_note: Some("Auto-expired during list".to_string()),
+                };
+                if let Err(e) = repos
+                    .policies()
+                    .resolve_approval(&approval.id, expiry_resolution)
+                    .await
+                {
+                    warn!(
+                        approval_id = %approval.id,
+                        error = %e,
+                        "Failed to auto-expire approval"
+                    );
+                } else {
+                    info!(approval_id = %approval.id, "Auto-expired stale approval");
+
+                    // Also fail the associated run
+                    let _ = repos
+                        .runs()
+                        .update_status(&approval.run_id, RunStatus::Failed, Some("Approval expired"))
+                        .await;
+                }
+                // Don't include expired approvals in the response
+                continue;
+            }
+        }
+        valid_approvals.push(approval_to_response(approval));
+    }
+
+    Ok(Json(valid_approvals))
 }
 
 /// Resolve an approval request (approve or reject)

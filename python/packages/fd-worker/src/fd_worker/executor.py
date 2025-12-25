@@ -28,6 +28,7 @@ from fd_runtime import (
     trace_tool_call,
 )
 from fd_worker.llm import LLMExecutor
+from fd_worker.validation import OutputValidator
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,13 @@ class StepExecutor:
 
         # Artifact storage
         self.artifact_store = artifact_store or create_artifact_store("local")
+
+        # Output validator for LLM02 mitigation
+        self.output_validator = OutputValidator(
+            check_suspicious_patterns=True,
+            max_string_length=100_000,
+            max_nesting_depth=20,
+        )
 
     async def connect(self) -> None:
         """Connect to MCP servers."""
@@ -318,6 +326,23 @@ class StepExecutor:
 
         if not tool_name:
             raise ValueError("tool_name is required for tool steps")
+
+        # LLM02 Mitigation: Validate and sanitize tool call before execution
+        validation_result = self.output_validator.validate_tool_call(tool_name, tool_input)
+        if not validation_result.valid:
+            logger.warning(f"Tool call validation failed: {validation_result.errors}")
+            raise ValueError(f"Tool call validation failed: {validation_result.errors}")
+
+        if validation_result.warnings:
+            logger.warning(f"Tool call validation warnings: {validation_result.warnings}")
+
+        # Use sanitized input from validation
+        tool_input = validation_result.sanitized["tool_input"]
+
+        # Check tool policy with control plane BEFORE execution
+        # This raises PermissionError if denied, ValueError if requires approval
+        logger.info(f"Checking policy for tool: {tool_name}")
+        await self.client.check_tool_policy(run_id, tool_name)
 
         # Ensure MCP router is connected
         await self.connect()

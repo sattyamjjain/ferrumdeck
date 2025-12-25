@@ -1,111 +1,130 @@
 # Runbook: Gateway Scaling
 
 ## Overview
-This runbook covers horizontal scaling of the FerrumDeck Gateway service.
 
-## Prerequisites
-- Access to Kubernetes cluster or Docker Swarm
-- Monitoring dashboards (Grafana/Prometheus)
-- Database connection pool headroom
+The Gateway service handles all API requests and orchestrates run execution. This runbook covers scaling procedures for various scenarios.
 
-## Scaling Indicators
+## Metrics to Monitor
 
-### Scale Up When
 | Metric | Threshold | Action |
 |--------|-----------|--------|
-| Request latency p99 | > 500ms | Add 1 replica |
-| CPU utilization | > 70% sustained 5min | Add 1 replica |
-| Error rate 5xx | > 1% | Investigate, then scale |
-| Request queue depth | > 100 | Add 1 replica |
+| CPU utilization | > 70% for 5min | Scale up |
+| Memory utilization | > 75% for 5min | Scale up |
+| Request latency p99 | > 500ms | Scale up |
+| Error rate | > 1% | Investigate, possibly scale |
+| Request queue depth | > 100 | Scale up |
 
-### Scale Down When
-| Metric | Threshold | Action |
-|--------|-----------|--------|
-| CPU utilization | < 30% sustained 15min | Remove 1 replica |
-| Request rate | < 10 req/s per instance | Remove 1 replica |
+## Horizontal Scaling
 
-## Scaling Procedures
+### Kubernetes (Automatic via HPA)
 
-### Kubernetes
+The HPA handles automatic scaling. Check current status:
+
 ```bash
-# Check current replicas
-kubectl get deployment gateway -n ferrumdeck
+kubectl get hpa gateway-hpa -n ferrumdeck-prod
+kubectl describe hpa gateway-hpa -n ferrumdeck-prod
+```
 
-# Scale up
-kubectl scale deployment gateway -n ferrumdeck --replicas=5
+### Manual Scaling
 
-# Scale with HPA (recommended)
-kubectl autoscale deployment gateway -n ferrumdeck \
-  --min=2 --max=10 --cpu-percent=70
+If HPA is insufficient or disabled:
+
+```bash
+# Scale to specific replica count
+kubectl scale deployment gateway -n ferrumdeck-prod --replicas=10
+
+# Verify pods are ready
+kubectl get pods -n ferrumdeck-prod -l app.kubernetes.io/name=gateway
 ```
 
 ### Docker Compose
+
 ```bash
-# Scale to 5 instances
+# Scale gateway service
 docker compose up -d --scale gateway=5
-
-# Verify health
-docker compose ps
 ```
 
-## Connection Pool Sizing
+## Vertical Scaling
 
-Each gateway instance uses database connections:
-- **Default pool size**: 20 connections
-- **Min connections**: 5
+If horizontal scaling doesn't help (e.g., memory pressure):
 
-### Formula
-```
-max_connections = gateway_replicas * pool_size + buffer
-                = 5 * 20 + 20
-                = 120 connections
-```
+1. Update resource limits in overlay:
+   ```yaml
+   # deploy/k8s/overlays/production/kustomization.yaml
+   - op: replace
+     path: /spec/template/spec/containers/0/resources
+     value:
+       limits:
+         cpu: 4000m
+         memory: 4Gi
+   ```
 
-Ensure PostgreSQL `max_connections` accommodates this.
+2. Apply and trigger rolling update:
+   ```bash
+   kubectl apply -k deploy/k8s/overlays/production
+   ```
 
-## Health Checks
+## Pre-Scaling Checklist
 
-### Liveness
-```bash
-curl http://gateway:8080/health
-# Expected: 200 OK
-```
+Before scaling up, verify:
 
-### Readiness
-```bash
-curl http://gateway:8080/ready
-# Expected: 200 OK (only when DB + Redis connected)
-```
+- [ ] PostgreSQL connection pool has headroom (max_connections)
+- [ ] Redis has sufficient memory for more connections
+- [ ] Load balancer health checks are passing
+- [ ] No ongoing deployment or incident
 
-## Rollback Procedure
-If new instances are unhealthy:
+## Post-Scaling Verification
 
-```bash
-# Kubernetes
-kubectl rollout undo deployment gateway -n ferrumdeck
+After scaling:
 
-# Docker
-docker compose up -d --scale gateway=2
-```
+1. Check all pods healthy:
+   ```bash
+   kubectl get pods -n ferrumdeck-prod -l app.kubernetes.io/name=gateway
+   ```
 
-## Monitoring Queries
+2. Verify load distribution:
+   ```bash
+   # Check request distribution in Grafana or:
+   kubectl logs -n ferrumdeck-prod -l app.kubernetes.io/name=gateway --tail=10
+   ```
 
-### Prometheus
-```promql
-# Request rate per instance
-rate(http_requests_total{service="gateway"}[5m])
+3. Monitor for 10 minutes:
+   - Error rate should decrease or stay stable
+   - Latency should improve
+   - No pod restarts
 
-# P99 latency
-histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{service="gateway"}[5m]))
+## Scaling Down
 
-# Error rate
-rate(http_requests_total{service="gateway",status=~"5.."}[5m])
-/ rate(http_requests_total{service="gateway"}[5m])
-```
+Scale down gradually during low-traffic periods:
 
-## Post-Scaling Checklist
-- [ ] Verify all instances healthy in load balancer
-- [ ] Check database connection pool utilization
-- [ ] Monitor Redis connection count
-- [ ] Verify request distribution is even
-- [ ] Alert thresholds still appropriate
+1. Set HPA minReplicas lower:
+   ```bash
+   kubectl patch hpa gateway-hpa -n ferrumdeck-prod \
+     --patch '{"spec":{"minReplicas":2}}'
+   ```
+
+2. Allow HPA to scale down naturally (wait stabilization period)
+
+3. Never scale below minAvailable in PDB (2 for gateway)
+
+## Troubleshooting
+
+### Pods not scaling up
+- Check HPA events: `kubectl describe hpa gateway-hpa`
+- Check metrics-server: `kubectl top pods -n ferrumdeck-prod`
+- Check node capacity: `kubectl describe nodes | grep -A5 "Allocated resources"`
+
+### Pods failing to start
+- Check events: `kubectl get events -n ferrumdeck-prod --sort-by='.lastTimestamp'`
+- Check logs: `kubectl logs -n ferrumdeck-prod <pod-name> --previous`
+
+### Performance not improving after scale
+- Check database connection pool saturation
+- Check Redis memory/CPU
+- Profile application for bottlenecks
+
+## Related Runbooks
+
+- [Worker Failure Recovery](worker-failure-recovery.md)
+- [Database Migration](database-migration.md)
+- [Incident Response](incident-response.md)

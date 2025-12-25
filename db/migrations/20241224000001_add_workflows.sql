@@ -15,15 +15,15 @@ CREATE TYPE workflow_step_execution_status AS ENUM ('pending', 'running', 'waiti
 
 -- Workflow definitions table
 CREATE TABLE workflows (
-    id VARCHAR(64) PRIMARY KEY,
-    project_id VARCHAR(64) NOT NULL REFERENCES projects(id),
-    name VARCHAR(255) NOT NULL,
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    name TEXT NOT NULL,
     description TEXT,
-    version VARCHAR(32) NOT NULL,
+    version TEXT NOT NULL,
     status workflow_status NOT NULL DEFAULT 'active',
     definition JSONB NOT NULL,
     max_iterations INT NOT NULL DEFAULT 10,
-    on_error VARCHAR(32) NOT NULL DEFAULT 'fail',
+    on_error TEXT NOT NULL DEFAULT 'fail',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
@@ -36,15 +36,15 @@ CREATE INDEX idx_workflows_status ON workflows(status);
 
 -- Workflow runs table
 CREATE TABLE workflow_runs (
-    id VARCHAR(64) PRIMARY KEY,
-    workflow_id VARCHAR(64) NOT NULL REFERENCES workflows(id),
-    project_id VARCHAR(64) NOT NULL REFERENCES projects(id),
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL REFERENCES workflows(id),
+    project_id TEXT NOT NULL REFERENCES projects(id),
     status workflow_run_status NOT NULL DEFAULT 'created',
     input JSONB NOT NULL DEFAULT '{}',
     context JSONB NOT NULL DEFAULT '{}',
     output JSONB,
     error JSONB,
-    current_step_id VARCHAR(255),
+    current_step_id TEXT,
     step_results JSONB NOT NULL DEFAULT '{}',
     input_tokens INT NOT NULL DEFAULT 0,
     output_tokens INT NOT NULL DEFAULT 0,
@@ -53,7 +53,7 @@ CREATE TABLE workflow_runs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
-    trace_id VARCHAR(64)
+    trace_id TEXT
 );
 
 CREATE INDEX idx_workflow_runs_workflow_id ON workflow_runs(workflow_id);
@@ -63,9 +63,9 @@ CREATE INDEX idx_workflow_runs_created_at ON workflow_runs(created_at DESC);
 
 -- Workflow step executions table
 CREATE TABLE workflow_step_executions (
-    id VARCHAR(64) PRIMARY KEY,
-    workflow_run_id VARCHAR(64) NOT NULL REFERENCES workflow_runs(id),
-    step_id VARCHAR(255) NOT NULL,
+    id TEXT PRIMARY KEY,
+    workflow_run_id TEXT NOT NULL REFERENCES workflow_runs(id),
+    step_id TEXT NOT NULL,
     step_type workflow_step_type NOT NULL,
     status workflow_step_execution_status NOT NULL DEFAULT 'pending',
     input JSONB NOT NULL DEFAULT '{}',
@@ -76,7 +76,7 @@ CREATE TABLE workflow_step_executions (
     output_tokens INT,
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
-    span_id VARCHAR(64)
+    span_id TEXT
 );
 
 CREATE INDEX idx_workflow_step_executions_run_id ON workflow_step_executions(workflow_run_id);

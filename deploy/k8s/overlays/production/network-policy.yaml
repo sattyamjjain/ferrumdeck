@@ -1,0 +1,128 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow health checks from kubelet
+    - from: []
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow connections to PostgreSQL
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: databases
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow connections to Redis
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: databases
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow connections to OTel collector
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - protocol: TCP
+          port: 4317
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: worker-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Workers don't receive inbound traffic
+    - from: []
+      ports: []
+  egress:
+    # Allow connections to gateway (control plane API)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow connections to PostgreSQL
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: databases
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow connections to Redis
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: databases
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow connections to OTel collector
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - protocol: TCP
+          port: 4317
+    # Allow connections to LLM APIs (Anthropic, OpenAI)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+---
+# Default deny all ingress for namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress

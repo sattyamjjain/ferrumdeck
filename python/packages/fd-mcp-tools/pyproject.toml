@@ -1,0 +1,27 @@
+[project]
+name = "fd-mcp-tools"
+version = "0.1.0"
+description = "FerrumDeck MCP Tool Servers - Git and Test Runner"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.0.0",
+    "httpx>=0.27",
+    "pydantic>=2.0",
+    "gitpython>=3.1",
+]
+
+# For GitHub operations, use the official GitHub MCP server:
+# https://github.com/github/github-mcp-server
+# Install via: npx -y @anthropic-ai/github-mcp-server
+
+[project.scripts]
+fd-mcp-git = "fd_mcp_tools.git_server:main"
+fd-mcp-test-runner = "fd_mcp_tools.test_runner_server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fd_mcp_tools"]

@@ -1,131 +1,157 @@
-# ADR-0004: OpenTelemetry GenAI Semantic Conventions
+# ADR 0004: OpenTelemetry GenAI Semantic Conventions
 
 ## Status
+
 Accepted
 
-## Context
-Observability is critical for understanding agent behavior, debugging issues, and optimizing costs. We need a tracing strategy that works with standard observability tools while capturing AI-specific metrics.
+## Date
 
-Requirements:
-- Standard OpenTelemetry compatibility
-- AI/LLM-specific attributes
-- Cost tracking at span level
-- Correlation across control/data plane
-- Support for existing APM tools (Jaeger, Honeycomb, Datadog)
+2024-12-26
+
+## Context
+
+FerrumDeck needs comprehensive observability for AI agent operations. Key requirements:
+
+1. **Distributed tracing**: Track requests across Gateway → Worker → LLM providers
+2. **Cost tracking**: Attribute token usage and costs to runs/tenants
+3. **Performance monitoring**: Measure latency at each stage
+4. **Debugging**: Correlate errors with specific LLM calls
+5. **Compliance**: Log all AI operations for audit purposes
+
+OpenTelemetry (OTel) is the emerging standard for observability. The OTel community has proposed semantic conventions specifically for Generative AI operations.
 
 ## Decision
-We adopt the **OpenTelemetry GenAI Semantic Conventions** (draft) for all LLM-related spans.
 
-### Span Naming
+We adopt **OpenTelemetry Semantic Conventions for GenAI** (experimental) with custom extensions for FerrumDeck-specific metrics.
+
+### Standard GenAI Attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `gen_ai.system` | string | "anthropic", "openai", etc. |
+| `gen_ai.request.model` | string | Model identifier |
+| `gen_ai.request.max_tokens` | int | Max tokens requested |
+| `gen_ai.request.temperature` | float | Sampling temperature |
+| `gen_ai.response.model` | string | Actual model used |
+| `gen_ai.response.finish_reason` | string | "stop", "length", etc. |
+| `gen_ai.usage.input_tokens` | int | Prompt tokens consumed |
+| `gen_ai.usage.output_tokens` | int | Completion tokens generated |
+
+### FerrumDeck Extensions
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `ferrumdeck.run.id` | string | Run UUID |
+| `ferrumdeck.step.id` | string | Step UUID |
+| `ferrumdeck.tenant.id` | string | Tenant UUID |
+| `ferrumdeck.agent.id` | string | Agent identifier |
+| `ferrumdeck.cost.cents` | float | Calculated cost in cents |
+| `ferrumdeck.tool.name` | string | MCP tool name |
+| `ferrumdeck.policy.decision` | string | allow/deny/require_approval |
+
+### Span Structure
+
 ```
-gen_ai.{operation}          # LLM operations
-ferrumdeck.{operation}      # Platform operations
-```
-
-### Required Attributes
-
-#### LLM Requests
-| Attribute | Type | Example |
-|-----------|------|---------|
-| `gen_ai.system` | string | `anthropic` |
-| `gen_ai.request.model` | string | `claude-sonnet-4-20250514` |
-| `gen_ai.request.max_tokens` | int | `4096` |
-| `gen_ai.request.temperature` | float | `0.7` |
-
-#### LLM Responses
-| Attribute | Type | Example |
-|-----------|------|---------|
-| `gen_ai.response.model` | string | `claude-sonnet-4-20250514` |
-| `gen_ai.response.finish_reason` | string | `stop` |
-| `gen_ai.usage.input_tokens` | int | `1500` |
-| `gen_ai.usage.output_tokens` | int | `500` |
-
-#### FerrumDeck Extensions
-| Attribute | Type | Example |
-|-----------|------|---------|
-| `ferrumdeck.run.id` | string | `run_01J...` |
-| `ferrumdeck.step.id` | string | `stp_01J...` |
-| `ferrumdeck.step.type` | string | `llm` |
-| `ferrumdeck.cost.cents` | int | `15` |
-| `ferrumdeck.policy.decision` | string | `allow` |
-| `ferrumdeck.tool.name` | string | `read_file` |
-
-### Span Hierarchy
-```
-ferrumdeck.run
-  ├── ferrumdeck.step (llm)
-  │     └── gen_ai.chat
-  ├── ferrumdeck.step (tool)
-  │     └── ferrumdeck.tool_call
-  └── ferrumdeck.step (llm)
-        └── gen_ai.chat
+Run (root span)
+├── Step: LLM (gen_ai span)
+│   ├── LLM API Call
+│   └── Token Processing
+├── Step: Tool (ferrumdeck span)
+│   ├── Policy Check
+│   ├── Tool Execution
+│   └── Result Processing
+└── Step: Sandbox (ferrumdeck span)
+    └── Code Execution
 ```
 
-### Trace Context Propagation
-- W3C Trace Context headers between control/data plane
-- `trace_id` and `span_id` stored in database for correlation
+### Metrics
+
+| Metric | Type | Unit | Description |
+|--------|------|------|-------------|
+| `ferrumdeck.run.duration` | Histogram | ms | Total run duration |
+| `ferrumdeck.step.duration` | Histogram | ms | Step execution time |
+| `ferrumdeck.tokens.consumed` | Counter | tokens | Total tokens used |
+| `ferrumdeck.cost.incurred` | Counter | cents | Total cost incurred |
+| `ferrumdeck.policy.decisions` | Counter | - | Policy decision counts |
 
 ## Consequences
 
 ### Positive
-- Standard-compliant, works with any OTel-compatible backend
-- Future-proof as GenAI conventions mature
-- Cost attribution at span granularity
-- Easy correlation with platform traces
+- **Standards compliance**: Interoperable with GenAI observability ecosystem
+- **Rich debugging**: Full context in traces for troubleshooting
+- **Cost attribution**: Accurate cost tracking per tenant/run
+- **Future-proof**: Following emerging industry standards
 
 ### Negative
-- GenAI conventions are still draft
-- Some attributes may change in future spec versions
-- Additional span overhead for detailed tracing
+- **Attribute overhead**: Many attributes per span increase telemetry volume
+- **Experimental conventions**: GenAI conventions may change
+- **Privacy concerns**: Must avoid logging prompts/completions in traces
 
-### Configuration
-```env
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
-OTEL_SERVICE_NAME=ferrumdeck-gateway
-OTEL_TRACES_SAMPLER=parentbased_traceidratio
-OTEL_TRACES_SAMPLER_ARG=0.1  # 10% sampling in production
-```
+### Mitigations
+- Use sampling (10% in production) to reduce volume
+- Pin to specific convention version, migrate intentionally
+- Implement content redaction for sensitive fields
 
 ## Implementation
 
-### Rust (Control Plane)
+### Rust (fd-otel crate)
 ```rust
-use fd_otel::genai;
-
-let span = genai::create_llm_span("claude-sonnet-4-20250514")
-    .with_max_tokens(4096)
-    .with_temperature(0.7)
-    .start();
+pub fn trace_llm_call<F, T>(
+    model: &str,
+    system: &str,
+    max_tokens: i64,
+    // ...
+    f: F,
+) -> T
+where
+    F: FnOnce(&mut Span) -> T;
 ```
 
-### Python (Data Plane)
+### Python (fd-runtime)
 ```python
-from opentelemetry import trace
-from fd_otel import genai_attributes
+@contextmanager
+def trace_llm_call(
+    model: str,
+    system: str,
+    max_tokens: int,
+    # ...
+) -> Iterator[Span]:
+    ...
+```
 
-with tracer.start_as_current_span("gen_ai.chat") as span:
-    span.set_attributes(genai_attributes(
-        model="claude-sonnet-4-20250514",
-        input_tokens=1500,
-        output_tokens=500
-    ))
+## Cost Calculation
+
+```python
+PRICING = {
+    "claude-3-haiku": {"input": 0.25, "output": 1.25},  # per 1M tokens
+    "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
+    "claude-3-opus": {"input": 15.0, "output": 75.0},
+}
+
+def calculate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    rates = PRICING.get(model, {"input": 0, "output": 0})
+    return (
+        input_tokens * rates["input"] / 1_000_000 +
+        output_tokens * rates["output"] / 1_000_000
+    ) * 100  # Return cents
 ```
 
 ## Alternatives Considered
 
-### Custom Attributes Only
-- Full control
-- Rejected: Not compatible with GenAI tooling ecosystem
+### 1. Custom Telemetry Schema
+- Define our own attributes from scratch
+- Rejected: Reinventing the wheel, no ecosystem benefits
 
-### LangSmith/Langfuse Native
-- Rich AI-specific features
-- Rejected: Vendor lock-in, want OTel compatibility
+### 2. LangSmith/Weights & Biases
+- Use specialized LLM observability platforms
+- Rejected: Vendor lock-in, additional cost, less control
 
-### No Tracing (Logs Only)
-- Simpler
-- Rejected: Can't correlate across services, poor debugging UX
+### 3. Logs Only
+- Use structured logging instead of traces
+- Rejected: Loses distributed context, harder to debug
 
 ## References
-- [OTel GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
-- [W3C Trace Context](https://www.w3.org/TR/trace-context/)
-- [OTel Python SDK](https://opentelemetry.io/docs/languages/python/)
+
+- [OTel GenAI Semantic Conventions](https://github.com/open-telemetry/semantic-conventions/tree/main/docs/gen-ai)
+- [OpenTelemetry Python SDK](https://opentelemetry.io/docs/languages/python/)
+- [OpenTelemetry Rust SDK](https://docs.rs/opentelemetry/latest/opentelemetry/)

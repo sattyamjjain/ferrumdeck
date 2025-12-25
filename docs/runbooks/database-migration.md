@@ -1,192 +1,219 @@
 # Runbook: Database Migration
 
 ## Overview
-This runbook covers database migration procedures for FerrumDeck.
 
-## Migration Strategy
-FerrumDeck uses **embedded migrations** via SQLx. Migrations run automatically on gateway startup unless disabled.
+Database schema migrations for FerrumDeck PostgreSQL database. Migrations are managed via SQLx and applied automatically on Gateway startup or manually.
 
 ## Pre-Migration Checklist
+
 - [ ] Backup database
-- [ ] Review migration SQL
-- [ ] Test on staging environment
-- [ ] Schedule maintenance window (if destructive)
+- [ ] Review migration SQL for safety
+- [ ] Test migration on staging
+- [ ] Schedule maintenance window if needed
 - [ ] Notify stakeholders
 
-## Automatic Migration (Default)
+## Migration Types
 
-### How It Works
-1. Gateway starts
-2. Checks `RUN_MIGRATIONS` env var (default: `true`)
-3. Runs `sqlx::migrate!()` which applies pending migrations
-4. Logs applied migrations
-5. Begins serving requests
+### Safe Migrations (No Downtime)
 
-### Disable Auto-Migration
+These can run while application is live:
+- Adding new tables
+- Adding nullable columns
+- Adding indexes CONCURRENTLY
+- Inserting/updating reference data
+
+### Risky Migrations (May Require Downtime)
+
+These may lock tables or cause issues:
+- Dropping columns/tables
+- Renaming columns/tables
+- Adding NOT NULL constraints
+- Altering column types
+- Large data migrations
+
+## Running Migrations
+
+### Automatic (Recommended for Production)
+
+Gateway runs embedded migrations on startup:
+
 ```bash
-# Set environment variable
-export RUN_MIGRATIONS=false
+# Deploy new Gateway version with migrations
+kubectl apply -k deploy/k8s/overlays/production
 
-# Or in Kubernetes
-kubectl set env deployment/gateway RUN_MIGRATIONS=false -n ferrumdeck
+# Migrations run automatically before serving traffic
+# Check logs for migration status:
+kubectl logs -n ferrumdeck-prod deployment/gateway | grep -i migration
 ```
 
-## Manual Migration
+### Manual
 
-### Using SQLx CLI
+For more control or dry-run:
+
 ```bash
-# Install sqlx-cli
-cargo install sqlx-cli
-
-# Set database URL
-export DATABASE_URL=postgres://user:pass@host:5432/ferrumdeck
+# Using sqlx-cli
+cd rust/services/gateway
+export DATABASE_URL="postgres://user:pass@host:5432/ferrumdeck"
 
 # Check pending migrations
-sqlx migrate info --source db/migrations
+sqlx migrate info
 
-# Run migrations
-sqlx migrate run --source db/migrations
+# Dry run (show SQL)
+sqlx migrate run --dry-run
 
-# Revert last migration (if reversible)
-sqlx migrate revert --source db/migrations
-```
+# Apply migrations
+sqlx migrate run
 
-### Direct SQL
-```bash
-# Connect to database
-psql $DATABASE_URL
-
-# Check migration history
-SELECT version, description, installed_on
-FROM _sqlx_migrations
-ORDER BY version;
+# Revert last migration (if needed)
+sqlx migrate revert
 ```
 
 ## Creating New Migrations
 
-### Naming Convention
-```
-YYYYMMDDHHMMSS_description.sql
-Example: 20241226000001_add_workflow_triggers.sql
-```
+```bash
+cd rust/services/gateway
 
-### Best Practices
-1. **Make migrations reversible** when possible
-2. **Avoid destructive changes** without careful planning
-3. **Use transactions** (SQLx wraps each migration)
-4. **Test on production-like data**
-5. **Keep migrations small and focused**
+# Create new migration
+sqlx migrate add <migration_name>
+# Creates: migrations/<timestamp>_<migration_name>.sql
 
-### Template
-```sql
--- Migration: YYYYMMDDHHMMSS_description.sql
--- Description: Brief explanation
-
--- Forward migration
-CREATE TABLE new_table (...);
-
--- Note: SQLx doesn't support DOWN migrations automatically
--- Document rollback steps in comments if needed
--- ROLLBACK: DROP TABLE new_table;
+# Edit the migration file
+# Follow naming: YYYYMMDDHHMMSS_description.sql
 ```
 
-## Handling Migration Failures
+### Migration Best Practices
 
-### Symptoms
-- Gateway fails to start
-- Logs show "Migration failed"
-- Database may be in partial state
+1. **One change per migration**: Easier to revert
 
-### Recovery Steps
-
-1. **Don't panic** - failed migrations are rolled back
-
-2. **Check error message**
-   ```bash
-   kubectl logs deployment/gateway -n ferrumdeck | grep -i migration
-   ```
-
-3. **Connect to database and verify state**
+2. **Use transactions**:
    ```sql
-   SELECT * FROM _sqlx_migrations ORDER BY version DESC LIMIT 5;
+   BEGIN;
+   -- your changes
+   COMMIT;
    ```
 
-4. **Fix the migration file**
-
-5. **Retry**
-   ```bash
-   kubectl rollout restart deployment/gateway -n ferrumdeck
+3. **Add indexes concurrently**:
+   ```sql
+   CREATE INDEX CONCURRENTLY idx_name ON table (column);
    ```
 
-### Manual Intervention
-If migration partially applied:
+4. **Backfill in batches**:
+   ```sql
+   UPDATE table SET new_col = 'value' 
+   WHERE id BETWEEN 1 AND 10000;
+   ```
 
-```sql
--- Check for partial changes
-\dt  -- List tables
-
--- Manually complete or revert
--- Then update migration history if needed
-INSERT INTO _sqlx_migrations (version, description, installed_on, checksum)
-VALUES (20241226000001, 'add_workflow_triggers', NOW(), 0);
-```
-
-## Large Table Migrations
-
-For tables with millions of rows:
-
-### Use Online DDL
-```sql
--- Add column with default (PostgreSQL 11+ is fast)
-ALTER TABLE large_table ADD COLUMN new_col TEXT DEFAULT 'value';
-
--- Add index concurrently (doesn't block writes)
-CREATE INDEX CONCURRENTLY idx_name ON large_table(column);
-```
-
-### Batch Updates
-```sql
--- Update in batches to avoid long locks
-DO $$
-DECLARE
-  batch_size INT := 10000;
-  affected INT;
-BEGIN
-  LOOP
-    UPDATE large_table
-    SET new_col = computed_value
-    WHERE id IN (
-      SELECT id FROM large_table
-      WHERE new_col IS NULL
-      LIMIT batch_size
-    );
-    GET DIAGNOSTICS affected = ROW_COUNT;
-    EXIT WHEN affected = 0;
-    COMMIT;
-    PERFORM pg_sleep(0.1);  -- Brief pause
-  END LOOP;
-END $$;
-```
+5. **Include down migration** (in comments):
+   ```sql
+   -- Down: DROP INDEX idx_name;
+   ```
 
 ## Rollback Procedures
 
-### Revert Using Backup
+### Via sqlx (Preferred)
+
 ```bash
-# Stop gateway
-kubectl scale deployment/gateway --replicas=0 -n ferrumdeck
+# Revert last migration
+sqlx migrate revert
 
-# Restore from backup
-pg_restore -d ferrumdeck backup.dump
-
-# Restart with migrations disabled
-kubectl set env deployment/gateway RUN_MIGRATIONS=false -n ferrumdeck
-kubectl scale deployment/gateway --replicas=2 -n ferrumdeck
+# Verify
+sqlx migrate info
 ```
 
+### Manual Rollback
+
+```sql
+-- Connect to database
+psql -h postgres-prod -d ferrumdeck
+
+-- Check current migrations
+SELECT * FROM _sqlx_migrations ORDER BY installed_on DESC;
+
+-- Run reversal SQL (from migration comments)
+DROP INDEX IF EXISTS idx_name;
+
+-- Update migration table (if not using sqlx revert)
+DELETE FROM _sqlx_migrations WHERE version = <version>;
+```
+
+## Emergency Procedures
+
+### Migration Stuck/Hanging
+
+1. Check for locks:
+   ```sql
+   SELECT * FROM pg_locks WHERE granted = false;
+   SELECT * FROM pg_stat_activity WHERE state = 'active';
+   ```
+
+2. Kill blocking queries (carefully):
+   ```sql
+   SELECT pg_terminate_backend(<pid>);
+   ```
+
+3. Consider restarting migration with lock timeout:
+   ```sql
+   SET lock_timeout = '30s';
+   ```
+
+### Database Corrupted
+
+1. Stop all writes:
+   ```bash
+   kubectl scale deployment gateway -n ferrumdeck-prod --replicas=0
+   kubectl scale deployment worker -n ferrumdeck-prod --replicas=0
+   ```
+
+2. Assess damage:
+   ```sql
+   -- Check for corruption
+   SELECT pg_catalog.pg_database.datname, age(datfrozenxid) 
+   FROM pg_catalog.pg_database;
+   ```
+
+3. Restore from backup:
+   ```bash
+   # RDS
+   aws rds restore-db-instance-to-point-in-time \
+     --source-db-instance-identifier ferrumdeck-prod \
+     --target-db-instance-identifier ferrumdeck-prod-restored \
+     --restore-time <timestamp>
+   ```
+
+## Backup Procedures
+
+### Before Major Migration
+
+```bash
+# PostgreSQL dump
+pg_dump -h postgres-prod -U admin -d ferrumdeck \
+  -F c -f backup-$(date +%Y%m%d-%H%M%S).dump
+
+# Verify backup
+pg_restore --list backup-*.dump | head -20
+```
+
+### Continuous Backups
+
+Rely on managed service features:
+- RDS: Automated backups, point-in-time recovery
+- Cloud SQL: Automated backups
+- Self-managed: pg_basebackup + WAL archiving
+
 ## Post-Migration Verification
-- [ ] All tables present (`\dt`)
-- [ ] Indexes created (`\di`)
-- [ ] Triggers active (`\dS`)
-- [ ] Gateway starts successfully
-- [ ] API health check passes
-- [ ] Sample queries work correctly
+
+```bash
+# Check migration status
+sqlx migrate info
+
+# Verify schema changes
+psql -h postgres-prod -d ferrumdeck -c "\dt"
+psql -h postgres-prod -d ferrumdeck -c "\d+ <table_name>"
+
+# Run smoke tests
+./scripts/run-evals.sh smoke
+```
+
+## Related Runbooks
+
+- [Incident Response](incident-response.md)

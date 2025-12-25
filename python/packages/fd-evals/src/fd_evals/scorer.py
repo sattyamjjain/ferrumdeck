@@ -3,6 +3,8 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+import jsonschema
+from jsonschema import Draft202012Validator, ValidationError
 from pydantic import BaseModel
 
 
@@ -61,15 +63,37 @@ class SchemaValidScorer(Scorer):
 
     def __init__(self, schema: dict[str, Any]):
         self.schema = schema
+        # Validate the schema itself is valid
+        Draft202012Validator.check_schema(schema)
+        self._validator = Draft202012Validator(schema)
 
     def score(self, actual: Any, expected: Any) -> ScoreResult:
-        # expected is ignored for schema validation
-        _ = expected  # unused
-        # TODO: Implement JSON schema validation
-        # For now, just check if it's a dict
-        passed = isinstance(actual, dict)
-        return ScoreResult(
-            score=1.0 if passed else 0.0,
-            passed=passed,
-            reason="valid schema" if passed else "invalid schema",
-        )
+        """Validate actual output against the JSON schema.
+
+        Args:
+            actual: The data to validate against the schema.
+            expected: Ignored for schema validation (schema is set in __init__).
+
+        Returns:
+            ScoreResult with pass/fail and validation error details if any.
+        """
+        _ = expected  # unused - schema is set in __init__
+
+        try:
+            self._validator.validate(actual)
+            return ScoreResult(
+                score=1.0,
+                passed=True,
+                reason="valid schema",
+            )
+        except ValidationError as e:
+            # Collect all validation errors for better diagnostics
+            errors = list(self._validator.iter_errors(actual))
+            error_messages = [f"{err.json_path}: {err.message}" for err in errors[:5]]
+
+            return ScoreResult(
+                score=0.0,
+                passed=False,
+                reason=f"schema validation failed: {e.message}",
+                metadata={"validation_errors": error_messages},
+            )

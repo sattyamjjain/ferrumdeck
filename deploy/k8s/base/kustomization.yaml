@@ -24,8 +24,10 @@ images:
   - name: ghcr.io/ferrumdeck/worker
     newTag: latest
 
-commonLabels:
-  app.kubernetes.io/part-of: ferrumdeck
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: ferrumdeck
+    includeSelectors: false
 
 # Override for specific environments by creating overlays
 # Example: deploy/k8s/overlays/production/kustomization.yaml

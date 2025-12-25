@@ -479,11 +479,18 @@ pub async fn submit_step_result(
 
     // Check budget after step completion
     let updated_run = repos.runs().get(&run_id).await?.unwrap();
+
+    // Calculate wall time from run creation to now
+    let wall_time_ms = Utc::now()
+        .signed_duration_since(updated_run.created_at)
+        .num_milliseconds()
+        .max(0) as u64;
+
     let usage = BudgetUsage {
         input_tokens: updated_run.input_tokens as u64,
         output_tokens: updated_run.output_tokens as u64,
         tool_calls: updated_run.tool_calls as u32,
-        wall_time_ms: 0, // TODO: Calculate from created_at to now
+        wall_time_ms,
         cost_cents: updated_run.cost_cents as u64,
     };
 

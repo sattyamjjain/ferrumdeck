@@ -1,0 +1,20 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway-pdb
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: gateway
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: worker-pdb
+spec:
+  # Allow up to 20% of workers to be unavailable during maintenance
+  maxUnavailable: 20%
+  selector:
+    matchLabels:
+      app: worker

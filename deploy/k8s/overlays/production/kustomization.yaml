@@ -1,0 +1,127 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Production environment overlay for FerrumDeck
+# Deploy: kubectl apply -k deploy/k8s/overlays/production
+
+namespace: ferrumdeck-prod
+
+resources:
+  - ../../base
+  - ingress.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - network-policy.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/env: production
+    includeSelectors: true
+
+images:
+  - name: ghcr.io/ferrumdeck/gateway
+    newTag: v1.0.0  # Pin to specific version in production
+  - name: ghcr.io/ferrumdeck/worker
+    newTag: v1.0.0
+
+replicas:
+  - name: gateway
+    count: 3
+  - name: worker
+    count: 5
+
+patches:
+  # Production resource limits - higher than staging
+  - target:
+      kind: Deployment
+      name: gateway
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+              - ALL
+  - target:
+      kind: Deployment
+      name: worker
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 1000m
+            memory: 1Gi
+          limits:
+            cpu: 4000m
+            memory: 4Gi
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+              - ALL
+  # Add topology spread constraints for HA
+  - target:
+      kind: Deployment
+      name: gateway
+    patch: |-
+      - op: add
+        path: /spec/template/spec/topologySpreadConstraints
+        value:
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: gateway
+  - target:
+      kind: Deployment
+      name: worker
+    patch: |-
+      - op: add
+        path: /spec/template/spec/topologySpreadConstraints
+        value:
+          - maxSkew: 2
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: worker
+
+configMapGenerator:
+  - name: ferrumdeck-config
+    behavior: merge
+    literals:
+      - LOG_LEVEL=info
+      - ENVIRONMENT=production
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.observability:4317
+      - OTEL_SAMPLING_RATIO=0.1
+      - REDIS_URL=redis://redis-prod-master:6379
+      # Use external secret for DATABASE_URL
+
+# In production, use external-secrets-operator or sealed-secrets
+# This is just a placeholder showing the structure
+secretGenerator:
+  - name: ferrumdeck-secrets
+    behavior: merge
+    type: Opaque
+    literals:
+      - PLACEHOLDER=use-external-secrets-operator

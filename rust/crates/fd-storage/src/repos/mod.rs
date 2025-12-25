@@ -6,6 +6,7 @@ pub mod agents;
 pub mod api_keys;
 pub mod audit;
 pub mod policies;
+pub mod quotas;
 pub mod runs;
 pub mod steps;
 pub mod tools;

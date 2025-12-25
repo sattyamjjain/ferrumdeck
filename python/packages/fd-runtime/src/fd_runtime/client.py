@@ -90,3 +90,46 @@ class ControlPlaneClient:
                 json=payload,
             )
             response.raise_for_status()
+
+    async def check_tool_policy(
+        self,
+        run_id: str,
+        tool_name: str,
+    ) -> dict[str, Any]:
+        """Check if a tool call is allowed by policy.
+
+        Args:
+            run_id: The run ID for context.
+            tool_name: The tool name to check.
+
+        Returns:
+            Dict with keys:
+            - allowed: bool - Whether the tool call is allowed
+            - requires_approval: bool - Whether approval is needed
+            - decision_id: str - Policy decision ID
+            - reason: str - Explanation of the decision
+
+        Raises:
+            PermissionError: If the tool is explicitly denied.
+            ValueError: If approval is required before execution.
+        """
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/v1/runs/{run_id}/check-tool",
+                headers=self.headers,
+                json={"tool_name": tool_name},
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            # Raise appropriate exceptions based on policy decision
+            if not result.get("allowed", False):
+                if result.get("requires_approval", False):
+                    raise ValueError(
+                        f"Tool '{tool_name}' requires approval: {result.get('reason', 'unknown')}"
+                    )
+                raise PermissionError(
+                    f"Tool '{tool_name}' denied by policy: {result.get('reason', 'unknown')}"
+                )
+
+            return result

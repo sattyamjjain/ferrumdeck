@@ -1,76 +1,93 @@
-# ADR-0001: Control Plane / Data Plane Separation
+# ADR 0001: Control Plane and Data Plane Separation
 
 ## Status
+
 Accepted
 
+## Date
+
+2024-12-26
+
 ## Context
-FerrumDeck is an AgentOps platform that orchestrates AI agent execution. We need to decide on the high-level architecture for processing agent runs.
+
+FerrumDeck is a platform for running AI agents with safety guardrails. We need to decide on the architectural pattern for how the platform handles:
+
+1. API requests and orchestration (control logic)
+2. Actual LLM calls and tool execution (data processing)
 
 Key considerations:
-- Agent runs involve LLM API calls which can be slow (seconds to minutes)
-- Tool executions may involve arbitrary external systems
-- The control plane must remain responsive for API requests
-- We need clear security boundaries between orchestration and execution
+- LLM calls can be long-running (seconds to minutes)
+- Tool executions may need to run in isolated environments
+- We need horizontal scalability for both operations
+- Different security requirements for API handling vs code execution
+- Different resource profiles (CPU-bound vs IO-bound)
 
 ## Decision
-We adopt a **Control Plane / Data Plane separation**:
 
-### Control Plane (Rust Gateway)
-- Handles all API requests (REST/OpenAPI)
-- Manages state in PostgreSQL
-- Publishes jobs to Redis Streams
-- Enforces policy decisions
-- Records audit events
-- Remains stateless for horizontal scaling
+We adopt a **Control Plane / Data Plane separation** architecture:
 
-### Data Plane (Python Workers)
-- Consumes jobs from Redis Streams
-- Executes LLM calls via LiteLLM
-- Routes tool calls via MCP
-- Reports results back to Control Plane
-- Scales independently based on queue depth
+### Control Plane (Gateway Service)
+- **Written in**: Rust (axum framework)
+- **Responsibilities**:
+  - API endpoint handling (REST)
+  - Authentication and authorization
+  - Policy evaluation (tool allowlists, budgets)
+  - Run orchestration and state management
+  - Approval queue management
+  - Audit logging
+  - Workflow DAG scheduling
+- **Scaling**: Based on API request rate
+- **State**: Stateless (all state in PostgreSQL/Redis)
+
+### Data Plane (Worker Service)
+- **Written in**: Python
+- **Responsibilities**:
+  - LLM API calls (Anthropic, OpenAI via LiteLLM)
+  - MCP tool execution
+  - Sandbox code execution
+  - Artifact storage
+  - Retrieval operations
+- **Scaling**: Based on queue depth (Redis Streams)
+- **State**: Stateless (pulls jobs from queue)
 
 ### Communication
-- **Job Queue**: Redis Streams (reliable, persistent)
-- **Results**: HTTP callbacks to Gateway
-- **Health**: Prometheus metrics from both planes
+- **Control → Data**: Redis Streams (step_queue)
+- **Data → Control**: HTTP API (submit_step_result)
+- **Shared State**: PostgreSQL (runs, steps, artifacts)
 
 ## Consequences
 
 ### Positive
-- Clear separation of concerns
-- Independent scaling of API vs execution capacity
-- Language-appropriate: Rust for performance-critical control, Python for LLM ecosystem
-- Security isolation: workers never access control plane database directly
-- Failure isolation: worker crashes don't affect API availability
+- **Independent scaling**: Gateway scales for API load, Workers scale for compute load
+- **Language optimization**: Rust for low-latency API, Python for ML ecosystem
+- **Security isolation**: Workers can run in restricted network segments
+- **Fault isolation**: Worker crashes don't affect API availability
+- **Flexible deployment**: Workers can run on GPU nodes, Gateway on standard compute
 
 ### Negative
-- Added complexity of distributed system
-- Need to manage eventual consistency
-- Debugging spans multiple services
-- Additional operational overhead
+- **Operational complexity**: Two services to deploy and monitor
+- **Latency overhead**: Queue-based communication adds milliseconds
+- **Debugging complexity**: Traces span multiple services
 
-### Risks & Mitigations
-| Risk | Mitigation |
-|------|------------|
-| Queue backpressure | Backpressure signals via Redis stream length |
-| Worker starvation | Consumer group load balancing |
-| Message loss | Redis Stream persistence + acknowledgment |
+### Neutral
+- Need comprehensive observability (OTel) to track requests across planes
+- Need health checks and retry logic for inter-service communication
 
 ## Alternatives Considered
 
-### Monolithic Service
-- Simpler architecture
-- Rejected: LLM calls would block API responsiveness
+### 1. Monolithic Service
+- Simpler deployment
+- Rejected: Cannot scale LLM calls independently from API handling
 
-### Serverless Workers (Lambda/Cloud Run)
-- Auto-scaling built in
-- Rejected: Cold start latency unacceptable for interactive agents
+### 2. Serverless Functions
+- Maximum scaling flexibility
+- Rejected: Cold start latency too high for interactive use cases, complex state management
 
-### gRPC instead of HTTP callbacks
-- More efficient
-- Rejected: HTTP simpler for initial implementation, can migrate later
+### 3. Sidecar Pattern
+- Workers as sidecars to Gateway pods
+- Rejected: Cannot scale independently, resource contention
 
 ## References
-- [Redis Streams Documentation](https://redis.io/docs/data-types/streams/)
-- [CQRS Pattern](https://martinfowler.com/bliki/CQRS.html)
+
+- [Kubernetes Control Plane Architecture](https://kubernetes.io/docs/concepts/overview/components/)
+- [AWS Well-Architected: Separation of Concerns](https://docs.aws.amazon.com/wellarchitected/latest/framework/oe-separation-of-concerns.html)

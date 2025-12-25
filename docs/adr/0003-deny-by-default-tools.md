@@ -1,125 +1,139 @@
-# ADR-0003: Deny-by-Default Tool Access
+# ADR 0003: Deny-by-Default Tool Policy
 
 ## Status
+
 Accepted
 
-## Context
-AI agents can potentially call any tool available in the system. We need a policy model that ensures safety while enabling useful automation.
+## Date
 
-Key concerns:
-- Agents may be instructed to perform harmful actions
-- Tool combinations can have unexpected effects
-- Different environments need different permissions
-- Audit requirements for compliance
+2024-12-26
+
+## Context
+
+AI agents in FerrumDeck can execute arbitrary tools via MCP (Model Context Protocol). This creates significant security risks:
+
+1. **Data exfiltration**: Agent could read sensitive files and send to external endpoints
+2. **System compromise**: Agent could execute destructive commands
+3. **Privilege escalation**: Agent could modify security configurations
+4. **Resource abuse**: Agent could consume excessive compute/network resources
+
+We need a security model that:
+- Prevents unauthorized tool access by default
+- Allows operators to explicitly grant tool permissions
+- Supports approval workflows for high-risk operations
+- Provides audit trail of all tool executions
 
 ## Decision
-We adopt a **deny-by-default** policy for tool access.
 
-### Policy Model
-```
-1. All tools are DENIED unless explicitly allowed
-2. Allowed tools are specified per agent version
-3. Some tools may require human APPROVAL before execution
-4. Explicit DENY rules override ALLOW rules
-```
+We implement a **Deny-by-Default** tool policy with three-tier classification:
 
-### Policy Hierarchy
-```
-Global Defaults
-    ↓
-Project Policies
-    ↓
-Agent Version Config
-    ↓
-Runtime Overrides (via API)
-```
+### Policy Structure
 
-### Tool Risk Levels
-| Level | Description | Default Policy |
-|-------|-------------|----------------|
-| `read` | Read-only operations | Allow if in allowlist |
-| `write` | Modifies state | Require approval |
-| `destructive` | Cannot be undone | Deny by default |
-
-### Allowlist Configuration
 ```yaml
-agent_versions:
-  allowed_tools:
-    - read_file        # Read risk
-    - list_directory   # Read risk
-    - write_file       # Write risk - requires approval
-  tool_configs:
-    write_file:
-      require_approval: true
-      max_file_size: 1MB
+tool_allowlist:
+  allowed:           # Automatic execution permitted
+    - read_file
+    - list_directory
+    - git_status
+  
+  approval_required: # Requires human approval
+    - write_file
+    - git_commit
+    - create_pr
+  
+  denied:            # Always blocked
+    - delete_repository
+    - sudo
+    - shell_exec
 ```
 
-### Policy Decision Flow
+### Classification Criteria
+
+| Tier | Risk Level | Approval | Examples |
+|------|------------|----------|----------|
+| allowed | read | None | File reads, git status, API GETs |
+| approval_required | write | Human or automated | File writes, commits, API POSTs |
+| denied | destructive | Never | Deletions, admin operations |
+
+### Default Policy
+```yaml
+# If tool not in any list: DENIED
+default_action: deny
 ```
-Tool Call Request
-       ↓
-Is tool in denied_tools? → YES → DENY
-       ↓ NO
-Is tool in allowed_tools? → NO → DENY
-       ↓ YES
-Is approval required? → YES → AWAIT_APPROVAL
-       ↓ NO
-       → ALLOW
-```
+
+### Enforcement Points
+1. **Gateway (Pre-queue)**: Check policy before dispatching to worker
+2. **Worker (Pre-execution)**: Validate policy via control plane API
+3. **MCP Router**: Enforce schema validation per tool
+
+### Approval Flow
+1. Worker encounters `approval_required` tool
+2. Worker reports PENDING status with approval request
+3. Gateway creates approval record with expiry
+4. Human/system approves via API
+5. Gateway re-queues step
+6. Worker executes approved tool
 
 ## Consequences
 
 ### Positive
-- Secure by default - new tools are blocked until reviewed
-- Explicit audit trail of all policy decisions
-- Granular control per agent/project
-- Supports compliance requirements (SOC2, etc.)
+- **Secure by default**: Unknown tools cannot execute
+- **Explicit permissions**: Operators consciously grant access
+- **Audit trail**: All policy decisions logged
+- **Flexible**: Per-agent, per-tenant policy customization
+- **Compliance**: Meets principle of least privilege
 
 ### Negative
-- Initial setup requires explicit allowlisting
-- May frustrate developers during prototyping
-- Approval workflows add latency
+- **Initial friction**: Operators must configure allowlists
+- **Approval latency**: High-risk tools require human wait time
+- **Maintenance**: Allowlists need updates as tools change
 
 ### Mitigations
-- Provide "development mode" with relaxed policies (not for production)
-- Good defaults for common safe tools
-- Async approval via webhooks/Slack
+- Provide sensible default policies per agent type
+- Implement automated approval for trusted scenarios
+- Version policies alongside agent definitions
 
-## Implementation
+## Implementation Details
 
-### Database Schema
-```sql
-CREATE TABLE policy_rules (
-    id TEXT PRIMARY KEY,
-    project_id TEXT REFERENCES projects(id),
-    conditions JSONB NOT NULL,
-    effect policy_effect NOT NULL  -- allow/deny/require_approval
-);
+### Policy Engine (Rust)
+```rust
+pub enum PolicyDecision {
+    Allow,
+    RequireApproval { reason: String },
+    Deny { reason: String },
+}
+
+pub fn evaluate_tool_call(
+    tool_name: &str,
+    tool_input: &Value,
+    policy: &Policy,
+) -> PolicyDecision;
 ```
 
-### API
-```http
-GET  /v1/policies           # List policies
-POST /v1/policies           # Create policy
-GET  /v1/policies/{id}      # Get policy
-PUT  /v1/policies/{id}      # Update policy
-DELETE /v1/policies/{id}    # Delete policy
-```
+### Budget Enforcement
+Policy engine also enforces budgets:
+- `max_input_tokens`: Total input tokens per run
+- `max_output_tokens`: Total output tokens per run
+- `max_tool_calls`: Maximum tool invocations per run
+- `max_wall_time_secs`: Maximum run duration
+- `max_cost_cents`: Maximum cost per run
 
 ## Alternatives Considered
 
-### Allow-by-Default
-- Easier development experience
-- Rejected: Unacceptable security risk for production
+### 1. Allow-by-Default
+- All tools allowed unless explicitly denied
+- Rejected: Too risky, easy to miss dangerous tools
 
-### Capability-Based Security
-- More flexible
-- Rejected: Higher complexity, harder to audit
+### 2. Capability-Based
+- Tools request capabilities (read, write, network)
+- Rejected: Too coarse-grained for our use case
 
-### Role-Based Access Control
-- Standard enterprise pattern
-- Rejected: Tools aren't users; capability model fits better
+### 3. Sandboxing Only
+- Run all tools in isolated sandbox
+- Rejected: Not all tools can be sandboxed, doesn't prevent data exfiltration
 
 ## References
-- [OWASP LLM Top 10](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
-- [Principle of Least Privilege](https://en.wikipedia.org/wiki/Principle_of_least_privilege)
+
+- [OWASP LLM Top 10: LLM07 - Insecure Plugin Design](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
+- [Principle of Least Privilege](https://csrc.nist.gov/glossary/term/least_privilege)
+- [MCP Security Considerations](https://modelcontextprotocol.io/docs/concepts/security)
