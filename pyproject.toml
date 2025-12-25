@@ -76,7 +76,7 @@ reportGeneralTypeIssues = "warning"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["python/packages"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --import-mode=importlib"
 
 [build-system]
 requires = ["hatchling"]
