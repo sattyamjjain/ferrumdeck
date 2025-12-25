@@ -54,7 +54,7 @@ def get_repo_path(repo_name: str) -> Path:
         ValueError: If the repository name would escape the workspace directory.
     """
     # Sanitize repo name: only allow alphanumeric, underscore, dash, and dot
-    safe_name = re.sub(r'[^\w\-.]', '_', repo_name)
+    safe_name = re.sub(r"[^\w\-.]", "_", repo_name)
 
     # Resolve the full path and ensure it stays within WORKSPACE_DIR
     repo_path = (WORKSPACE_DIR / safe_name).resolve()

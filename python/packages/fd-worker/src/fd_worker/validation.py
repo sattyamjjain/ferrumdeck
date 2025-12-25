@@ -195,7 +195,9 @@ class OutputValidator:
 
         if isinstance(value, dict):
             return {
-                self._sanitize_string(str(k), warnings): self._sanitize_value(v, warnings, depth + 1)
+                self._sanitize_string(str(k), warnings): self._sanitize_value(
+                    v, warnings, depth + 1
+                )
                 for k, v in value.items()
             }
 
@@ -388,9 +390,7 @@ class InputSanitizer:
         self.delimiter_end = delimiter_end
 
         # Compile patterns for performance
-        self._injection_patterns = [
-            re.compile(p) for p in PROMPT_INJECTION_PATTERNS
-        ]
+        self._injection_patterns = [re.compile(p) for p in PROMPT_INJECTION_PATTERNS]
         self._obfuscation_patterns = [
             re.compile(p, re.DOTALL) for p in FORMATTING_OBFUSCATION_PATTERNS
         ]
@@ -413,7 +413,7 @@ class InputSanitizer:
         # Check length
         if len(user_input) > self.max_input_length:
             warnings.append(f"Input truncated from {len(user_input)} to {self.max_input_length}")
-            user_input = user_input[:self.max_input_length]
+            user_input = user_input[: self.max_input_length]
 
         # Detect injection patterns
         for pattern in self._injection_patterns:
@@ -498,12 +498,15 @@ class InputSanitizer:
             score += 0.3
 
         # Check for instruction override language
-        if any(phrase in text.lower() for phrase in [
-            "ignore previous",
-            "disregard above",
-            "new instructions",
-            "forget everything",
-        ]):
+        if any(
+            phrase in text.lower()
+            for phrase in [
+                "ignore previous",
+                "disregard above",
+                "new instructions",
+                "forget everything",
+            ]
+        ):
             score += 0.4
 
         # Check for unusual character density (obfuscation indicator)

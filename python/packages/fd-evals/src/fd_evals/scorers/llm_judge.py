@@ -97,9 +97,7 @@ class LLMJudgeScorer(BaseScorer):
         super().__init__(name=name, weight=weight)
         self.model = model or os.getenv("LLM_JUDGE_MODEL", "claude-3-haiku-20240307")
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        self.api_base = api_base or os.getenv(
-            "LLM_JUDGE_API_BASE", "https://api.anthropic.com/v1"
-        )
+        self.api_base = api_base or os.getenv("LLM_JUDGE_API_BASE", "https://api.anthropic.com/v1")
         self.criteria = criteria or DEFAULT_CRITERIA
         self.prompt_template = prompt_template or DEFAULT_EVAL_PROMPT
         self.pass_threshold = pass_threshold

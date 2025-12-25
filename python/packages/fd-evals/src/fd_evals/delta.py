@@ -109,16 +109,10 @@ class DeltaReport:
         """Compute summary statistics for the report."""
         total_tasks = len(self.task_deltas)
         improved = sum(1 for td in self.task_deltas if td.status == DeltaStatus.IMPROVED)
-        regressed = sum(
-            1 for td in self.task_deltas if td.status == DeltaStatus.REGRESSED
-        )
-        unchanged = sum(
-            1 for td in self.task_deltas if td.status == DeltaStatus.UNCHANGED
-        )
+        regressed = sum(1 for td in self.task_deltas if td.status == DeltaStatus.REGRESSED)
+        unchanged = sum(1 for td in self.task_deltas if td.status == DeltaStatus.UNCHANGED)
         new_tasks = sum(1 for td in self.task_deltas if td.status == DeltaStatus.NEW)
-        removed_tasks = sum(
-            1 for td in self.task_deltas if td.status == DeltaStatus.REMOVED
-        )
+        removed_tasks = sum(1 for td in self.task_deltas if td.status == DeltaStatus.REMOVED)
 
         # Score statistics
         score_deltas = [
@@ -130,19 +124,13 @@ class DeltaReport:
 
         # Cost statistics
         baseline_cost = sum(
-            td.cost_delta.baseline_cost_cents
-            for td in self.task_deltas
-            if td.cost_delta
+            td.cost_delta.baseline_cost_cents for td in self.task_deltas if td.cost_delta
         )
         current_cost = sum(
-            td.cost_delta.current_cost_cents
-            for td in self.task_deltas
-            if td.cost_delta
+            td.cost_delta.current_cost_cents for td in self.task_deltas if td.cost_delta
         )
         cost_delta = current_cost - baseline_cost
-        cost_delta_percent = (
-            (cost_delta / baseline_cost * 100) if baseline_cost > 0 else 0.0
-        )
+        cost_delta_percent = (cost_delta / baseline_cost * 100) if baseline_cost > 0 else 0.0
 
         return {
             "total_tasks": total_tasks,
@@ -157,9 +145,7 @@ class DeltaReport:
             "cost_delta_cents": round(cost_delta, 2),
             "cost_delta_percent": round(cost_delta_percent, 2),
             "has_regressions": regressed > 0,
-            "regression_rate": round(regressed / total_tasks * 100, 2)
-            if total_tasks > 0
-            else 0.0,
+            "regression_rate": round(regressed / total_tasks * 100, 2) if total_tasks > 0 else 0.0,
         }
 
     @property
@@ -306,12 +292,8 @@ class DeltaReporter:
         Returns:
             DeltaReport with detailed comparison.
         """
-        baseline_tasks = {
-            r["task_id"]: r for r in baseline_results.get("task_results", [])
-        }
-        current_tasks = {
-            r["task_id"]: r for r in current_results.get("task_results", [])
-        }
+        baseline_tasks = {r["task_id"]: r for r in baseline_results.get("task_results", [])}
+        current_tasks = {r["task_id"]: r for r in current_results.get("task_results", [])}
 
         all_task_ids = set(baseline_tasks.keys()) | set(current_tasks.keys())
         task_deltas = []
@@ -414,9 +396,7 @@ class DeltaReporter:
                 delta_percent = 0.0
             elif baseline_score is not None and current_score is not None:
                 delta = current_score - baseline_score
-                delta_percent = (
-                    (delta / baseline_score * 100) if baseline_score > 0 else 0.0
-                )
+                delta_percent = (delta / baseline_score * 100) if baseline_score > 0 else 0.0
 
                 if delta < -self.regression_threshold:
                     status = DeltaStatus.REGRESSED
@@ -454,13 +434,9 @@ class DeltaReporter:
         current_output = current.get("output_tokens", 0)
         current_cost = current.get("cost_cents", 0.0)
 
-        token_delta = (current_input + current_output) - (
-            baseline_input + baseline_output
-        )
+        token_delta = (current_input + current_output) - (baseline_input + baseline_output)
         cost_delta = current_cost - baseline_cost
-        cost_delta_percent = (
-            (cost_delta / baseline_cost * 100) if baseline_cost > 0 else 0.0
-        )
+        cost_delta_percent = (cost_delta / baseline_cost * 100) if baseline_cost > 0 else 0.0
 
         if cost_delta_percent > self.cost_threshold_percent:
             status = DeltaStatus.REGRESSED  # Cost increase is a regression
@@ -497,9 +473,7 @@ class DeltaReporter:
 
         # Otherwise, look at score deltas
         regressions = sum(1 for sd in score_deltas if sd.status == DeltaStatus.REGRESSED)
-        improvements = sum(
-            1 for sd in score_deltas if sd.status == DeltaStatus.IMPROVED
-        )
+        improvements = sum(1 for sd in score_deltas if sd.status == DeltaStatus.IMPROVED)
 
         if regressions > improvements:
             return DeltaStatus.REGRESSED
@@ -574,12 +548,10 @@ def generate_markdown_report(report: DeltaReport) -> str:
             if td.status not in (DeltaStatus.NEW, DeltaStatus.REMOVED)
             else "N/A"
         )
-        cost_delta = (
-            f"${td.cost_delta.cost_delta_cents / 100:+.2f}"
-            if td.cost_delta
-            else "N/A"
+        cost_delta = f"${td.cost_delta.cost_delta_cents / 100:+.2f}" if td.cost_delta else "N/A"
+        lines.append(
+            f"| {td.task_name} | {emoji} {td.status.value} | {score_delta} | {cost_delta} |"
         )
-        lines.append(f"| {td.task_name} | {emoji} {td.status.value} | {score_delta} | {cost_delta} |")
 
     lines.append("")
 
@@ -606,7 +578,9 @@ def generate_markdown_report(report: DeltaReport) -> str:
             )
             for sd in td.score_deltas:
                 status_str = f"({sd.status.value})" if sd.status != DeltaStatus.UNCHANGED else ""
-                baseline_str = f"{sd.baseline_score:.4f}" if sd.baseline_score is not None else "N/A"
+                baseline_str = (
+                    f"{sd.baseline_score:.4f}" if sd.baseline_score is not None else "N/A"
+                )
                 current_str = f"{sd.current_score:.4f}" if sd.current_score is not None else "N/A"
                 lines.append(
                     f"- {sd.scorer_name}: {baseline_str} → {current_str} "

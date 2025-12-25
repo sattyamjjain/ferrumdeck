@@ -200,9 +200,7 @@ class MockToolExecutor:
             if self.allow_new_calls:
                 logger.warning(f"No mock for tool {tool_name}, allowing new call")
                 return None
-            raise ValueError(
-                f"Tool '{tool_name}' not in replay trace and allow_new_calls=False"
-            )
+            raise ValueError(f"Tool '{tool_name}' not in replay trace and allow_new_calls=False")
 
         # Get next response for this tool
         idx = self._response_indices.get(tool_name, 0)
@@ -213,16 +211,14 @@ class MockToolExecutor:
                 logger.warning(f"No more mocked responses for {tool_name}")
                 return None
             raise ValueError(
-                f"No more mocked responses for tool '{tool_name}' "
-                f"(used {idx} of {len(responses)})"
+                f"No more mocked responses for tool '{tool_name}' (used {idx} of {len(responses)})"
             )
 
         response = responses[idx]
         self._response_indices[tool_name] = idx + 1
 
         logger.debug(
-            f"Using mocked response for {tool_name} (index {idx}): "
-            f"status={response['status']}"
+            f"Using mocked response for {tool_name} (index {idx}): status={response['status']}"
         )
 
         return response["output"]
