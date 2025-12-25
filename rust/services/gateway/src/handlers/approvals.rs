@@ -126,7 +126,11 @@ pub async fn list_pending_approvals(
                     // Also fail the associated run
                     let _ = repos
                         .runs()
-                        .update_status(&approval.run_id, RunStatus::Failed, Some("Approval expired"))
+                        .update_status(
+                            &approval.run_id,
+                            RunStatus::Failed,
+                            Some("Approval expired"),
+                        )
                         .await;
                 }
                 // Don't include expired approvals in the response

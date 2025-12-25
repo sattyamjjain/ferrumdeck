@@ -156,11 +156,21 @@ pub async fn get_usage_summary(
     pool: &PgPool,
     tenant_id: &str,
 ) -> Result<Option<UsageSummary>, sqlx::Error> {
-    let row = sqlx::query_as::<_, (
-        String, i64, i64, Decimal, i32,
-        Option<i64>, Option<i32>, i32,
-        i32, i32,
-    )>(
+    let row = sqlx::query_as::<
+        _,
+        (
+            String,
+            i64,
+            i64,
+            Decimal,
+            i32,
+            Option<i64>,
+            Option<i32>,
+            i32,
+            i32,
+            i32,
+        ),
+    >(
         r#"
         SELECT 
             q.tenant_id,
@@ -184,9 +194,16 @@ pub async fn get_usage_summary(
 
     match row {
         Some((
-            tenant_id, input_tokens, output_tokens, cost_cents, month_runs,
-            monthly_limit, daily_limit, concurrent_limit,
-            runs_today, concurrent_runs,
+            tenant_id,
+            input_tokens,
+            output_tokens,
+            cost_cents,
+            month_runs,
+            monthly_limit,
+            daily_limit,
+            concurrent_limit,
+            runs_today,
+            concurrent_runs,
         )) => {
             let cost_percentage = if let Some(limit) = monthly_limit {
                 if limit > 0 {
