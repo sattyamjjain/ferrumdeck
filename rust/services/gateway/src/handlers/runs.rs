@@ -440,7 +440,8 @@ pub async fn submit_step_result(
             (Some(in_tokens), Some(out_tokens)) => {
                 // Calculate cost based on model (from step)
                 let model = step.model.as_deref().unwrap_or("gpt-4o");
-                let cost = pricing::calculate_cost_cents(model, in_tokens as u64, out_tokens as u64);
+                let cost =
+                    pricing::calculate_cost_cents(model, in_tokens as u64, out_tokens as u64);
 
                 // Update run with tokens and cost
                 repos

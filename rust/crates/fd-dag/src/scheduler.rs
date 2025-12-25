@@ -143,7 +143,8 @@ impl DagScheduler {
         if !self.step_status.contains_key(step_id) {
             return Err(DagError::StepNotFound(step_id.to_string()));
         }
-        self.step_status.insert(step_id.to_string(), StepStatus::Running);
+        self.step_status
+            .insert(step_id.to_string(), StepStatus::Running);
         debug!(step_id, "Marked step as running");
         Ok(())
     }
@@ -159,7 +160,8 @@ impl DagScheduler {
             return Err(DagError::StepNotFound(step_id.to_string()));
         }
 
-        self.step_status.insert(step_id.to_string(), StepStatus::Completed);
+        self.step_status
+            .insert(step_id.to_string(), StepStatus::Completed);
         self.step_outputs.insert(step_id.to_string(), output);
 
         info!(step_id, "Step completed");
@@ -168,10 +170,7 @@ impl DagScheduler {
         let ready_steps = self.get_ready_steps();
 
         // Check if workflow is complete
-        let all_terminal = self
-            .step_status
-            .values()
-            .all(|status| status.is_terminal());
+        let all_terminal = self.step_status.values().all(|status| status.is_terminal());
 
         let workflow_complete = all_terminal && ready_steps.is_empty();
 
@@ -198,7 +197,8 @@ impl DagScheduler {
             return Err(DagError::StepNotFound(step_id.to_string()));
         }
 
-        self.step_status.insert(step_id.to_string(), StepStatus::Failed);
+        self.step_status
+            .insert(step_id.to_string(), StepStatus::Failed);
         warn!(step_id, error, "Step failed");
 
         if self.on_error == "fail" {
@@ -239,7 +239,8 @@ impl DagScheduler {
             return Err(DagError::StepNotFound(step_id.to_string()));
         }
 
-        self.step_status.insert(step_id.to_string(), StepStatus::Skipped);
+        self.step_status
+            .insert(step_id.to_string(), StepStatus::Skipped);
         debug!(step_id, "Step skipped");
 
         let ready_steps = self.get_ready_steps();
@@ -259,7 +260,8 @@ impl DagScheduler {
         if !self.step_status.contains_key(step_id) {
             return Err(DagError::StepNotFound(step_id.to_string()));
         }
-        self.step_status.insert(step_id.to_string(), StepStatus::WaitingApproval);
+        self.step_status
+            .insert(step_id.to_string(), StepStatus::WaitingApproval);
         debug!(step_id, "Step waiting for approval");
         Ok(())
     }
@@ -269,7 +271,8 @@ impl DagScheduler {
         if !self.step_status.contains_key(step_id) {
             return Err(DagError::StepNotFound(step_id.to_string()));
         }
-        self.step_status.insert(step_id.to_string(), StepStatus::Running);
+        self.step_status
+            .insert(step_id.to_string(), StepStatus::Running);
         debug!(step_id, "Step resumed after approval");
         Ok(())
     }
@@ -491,9 +494,7 @@ mod tests {
 
         // Complete b
         scheduler.mark_running("b").unwrap();
-        let result = scheduler
-            .complete_step("b", serde_json::json!({}))
-            .unwrap();
+        let result = scheduler.complete_step("b", serde_json::json!({})).unwrap();
         assert_eq!(result.ready_steps, vec!["c"]);
         assert!(!result.workflow_complete);
 
@@ -528,7 +529,7 @@ mod tests {
         let steps = vec![
             make_step("a", vec![]),
             make_step("b", vec!["a"]),
-            make_step("c", vec![]),  // Independent step
+            make_step("c", vec![]), // Independent step
         ];
 
         let mut scheduler = DagScheduler::from_steps(steps, "continue", 10).unwrap();
@@ -557,7 +558,9 @@ mod tests {
 
         // Complete init
         scheduler.mark_running("init").unwrap();
-        let result = scheduler.complete_step("init", serde_json::json!({})).unwrap();
+        let result = scheduler
+            .complete_step("init", serde_json::json!({}))
+            .unwrap();
 
         // a, b, c should all be ready (fanout)
         let mut ready = result.ready_steps.clone();
@@ -567,7 +570,9 @@ mod tests {
         // Complete a, b, c
         for step in ["a", "b", "c"] {
             scheduler.mark_running(step).unwrap();
-            scheduler.complete_step(step, serde_json::json!({})).unwrap();
+            scheduler
+                .complete_step(step, serde_json::json!({}))
+                .unwrap();
         }
 
         // final should now be ready (fanin)

@@ -8,10 +8,13 @@
 
 #![allow(dead_code)]
 
-use fd_dag::{DagScheduler, SchedulerState, StepCompletionResult, StepDefinition, StepStatus as DagStepStatus, StepType as DagStepType, WorkflowDag};
+use fd_dag::{
+    DagScheduler, SchedulerState, StepCompletionResult, StepDefinition,
+    StepStatus as DagStepStatus, StepType as DagStepType, WorkflowDag,
+};
 use fd_storage::models::{
-    CreateWorkflowStepExecution, UpdateWorkflowRun, UpdateWorkflowStepExecution,
-    WorkflowRunStatus, WorkflowStepExecutionStatus, WorkflowStepType,
+    CreateWorkflowStepExecution, UpdateWorkflowRun, UpdateWorkflowStepExecution, WorkflowRunStatus,
+    WorkflowStepExecutionStatus, WorkflowStepType,
 };
 use fd_storage::queue::{JobContext, QueueMessage, StepJob};
 use std::collections::HashMap;
@@ -20,8 +23,8 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument, warn};
 use ulid::Ulid;
 
-use crate::state::{AppState, Repos};
 use super::ApiError;
+use crate::state::{AppState, Repos};
 
 /// In-memory cache of active workflow schedulers
 type SchedulerCache = Arc<RwLock<HashMap<String, DagScheduler>>>;
@@ -91,14 +94,8 @@ impl WorkflowOrchestrator {
         // Create step executions and enqueue jobs for initial steps
         for step_id in &initial_steps {
             if let Some(step) = steps.iter().find(|s| &s.id == step_id) {
-                self.create_and_enqueue_step(
-                    run_id,
-                    step,
-                    project_id,
-                    tenant_id,
-                    &input,
-                )
-                .await?;
+                self.create_and_enqueue_step(run_id, step, project_id, tenant_id, &input)
+                    .await?;
             }
         }
 
@@ -139,7 +136,8 @@ impl WorkflowOrchestrator {
                 .get_mut(run_id)
                 .ok_or_else(|| ApiError::internal("Scheduler not found after restore"))?;
 
-            scheduler.complete_step(step_id, output.clone())
+            scheduler
+                .complete_step(step_id, output.clone())
                 .map_err(|e| ApiError::internal(format!("DAG error: {}", e)))?
         };
 
@@ -177,10 +175,12 @@ impl WorkflowOrchestrator {
         if result.workflow_complete {
             self.complete_workflow(run_id, Some(output)).await?;
         } else if result.workflow_failed {
-            self.fail_workflow(run_id, result.error.as_deref().unwrap_or("Unknown error")).await?;
+            self.fail_workflow(run_id, result.error.as_deref().unwrap_or("Unknown error"))
+                .await?;
         } else {
             // Enqueue ready steps
-            self.enqueue_ready_steps(run_id, &result.ready_steps).await?;
+            self.enqueue_ready_steps(run_id, &result.ready_steps)
+                .await?;
         }
 
         info!(
@@ -213,7 +213,8 @@ impl WorkflowOrchestrator {
                 .get_mut(run_id)
                 .ok_or_else(|| ApiError::internal("Scheduler not found after restore"))?;
 
-            scheduler.fail_step(step_id, error)
+            scheduler
+                .fail_step(step_id, error)
                 .map_err(|e| ApiError::internal(format!("DAG error: {}", e)))?
         };
 
@@ -239,7 +240,8 @@ impl WorkflowOrchestrator {
             self.complete_workflow(run_id, None).await?;
         } else {
             // Continue with ready steps
-            self.enqueue_ready_steps(run_id, &result.ready_steps).await?;
+            self.enqueue_ready_steps(run_id, &result.ready_steps)
+                .await?;
         }
 
         warn!(
@@ -271,7 +273,8 @@ impl WorkflowOrchestrator {
                 .get_mut(run_id)
                 .ok_or_else(|| ApiError::internal("Scheduler not found after restore"))?;
 
-            scheduler.skip_step(step_id)
+            scheduler
+                .skip_step(step_id)
                 .map_err(|e| ApiError::internal(format!("DAG error: {}", e)))?
         };
 
@@ -292,7 +295,8 @@ impl WorkflowOrchestrator {
         if result.workflow_complete {
             self.complete_workflow(run_id, None).await?;
         } else {
-            self.enqueue_ready_steps(run_id, &result.ready_steps).await?;
+            self.enqueue_ready_steps(run_id, &result.ready_steps)
+                .await?;
         }
 
         debug!(run_id, step_id, reason, "Step skipped");
@@ -316,7 +320,8 @@ impl WorkflowOrchestrator {
                 .get_mut(run_id)
                 .ok_or_else(|| ApiError::internal("Scheduler not found after restore"))?;
 
-            scheduler.mark_waiting_approval(step_id)
+            scheduler
+                .mark_waiting_approval(step_id)
                 .map_err(|e| ApiError::internal(format!("DAG error: {}", e)))?;
         }
 
@@ -533,11 +538,7 @@ impl WorkflowOrchestrator {
     }
 
     /// Enqueue ready steps
-    async fn enqueue_ready_steps(
-        &self,
-        run_id: &str,
-        step_ids: &[String],
-    ) -> Result<(), ApiError> {
+    async fn enqueue_ready_steps(&self, run_id: &str, step_ids: &[String]) -> Result<(), ApiError> {
         // Get run info
         let run = self
             .repos()

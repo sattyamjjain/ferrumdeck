@@ -1,8 +1,8 @@
 """Tests for the step executor."""
 
-import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from fd_worker.executor import StepExecutor
 
@@ -13,17 +13,19 @@ class TestStepExecutor:
     @pytest.fixture
     def executor(self):
         """Create a basic executor with mocked dependencies."""
-        with patch("fd_worker.executor.ControlPlaneClient") as mock_client:
-            with patch("fd_worker.executor.MCPRouter") as mock_router:
-                with patch("fd_worker.executor.LLMExecutor") as mock_llm:
-                    executor = StepExecutor(
-                        control_plane_url="http://localhost:8080",
-                        api_key="test-key",
-                    )
-                    executor.client = AsyncMock()
-                    executor.mcp_router = AsyncMock()
-                    executor.llm_executor = AsyncMock()
-                    yield executor
+        with (
+            patch("fd_worker.executor.ControlPlaneClient"),
+            patch("fd_worker.executor.MCPRouter"),
+            patch("fd_worker.executor.LLMExecutor"),
+        ):
+            executor = StepExecutor(
+                control_plane_url="http://localhost:8080",
+                api_key="test-key",
+            )
+            executor.client = AsyncMock()
+            executor.mcp_router = AsyncMock()
+            executor.llm_executor = AsyncMock()
+            yield executor
 
     @pytest.fixture
     def llm_job(self):
@@ -101,17 +103,19 @@ class TestLLMExecution:
     @pytest.fixture
     def executor(self):
         """Create executor with mocked LLM."""
-        with patch("fd_worker.executor.ControlPlaneClient"):
-            with patch("fd_worker.executor.MCPRouter"):
-                with patch("fd_worker.executor.LLMExecutor"):
-                    executor = StepExecutor(
-                        control_plane_url="http://localhost:8080",
-                    )
-                    executor.client = AsyncMock()
-                    executor.mcp_router = AsyncMock()
-                    executor.llm_executor = AsyncMock()
-                    executor.artifact_store = AsyncMock()
-                    yield executor
+        with (
+            patch("fd_worker.executor.ControlPlaneClient"),
+            patch("fd_worker.executor.MCPRouter"),
+            patch("fd_worker.executor.LLMExecutor"),
+        ):
+            executor = StepExecutor(
+                control_plane_url="http://localhost:8080",
+            )
+            executor.client = AsyncMock()
+            executor.mcp_router = AsyncMock()
+            executor.llm_executor = AsyncMock()
+            executor.artifact_store = AsyncMock()
+            yield executor
 
     @pytest.mark.asyncio
     async def test_llm_execution_success(self, executor):
@@ -216,18 +220,20 @@ class TestToolExecution:
     @pytest.fixture
     def executor(self):
         """Create executor with mocked MCP router."""
-        with patch("fd_worker.executor.ControlPlaneClient"):
-            with patch("fd_worker.executor.MCPRouter"):
-                with patch("fd_worker.executor.LLMExecutor"):
-                    executor = StepExecutor(
-                        control_plane_url="http://localhost:8080",
-                    )
-                    executor.client = AsyncMock()
-                    executor.mcp_router = AsyncMock()
-                    executor.llm_executor = AsyncMock()
-                    executor.artifact_store = AsyncMock()
-                    executor._mcp_connected = False
-                    yield executor
+        with (
+            patch("fd_worker.executor.ControlPlaneClient"),
+            patch("fd_worker.executor.MCPRouter"),
+            patch("fd_worker.executor.LLMExecutor"),
+        ):
+            executor = StepExecutor(
+                control_plane_url="http://localhost:8080",
+            )
+            executor.client = AsyncMock()
+            executor.mcp_router = AsyncMock()
+            executor.llm_executor = AsyncMock()
+            executor.artifact_store = AsyncMock()
+            executor._mcp_connected = False
+            yield executor
 
     @pytest.mark.asyncio
     async def test_tool_execution_success(self, executor):
@@ -318,17 +324,19 @@ class TestSandboxExecution:
     @pytest.fixture
     def executor(self):
         """Create executor for sandbox tests."""
-        with patch("fd_worker.executor.ControlPlaneClient"):
-            with patch("fd_worker.executor.MCPRouter"):
-                with patch("fd_worker.executor.LLMExecutor"):
-                    executor = StepExecutor(
-                        control_plane_url="http://localhost:8080",
-                    )
-                    executor.client = AsyncMock()
-                    executor.mcp_router = AsyncMock()
-                    executor.llm_executor = AsyncMock()
-                    executor.artifact_store = AsyncMock()
-                    yield executor
+        with (
+            patch("fd_worker.executor.ControlPlaneClient"),
+            patch("fd_worker.executor.MCPRouter"),
+            patch("fd_worker.executor.LLMExecutor"),
+        ):
+            executor = StepExecutor(
+                control_plane_url="http://localhost:8080",
+            )
+            executor.client = AsyncMock()
+            executor.mcp_router = AsyncMock()
+            executor.llm_executor = AsyncMock()
+            executor.artifact_store = AsyncMock()
+            yield executor
 
     @pytest.mark.asyncio
     async def test_sandbox_python_execution(self, executor):
@@ -383,17 +391,19 @@ class TestRetrievalExecution:
     @pytest.fixture
     def executor(self):
         """Create executor for retrieval tests."""
-        with patch("fd_worker.executor.ControlPlaneClient"):
-            with patch("fd_worker.executor.MCPRouter"):
-                with patch("fd_worker.executor.LLMExecutor"):
-                    executor = StepExecutor(
-                        control_plane_url="http://localhost:8080",
-                    )
-                    executor.client = AsyncMock()
-                    executor.mcp_router = AsyncMock()
-                    executor.llm_executor = AsyncMock()
-                    executor.artifact_store = AsyncMock()
-                    yield executor
+        with (
+            patch("fd_worker.executor.ControlPlaneClient"),
+            patch("fd_worker.executor.MCPRouter"),
+            patch("fd_worker.executor.LLMExecutor"),
+        ):
+            executor = StepExecutor(
+                control_plane_url="http://localhost:8080",
+            )
+            executor.client = AsyncMock()
+            executor.mcp_router = AsyncMock()
+            executor.llm_executor = AsyncMock()
+            executor.artifact_store = AsyncMock()
+            yield executor
 
     @pytest.mark.asyncio
     async def test_retrieval_local_backend(self, executor):
@@ -454,18 +464,20 @@ class TestPolicyHandling:
     @pytest.fixture
     def executor(self):
         """Create executor for policy tests."""
-        with patch("fd_worker.executor.ControlPlaneClient"):
-            with patch("fd_worker.executor.MCPRouter"):
-                with patch("fd_worker.executor.LLMExecutor"):
-                    executor = StepExecutor(
-                        control_plane_url="http://localhost:8080",
-                    )
-                    executor.client = AsyncMock()
-                    executor.mcp_router = AsyncMock()
-                    executor.llm_executor = AsyncMock()
-                    executor.artifact_store = AsyncMock()
-                    executor._mcp_connected = False
-                    yield executor
+        with (
+            patch("fd_worker.executor.ControlPlaneClient"),
+            patch("fd_worker.executor.MCPRouter"),
+            patch("fd_worker.executor.LLMExecutor"),
+        ):
+            executor = StepExecutor(
+                control_plane_url="http://localhost:8080",
+            )
+            executor.client = AsyncMock()
+            executor.mcp_router = AsyncMock()
+            executor.llm_executor = AsyncMock()
+            executor.artifact_store = AsyncMock()
+            executor._mcp_connected = False
+            yield executor
 
     @pytest.mark.asyncio
     async def test_policy_denied_tool(self, executor):
@@ -530,19 +542,21 @@ class TestRetryBehavior:
     @pytest.fixture
     def executor(self):
         """Create executor with retry config."""
-        with patch("fd_worker.executor.ControlPlaneClient"):
-            with patch("fd_worker.executor.MCPRouter"):
-                with patch("fd_worker.executor.LLMExecutor"):
-                    executor = StepExecutor(
-                        control_plane_url="http://localhost:8080",
-                        max_retries=3,
-                        retry_delay_ms=100,  # Fast retries for tests
-                    )
-                    executor.client = AsyncMock()
-                    executor.mcp_router = AsyncMock()
-                    executor.llm_executor = AsyncMock()
-                    executor.artifact_store = AsyncMock()
-                    yield executor
+        with (
+            patch("fd_worker.executor.ControlPlaneClient"),
+            patch("fd_worker.executor.MCPRouter"),
+            patch("fd_worker.executor.LLMExecutor"),
+        ):
+            executor = StepExecutor(
+                control_plane_url="http://localhost:8080",
+                max_retries=3,
+                retry_delay_ms=100,  # Fast retries for tests
+            )
+            executor.client = AsyncMock()
+            executor.mcp_router = AsyncMock()
+            executor.llm_executor = AsyncMock()
+            executor.artifact_store = AsyncMock()
+            yield executor
 
     @pytest.mark.asyncio
     async def test_retry_config_applied(self, executor):

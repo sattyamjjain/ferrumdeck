@@ -360,7 +360,9 @@ mod tests {
         assert!(engine.evaluate_tool_call("write_file").needs_approval());
 
         // Dangerous operations are denied
-        assert!(engine.evaluate_tool_call("delete_production_data").is_denied());
+        assert!(engine
+            .evaluate_tool_call("delete_production_data")
+            .is_denied());
 
         // Unknown tools are denied by default
         assert!(engine.evaluate_tool_call("curl").is_denied());

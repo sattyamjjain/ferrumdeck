@@ -37,11 +37,10 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateE
 
 /// Log the current migration status.
 async fn log_migration_status(pool: &PgPool) -> Result<(), sqlx::Error> {
-    let rows: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT version::text, checksum FROM _sqlx_migrations ORDER BY version",
-    )
-    .fetch_all(pool)
-    .await?;
+    let rows: Vec<(String, i64)> =
+        sqlx::query_as("SELECT version::text, checksum FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(pool)
+            .await?;
 
     for (version, _checksum) in rows {
         info!(version = %version, "Applied migration");
@@ -69,11 +68,10 @@ pub async fn migrations_pending(pool: &PgPool) -> Result<bool, sqlx::migrate::Mi
     }
 
     // Count applied migrations
-    let applied_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
-            .fetch_one(pool)
-            .await
-            .unwrap_or(0);
+    let applied_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM _sqlx_migrations")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
 
     let total_migrations = migrator.migrations.len() as i64;
 

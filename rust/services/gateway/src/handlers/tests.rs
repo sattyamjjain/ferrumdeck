@@ -309,7 +309,9 @@ mod workflow_tests {
 
 #[cfg(test)]
 mod approval_tests {
-    use crate::handlers::approvals::{ApprovalResponse, ListApprovalsQuery, ResolveApprovalRequest};
+    use crate::handlers::approvals::{
+        ApprovalResponse, ListApprovalsQuery, ResolveApprovalRequest,
+    };
 
     #[test]
     fn test_list_approvals_query_defaults() {
@@ -488,7 +490,9 @@ mod registry_tests {
 
 #[cfg(test)]
 mod health_tests {
-    use crate::handlers::health::{ComponentHealth, ComponentStatus, HealthResponse, ReadinessResponse};
+    use crate::handlers::health::{
+        ComponentHealth, ComponentStatus, HealthResponse, ReadinessResponse,
+    };
 
     #[test]
     fn test_health_response_serialization() {

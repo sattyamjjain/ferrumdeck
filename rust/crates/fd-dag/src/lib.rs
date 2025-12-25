@@ -132,7 +132,10 @@ impl StepStatus {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            StepStatus::Completed | StepStatus::Failed | StepStatus::Skipped | StepStatus::Cancelled
+            StepStatus::Completed
+                | StepStatus::Failed
+                | StepStatus::Skipped
+                | StepStatus::Cancelled
         )
     }
 
@@ -286,12 +289,18 @@ impl WorkflowDag {
 
     /// Get children (dependent steps) of a step
     pub fn children(&self, step_id: &str) -> &[String] {
-        self.children.get(step_id).map(|v| v.as_slice()).unwrap_or(&[])
+        self.children
+            .get(step_id)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Get parents (dependencies) of a step
     pub fn parents(&self, step_id: &str) -> &[String] {
-        self.parents.get(step_id).map(|v| v.as_slice()).unwrap_or(&[])
+        self.parents
+            .get(step_id)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Compute execution layers (steps that can run in parallel)
@@ -352,7 +361,10 @@ pub fn compute_ready_steps(dag: &WorkflowDag, completed_steps: &HashSet<String>)
         }
 
         // Check if all dependencies are satisfied
-        let all_deps_satisfied = step.depends_on.iter().all(|dep| completed_steps.contains(dep));
+        let all_deps_satisfied = step
+            .depends_on
+            .iter()
+            .all(|dep| completed_steps.contains(dep));
 
         if all_deps_satisfied {
             ready.push(step_id.clone());

@@ -17,19 +17,13 @@ static SENSITIVE_PATTERNS: LazyLock<Vec<SensitivePattern>> = LazyLock::new(|| {
             "api_key",
             r#"(?i)(api[_-]?key|apikey)['"]?\s*[:=]\s*['"]?([a-zA-Z0-9_-]{20,})"#,
         ),
-        SensitivePattern::new(
-            "bearer_token",
-            r"(?i)bearer\s+([a-zA-Z0-9_.-]{20,})",
-        ),
+        SensitivePattern::new("bearer_token", r"(?i)bearer\s+([a-zA-Z0-9_.-]{20,})"),
         SensitivePattern::new(
             "jwt_token",
             r"eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+",
         ),
         // AWS credentials
-        SensitivePattern::new(
-            "aws_access_key",
-            r"(?i)AKIA[0-9A-Z]{16}",
-        ),
+        SensitivePattern::new("aws_access_key", r"(?i)AKIA[0-9A-Z]{16}"),
         SensitivePattern::new(
             "aws_secret_key",
             r#"(?i)(aws[_-]?secret[_-]?access[_-]?key)['"]?\s*[:=]\s*['"]?([a-zA-Z0-9/+=]{40})"#,
@@ -40,30 +34,21 @@ static SENSITIVE_PATTERNS: LazyLock<Vec<SensitivePattern>> = LazyLock::new(|| {
             r"(?i)(postgres|mysql|mongodb|redis)://[^@\s]+:[^@\s]+@",
         ),
         // Email addresses (PII)
-        SensitivePattern::new(
-            "email",
-            r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}",
-        ),
+        SensitivePattern::new("email", r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"),
         // Credit card numbers
         SensitivePattern::new(
             "credit_card",
             r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})\b",
         ),
         // SSN (US)
-        SensitivePattern::new(
-            "ssn",
-            r"\b\d{3}-\d{2}-\d{4}\b",
-        ),
+        SensitivePattern::new("ssn", r"\b\d{3}-\d{2}-\d{4}\b"),
         // Generic password fields
         SensitivePattern::new(
             "password_field",
             r#"(?i)["']?password["']?\s*[:=]\s*["']?[^"'\s,}]+"#,
         ),
         // Private keys
-        SensitivePattern::new(
-            "private_key",
-            r"-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----",
-        ),
+        SensitivePattern::new("private_key", r"-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----"),
     ]
 });
 
@@ -128,7 +113,10 @@ pub fn redact_string(input: &str) -> RedactionResult {
 
     for pattern in SENSITIVE_PATTERNS.iter() {
         if pattern.regex.is_match(&result) {
-            result = pattern.regex.replace_all(&result, REDACTED_PLACEHOLDER).to_string();
+            result = pattern
+                .regex
+                .replace_all(&result, REDACTED_PLACEHOLDER)
+                .to_string();
             redacted_types.push(pattern.name.to_string());
             count += 1;
         }
@@ -156,9 +144,7 @@ pub fn redact_json(value: &Value) -> Value {
             }
             Value::Object(new_map)
         }
-        Value::Array(arr) => {
-            Value::Array(arr.iter().map(redact_json).collect())
-        }
+        Value::Array(arr) => Value::Array(arr.iter().map(redact_json).collect()),
         Value::String(s) => {
             let result = redact_string(s);
             Value::String(result.redacted)
@@ -217,7 +203,10 @@ mod tests {
         let result = redact_json(&input);
         assert_eq!(result["password"], REDACTED_PLACEHOLDER);
         // Email in field value is also redacted
-        assert!(result["email"].as_str().unwrap().contains(REDACTED_PLACEHOLDER));
+        assert!(result["email"]
+            .as_str()
+            .unwrap()
+            .contains(REDACTED_PLACEHOLDER));
     }
 
     #[test]
