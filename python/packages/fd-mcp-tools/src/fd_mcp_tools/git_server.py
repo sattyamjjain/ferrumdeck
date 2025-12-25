@@ -33,7 +33,7 @@ def run_git_command(args: list[str], cwd: Path | None = None) -> tuple[bool, str
     """Run a git command and return (success, output)."""
     try:
         result = subprocess.run(
-            ["git"] + args,
+            ["git", *args],
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -302,7 +302,7 @@ async def handle_tool_call(name: str, arguments: dict[str, Any]) -> list[TextCon
     elif name == "git_add":
         repo_path = get_repo_path(arguments["repo"])
         files = arguments["files"]
-        success, output = run_git_command(["add"] + files, cwd=repo_path)
+        success, output = run_git_command(["add", *files], cwd=repo_path)
         if success:
             return [TextContent(type="text", text=f"Staged files: {files}")]
         return [TextContent(type="text", text=f"Add failed: {output}")]

@@ -3,7 +3,9 @@
 use rust_decimal::Decimal;
 use sqlx::PgPool;
 
-use crate::models::quotas::{QuotaCheckResult, TenantQuota, TenantUsageCurrent, UsageSummary, UsageUpdate};
+use crate::models::quotas::{
+    QuotaCheckResult, TenantQuota, TenantUsageCurrent, UsageSummary, UsageUpdate,
+};
 
 /// Get quota limits for a tenant.
 pub async fn get_quota(pool: &PgPool, tenant_id: &str) -> Result<Option<TenantQuota>, sqlx::Error> {

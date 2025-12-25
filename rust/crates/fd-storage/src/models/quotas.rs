@@ -10,7 +10,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct TenantQuota {
     pub id: Uuid,
-    pub tenant_id: String,  // TEXT in database (ULID format: ten_xxxxx)
+    pub tenant_id: String, // TEXT in database (ULID format: ten_xxxxx)
 
     // Token quotas (monthly)
     pub monthly_input_token_limit: Option<i64>,
@@ -38,7 +38,7 @@ pub struct TenantQuota {
 /// Current usage tracking for quota enforcement.
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct TenantUsageCurrent {
-    pub tenant_id: String,  // TEXT in database (ULID format: ten_xxxxx)
+    pub tenant_id: String, // TEXT in database (ULID format: ten_xxxxx)
 
     // Current month totals
     pub month_start: NaiveDate,
@@ -68,7 +68,7 @@ pub struct TenantUsageCurrent {
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct TenantUsageDaily {
     pub id: Uuid,
-    pub tenant_id: String,  // TEXT in database (ULID format: ten_xxxxx)
+    pub tenant_id: String, // TEXT in database (ULID format: ten_xxxxx)
     pub usage_date: NaiveDate,
 
     pub input_tokens: i64,
@@ -148,19 +148,19 @@ impl UsageUpdate {
 /// Summary of tenant usage for API response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageSummary {
-    pub tenant_id: String,  // TEXT in database (ULID format: ten_xxxxx)
-    
+    pub tenant_id: String, // TEXT in database (ULID format: ten_xxxxx)
+
     // Current month
     pub month_input_tokens: i64,
     pub month_output_tokens: i64,
     pub month_cost_cents: Decimal,
     pub month_runs: i32,
-    
+
     // Quotas
     pub monthly_cost_limit_cents: Option<i64>,
     pub daily_run_limit: Option<i32>,
     pub concurrent_run_limit: i32,
-    
+
     // Current usage vs limits
     pub cost_percentage: f64,
     pub runs_today: i32,

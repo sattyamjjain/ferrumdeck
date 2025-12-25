@@ -3,7 +3,6 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-import jsonschema
 from jsonschema import Draft202012Validator, ValidationError
 from pydantic import BaseModel
 
