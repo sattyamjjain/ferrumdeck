@@ -99,9 +99,7 @@ class PRQualityScorer(BaseScorer):
         # Handle both string and dict outputs
         output_dict = actual_output if isinstance(actual_output, dict) else {}
         pr_title = run_context.get("pr_title") or output_dict.get("pr_title", "")
-        pr_description = run_context.get("pr_description") or output_dict.get(
-            "pr_description", ""
-        )
+        pr_description = run_context.get("pr_description") or output_dict.get("pr_description", "")
 
         issues = []
         score_deductions = 0.0
