@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "MCP Server Configuration for FerrumDeck Worker",
+  "servers": [
+    {
+      "name": "github",
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "ghcr.io/github/github-mcp-server"
+      ]
+    }
+  ],
+  "allowlist": {
+    "allowed_tools": [
+      "get_file_contents",
+      "search_repositories",
+      "search_code",
+      "list_commits",
+      "get_commit",
+      "list_branches",
+      "get_pull_request",
+      "list_pull_requests",
+      "get_pull_request_files",
+      "get_pull_request_commits",
+      "get_pull_request_reviews",
+      "get_issue",
+      "list_issues",
+      "search_issues",
+      "get_me"
+    ],
+    "approval_required": [
+      "create_or_update_file",
+      "push_files",
+      "create_pull_request",
+      "update_pull_request",
+      "create_issue",
+      "update_issue",
+      "add_issue_comment",
+      "create_branch",
+      "fork_repository"
+    ],
+    "denied_tools": [
+      "delete_file",
+      "merge_pull_request",
+      "close_issue",
+      "close_pull_request"
+    ]
+  }
+}

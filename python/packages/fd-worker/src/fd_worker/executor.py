@@ -27,6 +27,7 @@ from fd_runtime import (
     trace_step_execution,
     trace_tool_call,
 )
+from fd_worker.agentic import AgenticExecutor
 from fd_worker.llm import LLMExecutor
 from fd_worker.validation import OutputValidator
 
@@ -60,11 +61,20 @@ class StepExecutor:
     ):
         self.client = ControlPlaneClient(control_plane_url, api_key)
         self.llm_executor = LLMExecutor()
+
+        # Store MCP configs for agentic executor
+        self._mcp_servers = mcp_servers or []
+        self._tool_allowlist = tool_allowlist or ToolAllowlist()
+
         self.mcp_router = MCPRouter(
-            servers=mcp_servers or [],
-            allowlist=tool_allowlist or ToolAllowlist(),
+            servers=self._mcp_servers,
+            allowlist=self._tool_allowlist,
         )
         self._mcp_connected = False
+
+        # Agentic executor for full LLM + Tool loops
+        self._agentic_executor: AgenticExecutor | None = None
+        self._agentic_connected = False
 
         # Retry configuration from environment or defaults
         self.max_retries = max_retries or int(os.getenv("WORKER_MAX_RETRIES", "3"))
@@ -86,11 +96,29 @@ class StepExecutor:
             await self.mcp_router.connect()
             self._mcp_connected = True
 
+    async def connect_agentic(self) -> AgenticExecutor:
+        """Connect the agentic executor for full LLM + Tool loops."""
+        if not self._agentic_connected or self._agentic_executor is None:
+            self._agentic_executor = AgenticExecutor(
+                mcp_configs=self._mcp_servers,
+                allowlist=self._tool_allowlist,
+                max_iterations=int(os.getenv("AGENTIC_MAX_ITERATIONS", "10")),
+            )
+            await self._agentic_executor.connect()
+            self._agentic_connected = True
+            logger.info("Agentic executor connected")
+        return self._agentic_executor
+
     async def disconnect(self) -> None:
         """Disconnect from MCP servers."""
         if self._mcp_connected:
             await self.mcp_router.disconnect()
             self._mcp_connected = False
+
+        if self._agentic_connected and self._agentic_executor:
+            await self._agentic_executor.disconnect()
+            self._agentic_connected = False
+            self._agentic_executor = None
 
     async def _store_output_artifact(
         self,
@@ -214,12 +242,144 @@ class StepExecutor:
         run_id: str,
         step_id: str,
     ) -> dict[str, Any]:
-        """Execute an LLM step with tracing and retries."""
-        messages = step_input.get("messages", [])
+        """Execute an LLM step with tracing and retries.
+
+        If MCP servers are configured and agentic_mode is enabled (default when
+        servers exist), this runs a full agentic loop: LLM → Tool → LLM → ... → Response.
+        Otherwise, performs a single LLM call.
+        """
         model = step_input.get("model", "claude-sonnet-4-20250514")
-        tools = step_input.get("tools")
         max_tokens = step_input.get("max_tokens", 4096)
         temperature = step_input.get("temperature", 0.7)
+
+        # Extract task and system prompt
+        task = step_input.get("task")
+        system_prompt = step_input.get(
+            "system_prompt",
+            "You are a helpful AI assistant. Complete the requested task.",
+        )
+
+        logger.info(f"LLM step: task={task[:50] if task else None}... mcp_servers={len(self._mcp_servers)}")
+
+        # Check if we should use agentic mode
+        # Default to agentic when we have MCP servers configured
+        agentic_mode = step_input.get("agentic_mode", len(self._mcp_servers) > 0)
+
+        if agentic_mode and self._mcp_servers and task:
+            # Use full agentic loop with tool support
+            return await self._execute_agentic(
+                task=task,
+                system_prompt=system_prompt,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                run_id=run_id,
+                step_id=step_id,
+            )
+
+        # Fall back to simple LLM call (no tools)
+        return await self._execute_llm_simple(
+            step_input=step_input,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            run_id=run_id,
+            step_id=step_id,
+        )
+
+    async def _execute_agentic(
+        self,
+        task: str,
+        system_prompt: str,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        run_id: str,
+        step_id: str,
+    ) -> dict[str, Any]:
+        """Execute an agentic loop with tool support."""
+        logger.info(f"Starting agentic execution for run={run_id} step={step_id}")
+
+        # Connect agentic executor (lazy initialization)
+        executor = await self.connect_agentic()
+
+        # Determine the LLM system from model name
+        if "claude" in model.lower():
+            system = "anthropic"
+        elif "gpt" in model.lower():
+            system = "openai"
+        else:
+            system = "unknown"
+
+        with trace_llm_call(
+            model=model,
+            system=system,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            run_id=run_id,
+            step_id=step_id,
+        ) as span:
+            # Run the agentic loop
+            result = await executor.run(
+                task=task,
+                system_prompt=system_prompt,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+
+            # Set tracing attributes
+            span.set_attribute("agentic.iterations", result.iterations)
+            span.set_attribute("agentic.tool_calls_count", len(result.tool_calls_made))
+            span.set_attribute("agentic.status", result.status)
+
+            set_llm_response_attributes(
+                span=span,
+                model=model,
+                finish_reason=result.status,
+                input_tokens=result.total_usage.input_tokens,
+                output_tokens=result.total_usage.output_tokens,
+            )
+
+            logger.info(
+                f"Agentic execution completed: "
+                f"iterations={result.iterations}, "
+                f"tool_calls={len(result.tool_calls_made)}, "
+                f"status={result.status}"
+            )
+
+            # Build detailed output including tool call history
+            output = {
+                "response": result.final_response,
+                "tool_calls": result.tool_calls_made,
+                "iterations": result.iterations,
+                "status": result.status,
+            }
+
+            if result.error:
+                output["error"] = result.error
+
+            return {
+                "output": output,
+                "usage": {
+                    "input_tokens": result.total_usage.input_tokens,
+                    "output_tokens": result.total_usage.output_tokens,
+                },
+            }
+
+    async def _execute_llm_simple(
+        self,
+        step_input: dict[str, Any],
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        run_id: str,
+        step_id: str,
+    ) -> dict[str, Any]:
+        """Execute a simple LLM call without tool support."""
+        logger.info(f"Using simple LLM mode (no agentic). step_input keys: {list(step_input.keys())}")
+        messages = step_input.get("messages", [])
+        tools = step_input.get("tools")
 
         # Build messages from task if no explicit messages provided
         if not messages:

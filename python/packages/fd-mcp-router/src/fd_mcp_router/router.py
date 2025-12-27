@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -79,11 +80,16 @@ class MCPRouter:
         logger.info(f"Connecting to MCP server: {name}")
 
         if config.command:
+            # Build environment - inherit from current process and add configured env
+            env = dict(os.environ)
+            if config.env:
+                env.update(config.env)
+
             # Stdio-based server
             server_params = StdioServerParameters(
                 command=config.command,
                 args=config.args or [],
-                env=config.env,
+                env=env,
             )
 
             async with (

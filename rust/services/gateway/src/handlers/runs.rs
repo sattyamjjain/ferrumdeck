@@ -219,6 +219,7 @@ pub async fn create_run(
 
     // Create the initial LLM step
     let step_id = format!("stp_{}", Ulid::new());
+    let user_input = request.input.clone(); // Clone for later use in job
     let create_step = CreateStep {
         id: step_id.clone(),
         run_id: run_id.clone(),
@@ -241,16 +242,28 @@ pub async fn create_run(
         .await?;
 
     // Enqueue the step for processing
+    // Merge user input (task, etc.) with agent version settings
+    let mut job_input = serde_json::json!({
+        "system_prompt": agent_version.system_prompt,
+        "model": agent_version.model,
+        "model_params": agent_version.model_params,
+        "allowed_tools": agent_version.allowed_tools,
+    });
+
+    // Add user input fields (task, messages, etc.)
+    if let serde_json::Value::Object(input_obj) = user_input {
+        if let serde_json::Value::Object(ref mut job_obj) = job_input {
+            for (key, value) in input_obj {
+                job_obj.insert(key, value);
+            }
+        }
+    }
+
     let job = StepJob {
         run_id: run_id.clone(),
         step_id: step_id.clone(),
         step_type: "llm".to_string(),
-        input: serde_json::json!({
-            "system_prompt": agent_version.system_prompt,
-            "model": agent_version.model,
-            "model_params": agent_version.model_params,
-            "allowed_tools": agent_version.allowed_tools,
-        }),
+        input: job_input,
         context: JobContext {
             tenant_id: auth.tenant_id,
             project_id: agent.project_id,

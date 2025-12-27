@@ -1,12 +1,16 @@
 # FerrumDeck - Development Makefile
 # ================================
 
-.PHONY: help dev-up dev-down build test fmt lint clean install
+.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image
 
 # Default target
 help:
 	@echo "FerrumDeck Development Commands"
 	@echo "================================"
+	@echo ""
+	@echo "Quick Start:"
+	@echo "  make quickstart   - Start everything (infra + gateway + worker + dashboard)"
+	@echo "  make dashboard    - Open the dashboard UI in browser"
 	@echo ""
 	@echo "Setup:"
 	@echo "  make install      - Install all dependencies (Rust + Python)"
@@ -15,6 +19,9 @@ help:
 	@echo "  make dev-up       - Start local dev environment (Docker)"
 	@echo "  make dev-down     - Stop local dev environment"
 	@echo "  make dev-logs     - Tail logs from all services"
+	@echo "  make run-gateway  - Run gateway locally (not in Docker)"
+	@echo "  make run-worker   - Run worker locally with MCP tools"
+	@echo "  make run-dashboard- Start dashboard web server"
 	@echo ""
 	@echo "Build:"
 	@echo "  make build        - Build all (Rust + Python)"
@@ -39,7 +46,6 @@ help:
 	@echo "  make eval-run     - Run smoke evaluation suite"
 	@echo "  make eval-run-full- Run full regression suite"
 	@echo "  make eval-report  - Generate report from latest results"
-	@echo "  Note: Set ANTHROPIC_API_KEY before 'make dev-up' for evals to work"
 	@echo ""
 	@echo "Clean:"
 	@echo "  make clean        - Clean build artifacts"
@@ -187,8 +193,58 @@ run-gateway:
 	cargo run --package gateway
 
 run-worker:
-	@echo "Starting Python worker..."
-	REDIS_URL=redis://localhost:6379 CONTROL_PLANE_URL=http://localhost:8080 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 uv run python -m fd_worker
+	@echo "Starting Python worker with MCP tools..."
+	@echo "GitHub MCP Server: Docker-based (ghcr.io/github/github-mcp-server)"
+	@echo ""
+	REDIS_URL=redis://localhost:6379 \
+	CONTROL_PLANE_URL=http://localhost:8080 \
+	OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
+	GITHUB_PERSONAL_ACCESS_TOKEN=$(GITHUB_TOKEN) \
+	MCP_CONFIG_PATH=./config/mcp-config.json \
+	uv run python -m fd_worker
+
+run-dashboard:
+	@echo "Starting Dashboard web server..."
+	@echo "Dashboard URL: http://localhost:8000"
+	@echo ""
+	cd deploy/dashboard && python3 -m http.server 8000
+
+# =============================================================================
+# Quick Start
+# =============================================================================
+
+quickstart: pull-mcp-image
+	@echo "=============================================="
+	@echo "  FerrumDeck Quick Start"
+	@echo "=============================================="
+	@echo ""
+	@echo "Starting infrastructure services..."
+	@$(MAKE) dev-up
+	@sleep 3
+	@echo ""
+	@echo "=============================================="
+	@echo "  Services Ready!"
+	@echo "=============================================="
+	@echo ""
+	@echo "  Dashboard:  http://localhost:8000"
+	@echo "  Gateway:    http://localhost:8080"
+	@echo "  Jaeger:     http://localhost:16686"
+	@echo ""
+	@echo "To start the dashboard, run in a new terminal:"
+	@echo "  make run-dashboard"
+	@echo ""
+	@echo "To run services locally (instead of Docker):"
+	@echo "  Terminal 1: make run-gateway"
+	@echo "  Terminal 2: make run-worker"
+	@echo ""
+
+dashboard:
+	@echo "Opening dashboard..."
+	@open http://localhost:8000 2>/dev/null || xdg-open http://localhost:8000 2>/dev/null || echo "Open http://localhost:8000 in your browser"
+
+pull-mcp-image:
+	@echo "Pulling GitHub MCP Server Docker image..."
+	@docker pull ghcr.io/github/github-mcp-server 2>/dev/null || echo "Note: Docker pull failed, will pull on first use"
 
 # =============================================================================
 # Contracts / Code Generation

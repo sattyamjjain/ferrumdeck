@@ -1,0 +1,1444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FerrumDeck Dashboard</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border-color: #30363d;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-yellow: #d29922;
+            --accent-red: #f85149;
+            --accent-purple: #a371f7;
+            --accent-orange: #db6d28;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+
+        /* Header */
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent-orange), var(--accent-red));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.disconnected {
+            background: var(--accent-red);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Main Layout */
+        .main-container {
+            display: grid;
+            grid-template-columns: 350px 1fr 320px;
+            height: calc(100vh - 65px);
+        }
+
+        /* Sidebar - Runs List */
+        .sidebar {
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sidebar-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent-blue);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #4c9aed;
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border-color);
+        }
+
+        .btn-success {
+            background: var(--accent-green);
+            color: white;
+        }
+
+        .btn-danger {
+            background: var(--accent-red);
+            color: white;
+        }
+
+        .btn-sm {
+            padding: 4px 12px;
+            font-size: 12px;
+        }
+
+        /* Filter Tabs */
+        .filter-tabs {
+            display: flex;
+            padding: 8px 16px;
+            gap: 4px;
+            border-bottom: 1px solid var(--border-color);
+            overflow-x: auto;
+        }
+
+        .filter-tab {
+            padding: 6px 12px;
+            border-radius: 20px;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 13px;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+
+        .filter-tab:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .filter-tab.active {
+            background: var(--accent-blue);
+            color: white;
+        }
+
+        .filter-tab .count {
+            margin-left: 6px;
+            padding: 2px 6px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+            font-size: 11px;
+        }
+
+        /* Runs List */
+        .runs-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .run-item {
+            padding: 16px;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .run-item:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .run-item.selected {
+            background: var(--bg-tertiary);
+            border-left: 3px solid var(--accent-blue);
+        }
+
+        .run-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+
+        .run-id {
+            font-family: monospace;
+            font-size: 13px;
+            color: var(--accent-blue);
+        }
+
+        .run-status {
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .status-created { background: var(--bg-tertiary); color: var(--text-secondary); }
+        .status-queued { background: rgba(88, 166, 255, 0.2); color: var(--accent-blue); }
+        .status-running { background: rgba(210, 153, 34, 0.2); color: var(--accent-yellow); }
+        .status-completed { background: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
+        .status-failed { background: rgba(248, 81, 73, 0.2); color: var(--accent-red); }
+        .status-waiting_approval { background: rgba(163, 113, 247, 0.2); color: var(--accent-purple); }
+        .status-cancelled { background: var(--bg-tertiary); color: var(--text-secondary); }
+
+        .run-task {
+            font-size: 14px;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .run-meta {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .run-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Main Content */
+        .main-content {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .content-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+        }
+
+        .run-detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .run-detail-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .run-detail-id {
+            font-family: monospace;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .run-stats {
+            display: flex;
+            gap: 24px;
+            margin-top: 16px;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* Steps Timeline */
+        .steps-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+        }
+
+        .steps-timeline {
+            position: relative;
+        }
+
+        .step-item {
+            position: relative;
+            padding-left: 40px;
+            padding-bottom: 24px;
+        }
+
+        .step-item::before {
+            content: '';
+            position: absolute;
+            left: 15px;
+            top: 32px;
+            bottom: 0;
+            width: 2px;
+            background: var(--border-color);
+        }
+
+        .step-item:last-child::before {
+            display: none;
+        }
+
+        .step-icon {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            background: var(--bg-tertiary);
+            border: 2px solid var(--border-color);
+        }
+
+        .step-icon.llm { background: rgba(88, 166, 255, 0.2); border-color: var(--accent-blue); }
+        .step-icon.tool { background: rgba(163, 113, 247, 0.2); border-color: var(--accent-purple); }
+        .step-icon.completed { background: rgba(63, 185, 80, 0.2); border-color: var(--accent-green); }
+        .step-icon.failed { background: rgba(248, 81, 73, 0.2); border-color: var(--accent-red); }
+        .step-icon.pending { background: rgba(210, 153, 34, 0.2); border-color: var(--accent-yellow); }
+
+        .step-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .step-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .step-type {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .step-time {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .step-output {
+            background: var(--bg-primary);
+            border-radius: 6px;
+            padding: 12px;
+            font-size: 13px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .step-tokens {
+            margin-top: 12px;
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .tool-calls {
+            margin-top: 12px;
+        }
+
+        .tool-calls-header {
+            font-weight: 600;
+            font-size: 13px;
+            margin-bottom: 8px;
+            color: var(--accent-purple);
+        }
+
+        .tool-call {
+            background: var(--bg-primary);
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            border-left: 3px solid var(--accent-purple);
+        }
+
+        .tool-call-name {
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--accent-blue);
+            margin-bottom: 6px;
+        }
+
+        .tool-call-success {
+            border-left-color: var(--accent-green);
+        }
+
+        .tool-call-failed {
+            border-left-color: var(--accent-red);
+        }
+
+        .tool-call-args {
+            font-size: 12px;
+            color: var(--text-secondary);
+            background: var(--bg-tertiary);
+            padding: 6px 8px;
+            border-radius: 4px;
+            margin-bottom: 6px;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+
+        .tool-call-output {
+            font-size: 12px;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+
+        .agentic-info {
+            display: flex;
+            gap: 16px;
+            margin-top: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding: 8px;
+            background: rgba(163, 113, 247, 0.1);
+            border-radius: 6px;
+        }
+
+        .agentic-info span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Right Sidebar - Approvals & Actions */
+        .right-sidebar {
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel {
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .panel-header {
+            padding: 16px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-content {
+            padding: 0 16px 16px;
+        }
+
+        .badge {
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-warning {
+            background: rgba(210, 153, 34, 0.2);
+            color: var(--accent-yellow);
+        }
+
+        /* Approval Item */
+        .approval-item {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+
+        .approval-tool {
+            font-weight: 600;
+            color: var(--accent-purple);
+            margin-bottom: 8px;
+        }
+
+        .approval-details {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        .approval-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* Quick Stats */
+        .quick-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .quick-stat {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .quick-stat-value {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .quick-stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            width: 500px;
+            max-width: 90vw;
+            max-height: 90vh;
+            overflow: hidden;
+            transform: scale(0.9);
+            transition: transform 0.3s;
+        }
+
+        .modal-overlay.active .modal {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 24px;
+            line-height: 1;
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .form-input, .form-select, .form-textarea {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .form-textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .modal-footer {
+            padding: 16px 20px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        /* Empty State */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 40px;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .empty-state-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .empty-state-desc {
+            font-size: 14px;
+            max-width: 300px;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .main-container {
+                grid-template-columns: 300px 1fr;
+            }
+            .right-sidebar {
+                display: none;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .main-container {
+                grid-template-columns: 1fr;
+            }
+            .sidebar {
+                display: none;
+            }
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 1001;
+        }
+
+        .toast {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: slideIn 0.3s ease;
+        }
+
+        .toast-success { border-left: 4px solid var(--accent-green); }
+        .toast-error { border-left: 4px solid var(--accent-red); }
+        .toast-warning { border-left: 4px solid var(--accent-yellow); }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="logo">
+            <div class="logo-icon">Fe</div>
+            <span>FerrumDeck</span>
+        </div>
+        <div class="header-actions">
+            <div class="connection-status">
+                <div class="status-dot" id="connectionDot"></div>
+                <span id="connectionText">Connected</span>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="refreshAll()">Refresh</button>
+            <button class="btn btn-primary btn-sm" onclick="openCreateModal()">+ New Run</button>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Left Sidebar - Runs List -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <span class="sidebar-title">Runs</span>
+                <span id="totalRuns" style="color: var(--text-secondary); font-size: 13px;">0 runs</span>
+            </div>
+            <div class="filter-tabs">
+                <button class="filter-tab active" data-filter="all" onclick="setFilter('all')">All <span class="count" id="count-all">0</span></button>
+                <button class="filter-tab" data-filter="running" onclick="setFilter('running')">Running <span class="count" id="count-running">0</span></button>
+                <button class="filter-tab" data-filter="waiting_approval" onclick="setFilter('waiting_approval')">Approval <span class="count" id="count-approval">0</span></button>
+                <button class="filter-tab" data-filter="completed" onclick="setFilter('completed')">Done <span class="count" id="count-completed">0</span></button>
+            </div>
+            <div class="runs-list" id="runsList">
+                <!-- Runs will be populated here -->
+            </div>
+        </aside>
+
+        <!-- Main Content - Run Details -->
+        <main class="main-content">
+            <div id="runDetailContainer">
+                <div class="empty-state">
+                    <div class="empty-state-icon">&#128640;</div>
+                    <div class="empty-state-title">No Run Selected</div>
+                    <div class="empty-state-desc">Select a run from the sidebar to view its details and execution steps.</div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Right Sidebar - Actions & Info -->
+        <aside class="right-sidebar">
+            <!-- Quick Stats -->
+            <div class="panel">
+                <div class="panel-header">Overview</div>
+                <div class="panel-content">
+                    <div class="quick-stats">
+                        <div class="quick-stat">
+                            <div class="quick-stat-value" id="stat-total">0</div>
+                            <div class="quick-stat-label">Total Runs</div>
+                        </div>
+                        <div class="quick-stat">
+                            <div class="quick-stat-value" id="stat-active">0</div>
+                            <div class="quick-stat-label">Active</div>
+                        </div>
+                        <div class="quick-stat">
+                            <div class="quick-stat-value" id="stat-success">0</div>
+                            <div class="quick-stat-label">Completed</div>
+                        </div>
+                        <div class="quick-stat">
+                            <div class="quick-stat-value" id="stat-cost">$0</div>
+                            <div class="quick-stat-label">Total Cost</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pending Approvals -->
+            <div class="panel">
+                <div class="panel-header">
+                    Pending Approvals
+                    <span class="badge badge-warning" id="approvalCount">0</span>
+                </div>
+                <div class="panel-content" id="approvalsList">
+                    <div style="color: var(--text-secondary); font-size: 13px; text-align: center; padding: 20px 0;">
+                        No pending approvals
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="panel" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+                <div class="panel-header">Recent Activity</div>
+                <div class="panel-content" style="flex: 1; overflow-y: auto;" id="activityFeed">
+                    <!-- Activity items will be populated here -->
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Create Run Modal -->
+    <div class="modal-overlay" id="createModal">
+        <div class="modal">
+            <div class="modal-header">
+                <span class="modal-title">Create New Run</span>
+                <button class="modal-close" onclick="closeCreateModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Agent</label>
+                    <select class="form-select" id="agentSelect">
+                        <option value="agt_01JFVX0000000000000000001">Safe PR Agent</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Task Description</label>
+                    <textarea class="form-textarea" id="taskInput" placeholder="Describe what you want the agent to do..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Repository (optional)</label>
+                    <input type="text" class="form-input" id="repoInput" placeholder="owner/repo">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeCreateModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="createRun()">Create Run</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        // Configuration
+        const API_BASE = 'http://localhost:8080';
+        const API_KEY = 'fd_dev_key_abc123';
+        const POLL_INTERVAL = 2000; // 2 seconds
+
+        // State
+        let runs = [];
+        let selectedRunId = null;
+        let currentFilter = 'all';
+        let pollTimer = null;
+
+        // API Helper
+        async function api(endpoint, options = {}) {
+            const response = await fetch(`${API_BASE}${endpoint}`, {
+                ...options,
+                headers: {
+                    'Authorization': `Bearer ${API_KEY}`,
+                    'Content-Type': 'application/json',
+                    ...options.headers,
+                },
+            });
+            if (!response.ok) {
+                throw new Error(`API Error: ${response.status}`);
+            }
+            return response.json();
+        }
+
+        // Fetch runs
+        async function fetchRuns() {
+            try {
+                runs = await api('/v1/runs');
+                updateConnectionStatus(true);
+                renderRunsList();
+                updateStats();
+                if (selectedRunId) {
+                    await fetchRunDetails(selectedRunId);
+                }
+            } catch (error) {
+                console.error('Failed to fetch runs:', error);
+                updateConnectionStatus(false);
+            }
+        }
+
+        // Fetch run details
+        async function fetchRunDetails(runId) {
+            try {
+                const [run, steps] = await Promise.all([
+                    api(`/v1/runs/${runId}`),
+                    api(`/v1/runs/${runId}/steps`)
+                ]);
+                renderRunDetails(run, steps);
+            } catch (error) {
+                console.error('Failed to fetch run details:', error);
+            }
+        }
+
+        // Fetch approvals
+        async function fetchApprovals() {
+            try {
+                const approvals = await api('/v1/approvals');
+                renderApprovals(approvals);
+            } catch (error) {
+                console.error('Failed to fetch approvals:', error);
+            }
+        }
+
+        // Render runs list
+        function renderRunsList() {
+            const container = document.getElementById('runsList');
+            const filteredRuns = filterRuns(runs);
+
+            if (filteredRuns.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state" style="padding: 40px 20px;">
+                        <div style="font-size: 32px; margin-bottom: 12px;">&#128269;</div>
+                        <div>No runs found</div>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = filteredRuns.map(run => `
+                <div class="run-item ${selectedRunId === run.id ? 'selected' : ''}" onclick="selectRun('${run.id}')">
+                    <div class="run-header">
+                        <span class="run-id">${run.id.slice(0, 20)}...</span>
+                        <span class="run-status status-${run.status}">${run.status.replace('_', ' ')}</span>
+                    </div>
+                    <div class="run-task">${run.input?.task || 'No task description'}</div>
+                    <div class="run-meta">
+                        <span>&#128337; ${formatTime(run.created_at)}</span>
+                        <span>&#128176; ${run.cost_cents}¢</span>
+                        <span>&#128172; ${run.tool_calls} tools</span>
+                    </div>
+                </div>
+            `).join('');
+
+            // Update total count
+            document.getElementById('totalRuns').textContent = `${runs.length} runs`;
+        }
+
+        // Filter runs
+        function filterRuns(runs) {
+            if (currentFilter === 'all') return runs;
+            if (currentFilter === 'running') return runs.filter(r => ['created', 'queued', 'running'].includes(r.status));
+            if (currentFilter === 'waiting_approval') return runs.filter(r => r.status === 'waiting_approval');
+            if (currentFilter === 'completed') return runs.filter(r => ['completed', 'failed', 'cancelled'].includes(r.status));
+            return runs;
+        }
+
+        // Set filter
+        function setFilter(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.filter === filter);
+            });
+            renderRunsList();
+        }
+
+        // Update stats
+        function updateStats() {
+            const total = runs.length;
+            const active = runs.filter(r => ['created', 'queued', 'running'].includes(r.status)).length;
+            const success = runs.filter(r => r.status === 'completed').length;
+            const approval = runs.filter(r => r.status === 'waiting_approval').length;
+            const totalCost = runs.reduce((sum, r) => sum + (r.cost_cents || 0), 0) / 100;
+
+            document.getElementById('stat-total').textContent = total;
+            document.getElementById('stat-active').textContent = active;
+            document.getElementById('stat-success').textContent = success;
+            document.getElementById('stat-cost').textContent = `$${totalCost.toFixed(2)}`;
+
+            document.getElementById('count-all').textContent = total;
+            document.getElementById('count-running').textContent = active;
+            document.getElementById('count-approval').textContent = approval;
+            document.getElementById('count-completed').textContent = success;
+        }
+
+        // Select run
+        async function selectRun(runId) {
+            selectedRunId = runId;
+            renderRunsList();
+            await fetchRunDetails(runId);
+        }
+
+        // Render run details
+        function renderRunDetails(run, steps) {
+            const container = document.getElementById('runDetailContainer');
+
+            container.innerHTML = `
+                <div class="content-header">
+                    <div class="run-detail-header">
+                        <div>
+                            <div class="run-detail-title">${run.input?.task || 'Run Details'}</div>
+                            <div class="run-detail-id">${run.id}</div>
+                        </div>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <span class="run-status status-${run.status}">${run.status.replace('_', ' ')}</span>
+                            ${run.status === 'running' || run.status === 'queued' ?
+                                `<button class="btn btn-danger btn-sm" onclick="cancelRun('${run.id}')">Cancel</button>` : ''}
+                        </div>
+                    </div>
+                    <div class="run-stats">
+                        <div class="stat-item">
+                            <div class="stat-value">${run.input_tokens}</div>
+                            <div class="stat-label">Input Tokens</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${run.output_tokens}</div>
+                            <div class="stat-label">Output Tokens</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${run.tool_calls}</div>
+                            <div class="stat-label">Tool Calls</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${run.cost_cents}¢</div>
+                            <div class="stat-label">Cost</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value">${steps.length}</div>
+                            <div class="stat-label">Steps</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="steps-container">
+                    ${steps.length === 0 ? `
+                        <div class="empty-state">
+                            <div class="spinner"></div>
+                            <div style="margin-top: 16px;">Waiting for execution...</div>
+                        </div>
+                    ` : `
+                        <div class="steps-timeline">
+                            ${steps.map((step, i) => renderStep(step, i)).join('')}
+                        </div>
+                    `}
+                </div>
+                ${run.output ? `
+                    <div style="padding: 16px 24px; border-top: 1px solid var(--border-color); background: var(--bg-secondary);">
+                        <div style="font-weight: 600; margin-bottom: 8px;">Final Output</div>
+                        <div class="step-output">${escapeHtml(run.output)}</div>
+                    </div>
+                ` : ''}
+            `;
+        }
+
+        // Render tool call
+        function renderToolCall(tc) {
+            const statusClass = tc.success ? 'tool-call-success' : 'tool-call-failed';
+            const statusIcon = tc.success ? '&#10003;' : '&#10007;';
+            const argsStr = JSON.stringify(tc.arguments || {}, null, 2);
+            const outputPreview = tc.output_preview || tc.error || 'No output';
+
+            return `
+                <div class="tool-call ${statusClass}">
+                    <div class="tool-call-name">
+                        ${statusIcon} ${tc.tool_name}
+                    </div>
+                    <div class="tool-call-args">
+                        <pre style="margin: 0; font-size: 11px;">${escapeHtml(argsStr)}</pre>
+                    </div>
+                    <div class="tool-call-output">
+                        ${escapeHtml(outputPreview)}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Parse agentic output
+        function parseAgenticOutput(output) {
+            if (typeof output === 'string') {
+                try {
+                    return JSON.parse(output);
+                } catch {
+                    return { response: output, tool_calls: [], iterations: 0 };
+                }
+            }
+            return output;
+        }
+
+        // Render step
+        function renderStep(step, index) {
+            const icon = step.step_type === 'llm' ? '&#129302;' : '&#128295;';
+            const iconClass = step.status === 'completed' ? 'completed' :
+                              step.status === 'failed' ? 'failed' :
+                              step.status === 'pending' ? 'pending' :
+                              step.step_type === 'llm' ? 'llm' : 'tool';
+
+            // Try to parse agentic output format
+            let displayOutput = step.output;
+            let toolCalls = [];
+            let agenticInfo = null;
+
+            if (step.output && step.step_type === 'llm') {
+                const parsed = parseAgenticOutput(step.output);
+                if (parsed.tool_calls && parsed.tool_calls.length > 0) {
+                    displayOutput = parsed.response || '';
+                    toolCalls = parsed.tool_calls;
+                    agenticInfo = {
+                        iterations: parsed.iterations || 0,
+                        status: parsed.status || 'completed'
+                    };
+                }
+            }
+
+            return `
+                <div class="step-item">
+                    <div class="step-icon ${iconClass}">${icon}</div>
+                    <div class="step-content">
+                        <div class="step-header">
+                            <span class="step-type">
+                                Step ${step.step_number}: ${step.step_type.toUpperCase()}
+                                ${step.tool_name ? ` - ${step.tool_name}` : ''}
+                                ${step.model ? ` (${step.model})` : ''}
+                            </span>
+                            <span class="step-time">${formatTime(step.created_at)}</span>
+                        </div>
+                        ${displayOutput ? `
+                            <div class="step-output">${escapeHtml(displayOutput)}</div>
+                        ` : step.error ? `
+                            <div class="step-output" style="color: var(--accent-red);">${escapeHtml(step.error)}</div>
+                        ` : `
+                            <div style="color: var(--text-secondary); font-style: italic;">
+                                ${step.status === 'pending' ? 'Waiting for approval...' : 'Processing...'}
+                            </div>
+                        `}
+                        ${toolCalls.length > 0 ? `
+                            <div class="tool-calls">
+                                <div class="tool-calls-header">
+                                    &#128295; Tool Calls (${toolCalls.length})
+                                </div>
+                                ${toolCalls.map(tc => renderToolCall(tc)).join('')}
+                            </div>
+                        ` : ''}
+                        ${agenticInfo ? `
+                            <div class="agentic-info">
+                                <span>&#128260; ${agenticInfo.iterations} iterations</span>
+                                <span>&#9989; ${toolCalls.filter(tc => tc.success).length} successful</span>
+                                <span>&#10060; ${toolCalls.filter(tc => !tc.success).length} failed</span>
+                            </div>
+                        ` : ''}
+                        ${step.input_tokens || step.output_tokens ? `
+                            <div class="step-tokens">
+                                <span>In: ${step.input_tokens || 0} tokens</span>
+                                <span>Out: ${step.output_tokens || 0} tokens</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Render approvals
+        function renderApprovals(approvals) {
+            const container = document.getElementById('approvalsList');
+            document.getElementById('approvalCount').textContent = approvals.length;
+
+            if (approvals.length === 0) {
+                container.innerHTML = `
+                    <div style="color: var(--text-secondary); font-size: 13px; text-align: center; padding: 20px 0;">
+                        No pending approvals
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = approvals.map(approval => `
+                <div class="approval-item">
+                    <div class="approval-tool">&#128295; ${approval.tool_name || 'Unknown Tool'}</div>
+                    <div class="approval-details">
+                        Run: ${approval.run_id?.slice(0, 15)}...<br>
+                        Requested: ${formatTime(approval.created_at)}
+                    </div>
+                    <div class="approval-actions">
+                        <button class="btn btn-success btn-sm" onclick="approveAction('${approval.id}')">Approve</button>
+                        <button class="btn btn-danger btn-sm" onclick="rejectAction('${approval.id}')">Reject</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Create run
+        async function createRun() {
+            const agentId = document.getElementById('agentSelect').value;
+            const task = document.getElementById('taskInput').value;
+            const repo = document.getElementById('repoInput').value;
+
+            if (!task.trim()) {
+                showToast('Please enter a task description', 'error');
+                return;
+            }
+
+            try {
+                const input = { task };
+                if (repo) input.repository = repo;
+
+                const run = await api('/v1/runs', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        agent_id: agentId,
+                        input
+                    })
+                });
+
+                showToast(`Run created: ${run.id.slice(0, 20)}...`, 'success');
+                closeCreateModal();
+                await fetchRuns();
+                selectRun(run.id);
+            } catch (error) {
+                showToast(`Failed to create run: ${error.message}`, 'error');
+            }
+        }
+
+        // Cancel run
+        async function cancelRun(runId) {
+            try {
+                await api(`/v1/runs/${runId}/cancel`, { method: 'POST' });
+                showToast('Run cancelled', 'success');
+                await fetchRuns();
+            } catch (error) {
+                showToast(`Failed to cancel run: ${error.message}`, 'error');
+            }
+        }
+
+        // Approve action
+        async function approveAction(approvalId) {
+            try {
+                await api(`/v1/approvals/${approvalId}/approve`, { method: 'POST' });
+                showToast('Action approved', 'success');
+                await fetchApprovals();
+                await fetchRuns();
+            } catch (error) {
+                showToast(`Failed to approve: ${error.message}`, 'error');
+            }
+        }
+
+        // Reject action
+        async function rejectAction(approvalId) {
+            try {
+                await api(`/v1/approvals/${approvalId}/reject`, { method: 'POST' });
+                showToast('Action rejected', 'warning');
+                await fetchApprovals();
+                await fetchRuns();
+            } catch (error) {
+                showToast(`Failed to reject: ${error.message}`, 'error');
+            }
+        }
+
+        // UI Helpers
+        function openCreateModal() {
+            document.getElementById('createModal').classList.add('active');
+            document.getElementById('taskInput').focus();
+        }
+
+        function closeCreateModal() {
+            document.getElementById('createModal').classList.remove('active');
+            document.getElementById('taskInput').value = '';
+            document.getElementById('repoInput').value = '';
+        }
+
+        function updateConnectionStatus(connected) {
+            const dot = document.getElementById('connectionDot');
+            const text = document.getElementById('connectionText');
+            if (connected) {
+                dot.classList.remove('disconnected');
+                text.textContent = 'Connected';
+            } else {
+                dot.classList.add('disconnected');
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.innerHTML = message;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        function formatTime(timestamp) {
+            if (!timestamp) return 'N/A';
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diff = now - date;
+
+            if (diff < 60000) return 'Just now';
+            if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+            if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+            return date.toLocaleDateString();
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Refresh all data
+        async function refreshAll() {
+            await Promise.all([fetchRuns(), fetchApprovals()]);
+        }
+
+        // Start polling
+        function startPolling() {
+            pollTimer = setInterval(refreshAll, POLL_INTERVAL);
+        }
+
+        function stopPolling() {
+            if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshAll();
+            startPolling();
+        });
+
+        // Handle visibility change
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                stopPolling();
+            } else {
+                refreshAll();
+                startPolling();
+            }
+        });
+
+        // Close modal on escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeCreateModal();
+            }
+        });
+
+        // Close modal on overlay click
+        document.getElementById('createModal').addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal-overlay')) {
+                closeCreateModal();
+            }
+        });
+    </script>
+</body>
+</html>

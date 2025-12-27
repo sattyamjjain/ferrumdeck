@@ -109,6 +109,32 @@ services:
       - ferrumdeck
 
   # =============================================================================
+  # Dashboard - Next.js Admin UI
+  # =============================================================================
+  dashboard:
+    build:
+      context: ../../nextjs
+      dockerfile: Dockerfile
+    container_name: fd-dashboard
+    ports:
+      - "3001:3000"
+    environment:
+      GATEWAY_URL: http://gateway:8080
+      FD_API_KEY: fd_dev_key_abc123
+      FD_PROJECT_ID: prj_01JFVX0000000000000000001
+      NEXT_PUBLIC_POLL_INTERVAL: "2000"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ferrumdeck
+
+  # =============================================================================
   # Worker - Python Agent Executor
   # =============================================================================
   worker:
@@ -129,8 +155,11 @@ services:
       FD_API_KEY: fd_dev_key_abc123
       # LLM API key - pass from host environment
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      # GitHub token for GitHub operations
+      # GitHub tokens (both names for compatibility)
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_TOKEN:-}
+      # MCP configuration
+      MCP_CONFIG_PATH: /app/config/mcp-config.json
     depends_on:
       gateway:
         condition: service_healthy
@@ -139,8 +168,10 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      # Mount docker socket for sandbox execution
+      # Mount docker socket for MCP server execution
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Mount MCP configuration
+      - ../../config/mcp-config.json:/app/config/mcp-config.json:ro
     networks:
       - ferrumdeck
 

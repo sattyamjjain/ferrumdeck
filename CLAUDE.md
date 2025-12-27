@@ -5,7 +5,7 @@
 
 **FerrumDeck** is a production-grade AgentOps Control Plane for running agentic AI workflows with deterministic governance. It provides policy enforcement, audit logging, and secure execution for AI agents.
 
-**Architecture**: Polyglot monorepo with Rust control plane (governance, orchestration) and Python data plane (LLM execution, tool calls).
+**Architecture**: Polyglot monorepo with Rust control plane (governance, orchestration), Python data plane (LLM execution, tool calls), and Next.js dashboard (admin UI).
 
 **Key Features**:
 - Deny-by-default tool policies with approval gates
@@ -83,6 +83,12 @@ ferrumdeck/
 │       ├── fd-mcp-tools/     # MCP server implementations
 │       ├── fd-evals/         # Evaluation framework
 │       └── fd-cli/           # CLI tool
+├── nextjs/                   # Dashboard (Next.js 14+)
+│   ├── src/app/              # App Router pages
+│   ├── src/components/       # React components
+│   ├── src/hooks/            # Custom hooks
+│   ├── src/lib/              # API client, utilities
+│   └── src/types/            # TypeScript interfaces
 ├── evals/                    # Evaluation configs
 │   ├── suites/               # Test suites
 │   ├── datasets/             # Test data
@@ -103,15 +109,16 @@ ferrumdeck/
 
 **Data Flow**:
 ```
-Clients → Gateway → Policy Engine → Run Orchestrator
-                                          │
-                                    Redis Queue
-                                          │
-                                    Python Worker
-                                          │
-                              ┌───────────┼───────────┐
-                              │           │           │
-                           LLM Call   Tool Call   Sandbox
+Dashboard ─┐
+           ├─→ Gateway → Policy Engine → Run Orchestrator
+API Clients┘                                    │
+                                          Redis Queue
+                                                │
+                                          Python Worker
+                                                │
+                                    ┌───────────┼───────────┐
+                                    │           │           │
+                                 LLM Call   Tool Call   Sandbox
 ```
 
 <!-- END AUTO-MANAGED -->
