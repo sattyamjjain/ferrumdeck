@@ -40,8 +40,8 @@ export function StepTimeline({ steps }: StepTimelineProps) {
       <div className="absolute left-6 top-0 bottom-0 w-px bg-border" />
 
       <div className="space-y-4">
-        {sortedSteps.map((step, index) => (
-          <StepCard key={step.id} step={step} isLast={index === sortedSteps.length - 1} />
+        {sortedSteps.map((step) => (
+          <StepCard key={step.id} step={step} />
         ))}
       </div>
     </div>
@@ -50,10 +50,9 @@ export function StepTimeline({ steps }: StepTimelineProps) {
 
 interface StepCardProps {
   step: Step;
-  isLast: boolean;
 }
 
-function StepCard({ step, isLast }: StepCardProps) {
+function StepCard({ step }: StepCardProps) {
   const typeConfig = stepTypeConfig[step.step_type] || stepTypeConfig.tool;
   const statusConfig = stepStatusConfig[step.status] || stepStatusConfig.pending;
   const TypeIcon = typeConfig.icon;

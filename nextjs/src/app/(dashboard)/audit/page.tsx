@@ -35,12 +35,9 @@ import {
   Filter,
   Clock,
   Activity,
-  CheckCircle,
-  XCircle,
-  PauseCircle,
   Wrench,
 } from "lucide-react";
-import { LoadingSpinner, SkeletonRow } from "@/components/shared/loading-spinner";
+import { SkeletonRow } from "@/components/shared/loading-spinner";
 import { EmptyState } from "@/components/shared/empty-state";
 import {
   useAuditEvents,
@@ -51,7 +48,6 @@ import {
   type AuditActorType,
   type AuditEventFilters,
 } from "@/hooks/use-audit";
-import type { AuditEvent } from "@/types";
 
 function getEventIcon(action: AuditAction) {
   if (action.startsWith("run.")) return <Play className="h-3.5 w-3.5" />;
@@ -164,9 +160,10 @@ export default function AuditPage() {
 
   // Filter events client-side for search and category
   const filteredEvents = useMemo(() => {
-    if (!data?.events) return [];
+    const events = data?.events ?? [];
+    if (events.length === 0) return [];
 
-    return data.events.filter((event) => {
+    return events.filter((event) => {
       // Category filter
       if (eventCategory !== "all") {
         const [category] = event.action.split(".");
@@ -187,7 +184,7 @@ export default function AuditPage() {
 
       return true;
     });
-  }, [data?.events, eventCategory, searchQuery]);
+  }, [data, eventCategory, searchQuery]);
 
   // Export function
   const handleExport = () => {
@@ -208,19 +205,20 @@ export default function AuditPage() {
 
   // Stats for header
   const stats = useMemo(() => {
-    if (!data?.events) return { total: 0, today: 0, errors: 0 };
+    const events = data?.events ?? [];
+    if (events.length === 0) return { total: 0, today: 0, errors: 0 };
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     return {
-      total: data.events.length,
-      today: data.events.filter((e) => new Date(e.occurred_at) >= today).length,
-      errors: data.events.filter(
+      total: events.length,
+      today: events.filter((e) => new Date(e.occurred_at) >= today).length,
+      errors: events.filter(
         (e) => e.action.includes("failed") || e.action.includes("rejected")
       ).length,
     };
-  }, [data?.events]);
+  }, [data]);
 
   return (
     <div className="p-6 space-y-6 animate-fade-in">

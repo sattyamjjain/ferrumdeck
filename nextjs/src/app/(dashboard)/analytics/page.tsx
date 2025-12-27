@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { BarChart3, Activity, DollarSign, Zap, CheckCircle, TrendingUp } from "lucide-react";
+import { BarChart3, Activity, DollarSign, Zap, CheckCircle } from "lucide-react";
 import { useRuns } from "@/hooks/use-runs";
 import { KpiCard } from "@/components/charts/kpi-card";
 import { RunVolumeChart } from "@/components/charts/run-volume-chart";
@@ -12,7 +12,8 @@ import { formatCost, formatTokens } from "@/lib/utils";
 
 export default function AnalyticsPage() {
   const { data, isLoading } = useRuns({ limit: 500 });
-  const runs = data?.runs || [];
+
+  const runs = useMemo(() => data?.runs ?? [], [data]);
 
   const stats = useMemo(() => {
     const totalRuns = runs.length;

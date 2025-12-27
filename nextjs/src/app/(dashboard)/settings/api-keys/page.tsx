@@ -33,7 +33,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   Select,
@@ -133,7 +132,7 @@ export default function ApiKeysPage() {
       });
       setGeneratedKey(result.key);
       toast.success("API key created successfully");
-    } catch (err) {
+    } catch {
       toast.error("Failed to create API key");
     }
   };
@@ -154,7 +153,7 @@ export default function ApiKeysPage() {
       await revokeMutation.mutateAsync({ keyId: keyToRevoke.id });
       toast.success(`API key "${keyToRevoke.name}" revoked`);
       setKeyToRevoke(null);
-    } catch (err) {
+    } catch {
       toast.error("Failed to revoke API key");
     }
   };

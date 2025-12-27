@@ -175,10 +175,7 @@ class LLMExecutor:
         Returns:
             Message dict in the format expected by the LLM
         """
-        if isinstance(result, dict):
-            result_str = json.dumps(result, indent=2)
-        else:
-            result_str = str(result)
+        result_str = json.dumps(result, indent=2) if isinstance(result, dict) else str(result)
 
         return {
             "role": "tool",

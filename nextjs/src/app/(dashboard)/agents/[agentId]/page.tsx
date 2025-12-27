@@ -34,7 +34,7 @@ import {
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/shared/empty-state";
-import { Skeleton, SkeletonLine } from "@/components/shared/loading-spinner";
+import { Skeleton } from "@/components/shared/loading-spinner";
 import type { Agent } from "@/types/agent";
 import { useState } from "react";
 

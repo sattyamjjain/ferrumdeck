@@ -127,13 +127,15 @@ export function SkeletonCard({ className }: SkeletonProps) {
   );
 }
 
-// Table row skeleton
+// Table row skeleton - uses deterministic widths based on column index
+const SKELETON_WIDTHS = [75, 60, 85, 70, 65, 80, 72, 68];
+
 export function SkeletonTableRow({ columns = 4 }: { columns?: number }) {
   return (
     <tr className="border-b border-border/30">
       {Array.from({ length: columns }).map((_, i) => (
         <td key={i} className="py-3 px-4">
-          <Skeleton className="h-4" style={{ width: `${60 + Math.random() * 30}%` }} />
+          <Skeleton className="h-4" style={{ width: `${SKELETON_WIDTHS[i % SKELETON_WIDTHS.length]}%` }} />
         </td>
       ))}
     </tr>

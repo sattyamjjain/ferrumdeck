@@ -137,7 +137,7 @@ export function CreateToolDialog({ trigger }: CreateToolDialogProps) {
 
       toast.success(`Tool "${name}" created successfully`);
       handleClose();
-    } catch (err) {
+    } catch {
       // Error is handled by the mutation
     }
   };

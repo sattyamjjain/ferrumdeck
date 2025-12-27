@@ -4,7 +4,7 @@ import { Bot, Clock, Tag, Wrench } from "lucide-react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { formatTimeAgo, truncateId } from "@/lib/utils";
+import { formatTimeAgo } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { Agent, AgentStatus } from "@/types/agent";
 

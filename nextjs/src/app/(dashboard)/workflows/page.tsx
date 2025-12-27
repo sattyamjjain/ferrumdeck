@@ -34,7 +34,6 @@ import {
   Clock,
   Activity,
   CheckCircle,
-  XCircle,
   ExternalLink,
 } from "lucide-react";
 import Link from "next/link";
@@ -45,9 +44,6 @@ import {
   useWorkflows,
   useWorkflowRuns,
   useCreateWorkflow,
-  getRunStatusInfo,
-  type Workflow,
-  type WorkflowRun,
 } from "@/hooks/use-workflows";
 
 function formatDate(dateString: string): string {
@@ -101,10 +97,9 @@ export default function WorkflowsPage() {
   const { data: runsData } = useWorkflowRuns();
   const createMutation = useCreateWorkflow();
 
-  const workflows = workflowsData?.workflows || [];
-
   // Filter workflows by search
   const filteredWorkflows = useMemo(() => {
+    const workflows = workflowsData?.workflows ?? [];
     if (!searchQuery) return workflows;
     const query = searchQuery.toLowerCase();
     return workflows.filter(
@@ -113,18 +108,19 @@ export default function WorkflowsPage() {
         w.slug.toLowerCase().includes(query) ||
         w.description?.toLowerCase().includes(query)
     );
-  }, [workflows, searchQuery]);
+  }, [workflowsData, searchQuery]);
 
   // Stats
   const stats = useMemo(() => {
-    const runs = runsData?.runs || [];
+    const workflows = workflowsData?.workflows ?? [];
+    const runs = runsData?.runs ?? [];
     return {
       total: workflows.length,
       active: workflows.filter((w) => w.status === "active").length,
       recentRuns: runs.length,
       runningRuns: runs.filter((r) => r.status === "running" || r.status === "waiting_approval").length,
     };
-  }, [workflows, runsData?.runs]);
+  }, [workflowsData, runsData]);
 
   const handleCreate = async () => {
     if (!newName.trim() || !newSlug.trim()) {
@@ -143,7 +139,7 @@ export default function WorkflowsPage() {
       setNewName("");
       setNewSlug("");
       setNewDescription("");
-    } catch (err) {
+    } catch {
       // Error handled by mutation
     }
   };

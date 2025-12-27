@@ -3,7 +3,7 @@
 import { Wrench, Clock, AlertTriangle, Eye, Edit, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { formatTimeAgo, truncateId } from "@/lib/utils";
+import { formatTimeAgo } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { Tool, ToolRiskLevel, ToolStatus } from "@/types/tool";
 

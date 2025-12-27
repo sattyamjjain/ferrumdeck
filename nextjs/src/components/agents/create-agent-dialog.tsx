@@ -110,7 +110,7 @@ export function CreateAgentDialog({ trigger }: CreateAgentDialogProps) {
       if (result?.id) {
         router.push(`/agents/${result.id}`);
       }
-    } catch (err) {
+    } catch {
       // Error is handled by the mutation
     }
   };

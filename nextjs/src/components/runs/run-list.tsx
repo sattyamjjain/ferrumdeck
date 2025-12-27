@@ -16,10 +16,10 @@ export function RunList() {
 
   const { data, isLoading, error } = useRuns();
 
-  const filteredRuns = useMemo(() => {
-    if (!data?.runs) return [];
+  const runs = useMemo(() => data?.runs ?? [], [data]);
 
-    return data.runs.filter((run) => {
+  const filteredRuns = useMemo(() => {
+    return runs.filter((run) => {
       // Status filter
       if (statusFilter !== "all" && run.status !== statusFilter) {
         return false;
@@ -38,7 +38,7 @@ export function RunList() {
 
       return true;
     });
-  }, [data?.runs, statusFilter, search]);
+  }, [runs, statusFilter, search]);
 
   // Loading skeleton
   if (isLoading) {

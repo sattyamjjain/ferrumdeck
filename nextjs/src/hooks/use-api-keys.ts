@@ -8,9 +8,6 @@ import type {
   ListApiKeysResponse,
   ApiKeyScope,
   ApiKeyStatus,
-  TenantQuota,
-  TenantUsage,
-  UsageSummary,
 } from "@/types";
 
 // Fetch all API keys
