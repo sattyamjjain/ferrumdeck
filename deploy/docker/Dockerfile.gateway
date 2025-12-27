@@ -4,7 +4,7 @@
 # =============================================================================
 # Stage 1: Build
 # =============================================================================
-FROM rust:1.83-bookworm AS builder
+FROM rust:latest AS builder
 
 WORKDIR /app
 
@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y \
 COPY Cargo.toml Cargo.lock ./
 COPY rust/crates/ rust/crates/
 COPY rust/services/ rust/services/
+COPY db/migrations/ db/migrations/
 
 # Build in release mode
 RUN cargo build --release --package gateway
@@ -31,6 +32,7 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
+    curl \
     && rm -rf /var/lib/apt/lists/* \
     && adduser --disabled-password --gecos "" --uid 1000 ferrumdeck
 
@@ -44,9 +46,9 @@ RUN chown -R ferrumdeck:ferrumdeck /app
 
 USER ferrumdeck
 
-# Health check endpoint
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${GATEWAY_PORT:-8080}/health || exit 1
+# Health check endpoint (use static port - ENV vars don't expand in HEALTHCHECK)
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
 
 # Expose the gateway port
 EXPOSE ${GATEWAY_PORT:-8080}

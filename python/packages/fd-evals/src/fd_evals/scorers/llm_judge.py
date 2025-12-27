@@ -107,14 +107,14 @@ class LLMJudgeScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Score the output using an LLM judge.
 
         Args:
             task: The evaluation task.
-            actual_output: The actual run output.
+            actual_output: The actual run output (string or dict).
             run_context: Run context including any additional data.
 
         Returns:
@@ -129,11 +129,17 @@ class LLMJudgeScorer(BaseScorer):
                 details={"error": "missing_api_key"},
             )
 
+        # Format actual_output for prompt - handle both string and dict
+        if isinstance(actual_output, str):
+            formatted_output = actual_output
+        else:
+            formatted_output = json.dumps(actual_output, indent=2)
+
         # Build the evaluation prompt
         prompt = self.prompt_template.format(
             task_description=task.description or task.name,
             expected_outcome=json.dumps(task.expected, indent=2),
-            actual_output=json.dumps(actual_output, indent=2),
+            actual_output=formatted_output,
             criteria=self.criteria,
         )
 

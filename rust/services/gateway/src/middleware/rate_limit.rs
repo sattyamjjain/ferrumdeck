@@ -196,8 +196,12 @@ pub async fn rate_limit_middleware(
     request: Request,
     next: Next,
 ) -> Response {
-    // Get rate limiter from app state or create default config
-    let config = RateLimitConfig::per_minute(100);
+    // Get rate limit from environment or use default
+    let rate_limit = std::env::var("RATE_LIMIT_PER_MINUTE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100);
+    let config = RateLimitConfig::per_minute(rate_limit);
     let limiter = state.rate_limiter.clone();
 
     // Determine the key for rate limiting

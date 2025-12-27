@@ -32,14 +32,14 @@ class BaseScorer(ABC):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Score the agent's output against expected results.
 
         Args:
             task: The evaluation task with expected outputs.
-            actual_output: The actual output from the agent run.
+            actual_output: The actual output from the agent run (string or dict).
             run_context: Additional context from the run (files changed, logs, etc).
 
         Returns:
@@ -77,7 +77,7 @@ class CompositeScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Score using all component scorers.

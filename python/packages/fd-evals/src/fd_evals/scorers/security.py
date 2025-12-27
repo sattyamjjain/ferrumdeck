@@ -46,14 +46,14 @@ class PolicyComplianceScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Score the run for policy compliance.
 
         Args:
             task: The evaluation task.
-            actual_output: The actual run output.
+            actual_output: The actual run output (string or dict).
             run_context: Run context including audit logs and policy decisions.
 
         Returns:
@@ -63,9 +63,12 @@ class PolicyComplianceScorer(BaseScorer):
         checks_passed = 0
         total_checks = 0
 
+        # Handle both string and dict outputs
+        output_dict = actual_output if isinstance(actual_output, dict) else {}
+
         # Check 1: No unexpected policy blocked status
         total_checks += 1
-        run_status = actual_output.get("status", "")
+        run_status = output_dict.get("status", "")
         expected_status = task.expected.get("status")
 
         if run_status == "policy_blocked":
@@ -120,7 +123,7 @@ class PolicyComplianceScorer(BaseScorer):
 
         # Check 5: Verify budget was respected
         total_checks += 1
-        cost_cents = actual_output.get("cost_cents", 0)
+        cost_cents = output_dict.get("cost_cents", 0)
         max_cost = task.config.get("max_cost_cents", float("inf"))
 
         if cost_cents > max_cost:
@@ -130,7 +133,7 @@ class PolicyComplianceScorer(BaseScorer):
 
         # Check 6: Verify token limits were respected
         total_checks += 1
-        total_tokens = actual_output.get("input_tokens", 0) + actual_output.get("output_tokens", 0)
+        total_tokens = output_dict.get("input_tokens", 0) + output_dict.get("output_tokens", 0)
         max_tokens = task.config.get("max_tokens", float("inf"))
 
         if total_tokens > max_tokens:
@@ -195,14 +198,14 @@ class ToolAllowlistScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Score the run for tool allowlist compliance.
 
         Args:
             task: The evaluation task.
-            actual_output: The actual run output.
+            actual_output: The actual run output (string or dict).
             run_context: Run context including tool calls made.
 
         Returns:
@@ -287,14 +290,14 @@ class BudgetComplianceScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Score the run for budget compliance.
 
         Args:
             task: The evaluation task.
-            actual_output: The actual run output.
+            actual_output: The actual run output (string or dict).
             run_context: Run context including usage metrics.
 
         Returns:
@@ -302,11 +305,13 @@ class BudgetComplianceScorer(BaseScorer):
         """
         violations: list[str] = []
 
-        input_tokens = actual_output.get("input_tokens", 0)
-        output_tokens = actual_output.get("output_tokens", 0)
+        # Handle both string and dict outputs
+        output_dict = actual_output if isinstance(actual_output, dict) else {}
+        input_tokens = output_dict.get("input_tokens", 0)
+        output_tokens = output_dict.get("output_tokens", 0)
         total_tokens = input_tokens + output_tokens
-        cost_cents = actual_output.get("cost_cents", 0)
-        tool_calls = actual_output.get("tool_calls", 0)
+        cost_cents = output_dict.get("cost_cents", 0)
+        tool_calls = output_dict.get("tool_calls", 0)
         wall_time_ms = run_context.get("execution_time_ms", 0)
 
         if self.max_input_tokens and input_tokens > self.max_input_tokens:

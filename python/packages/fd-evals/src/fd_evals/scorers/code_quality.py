@@ -16,14 +16,14 @@ class LintScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Check if linting passes.
 
         Args:
             task: Task with expected.lint_pass.
-            actual_output: Agent output.
+            actual_output: Agent output (string or dict).
             run_context: Must contain 'lint_results'.
 
         Returns:
@@ -95,14 +95,14 @@ class TypeCheckScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Check if type checking passes.
 
         Args:
             task: Task with expected.type_check_pass.
-            actual_output: Agent output.
+            actual_output: Agent output (string or dict).
             run_context: Must contain 'type_check_results'.
 
         Returns:

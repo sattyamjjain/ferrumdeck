@@ -15,14 +15,14 @@ class PRCreatedScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Check if a PR was created.
 
         Args:
             task: Task with expected.pr_created.
-            actual_output: Agent output, may contain pr_url.
+            actual_output: Agent output, may contain pr_url (string or dict).
             run_context: Additional context.
 
         Returns:
@@ -39,8 +39,10 @@ class PRCreatedScorer(BaseScorer):
                 details={"skipped": True},
             )
 
-        pr_url = run_context.get("pr_url") or actual_output.get("pr_url")
-        pr_number = run_context.get("pr_number") or actual_output.get("pr_number")
+        # Handle both string and dict outputs
+        output_dict = actual_output if isinstance(actual_output, dict) else {}
+        pr_url = run_context.get("pr_url") or output_dict.get("pr_url")
+        pr_number = run_context.get("pr_number") or output_dict.get("pr_number")
 
         if pr_url or pr_number:
             return ScorerResult(
@@ -81,21 +83,23 @@ class PRQualityScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Check PR quality metrics.
 
         Args:
             task: The evaluation task.
-            actual_output: Agent output with pr_title, pr_description.
+            actual_output: Agent output with pr_title, pr_description (string or dict).
             run_context: Additional context.
 
         Returns:
             ScorerResult based on PR quality.
         """
-        pr_title = run_context.get("pr_title") or actual_output.get("pr_title", "")
-        pr_description = run_context.get("pr_description") or actual_output.get(
+        # Handle both string and dict outputs
+        output_dict = actual_output if isinstance(actual_output, dict) else {}
+        pr_title = run_context.get("pr_title") or output_dict.get("pr_title", "")
+        pr_description = run_context.get("pr_description") or output_dict.get(
             "pr_description", ""
         )
 

@@ -33,14 +33,14 @@ class SchemaScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Validate output against schema.
 
         Args:
             task: Task with expected.output_schema or schema validation expectation.
-            actual_output: The output to validate.
+            actual_output: The output to validate (string or dict).
             run_context: Additional context.
 
         Returns:
@@ -56,6 +56,16 @@ class SchemaScorer(BaseScorer):
                 score=1.0,
                 message="No schema validation required",
                 details={"skipped": True},
+            )
+
+        # Handle string outputs - cannot validate against schema
+        if isinstance(actual_output, str):
+            return ScorerResult(
+                scorer_name=self.name,
+                passed=False,
+                score=0.0,
+                message="Cannot validate string output against schema",
+                details={"error": "string_output", "output_type": "str"},
             )
 
         try:
@@ -171,14 +181,14 @@ class OutputStructureScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Check for required keys in output.
 
         Args:
             task: Task with expected.required_output_keys.
-            actual_output: The output to check.
+            actual_output: The output to check (string or dict).
             run_context: Additional context.
 
         Returns:
@@ -193,6 +203,16 @@ class OutputStructureScorer(BaseScorer):
                 score=1.0,
                 message="No required output keys specified",
                 details={"skipped": True},
+            )
+
+        # Handle string outputs - cannot check keys
+        if isinstance(actual_output, str):
+            return ScorerResult(
+                scorer_name=self.name,
+                passed=False,
+                score=0.0,
+                message=f"Cannot check keys in string output (expected dict with: {required})",
+                details={"error": "string_output", "required_keys": required},
             )
 
         present = [k for k in required if k in actual_output]

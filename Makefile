@@ -35,6 +35,12 @@ help:
 	@echo "  make db-migrate   - Run database migrations"
 	@echo "  make db-reset     - Reset database (drop + migrate + seed)"
 	@echo ""
+	@echo "Evals (requires ANTHROPIC_API_KEY):"
+	@echo "  make eval-run     - Run smoke evaluation suite"
+	@echo "  make eval-run-full- Run full regression suite"
+	@echo "  make eval-report  - Generate report from latest results"
+	@echo "  Note: Set ANTHROPIC_API_KEY before 'make dev-up' for evals to work"
+	@echo ""
 	@echo "Clean:"
 	@echo "  make clean        - Clean build artifacts"
 
@@ -59,23 +65,24 @@ install-python:
 
 dev-up:
 	@echo "Starting development environment..."
-	docker compose -f deploy/docker/compose.dev.yaml up -d
+	docker compose --env-file .env -f deploy/docker/compose.dev.yaml up -d
 	@echo ""
 	@echo "Services started:"
-	@echo "  - PostgreSQL: localhost:5432"
+	@echo "  - PostgreSQL: localhost:5433"
 	@echo "  - Redis:      localhost:6379"
+	@echo "  - Gateway:    http://localhost:8080"
 	@echo "  - Jaeger UI:  http://localhost:16686"
 	@echo "  - OTel:       localhost:4317 (gRPC), localhost:4318 (HTTP)"
 
 dev-down:
 	@echo "Stopping development environment..."
-	docker compose -f deploy/docker/compose.dev.yaml down
+	docker compose --env-file .env -f deploy/docker/compose.dev.yaml down
 
 dev-logs:
-	docker compose -f deploy/docker/compose.dev.yaml logs -f
+	docker compose --env-file .env -f deploy/docker/compose.dev.yaml logs -f
 
 dev-ps:
-	docker compose -f deploy/docker/compose.dev.yaml ps
+	docker compose --env-file .env -f deploy/docker/compose.dev.yaml ps
 
 # =============================================================================
 # Build
@@ -154,16 +161,22 @@ check: fmt lint test
 
 db-migrate:
 	@echo "Running database migrations..."
-	cargo run --package fd-storage --bin migrate
+	@echo "Migrations run automatically on gateway startup."
+	@echo "To run manually, restart the gateway container:"
+	docker compose --env-file .env -f deploy/docker/compose.dev.yaml restart gateway
 
 db-reset:
 	@echo "Resetting database..."
-	docker compose -f deploy/docker/compose.dev.yaml exec -T postgres psql -U ferrumdeck -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-	$(MAKE) db-migrate
+	docker compose --env-file .env -f deploy/docker/compose.dev.yaml exec -T postgres psql -U ferrumdeck -d ferrumdeck -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; CREATE EXTENSION IF NOT EXISTS vector;"
+	@echo "Restarting gateway to run migrations..."
+	docker compose --env-file .env -f deploy/docker/compose.dev.yaml restart gateway
+	@sleep 5
+	@echo "Seeding database..."
+	$(MAKE) db-seed
 
 db-seed:
-	@echo "Seeding database..."
-	cargo run --package fd-storage --bin seed
+	@echo "Seeding database with test data..."
+	docker compose --env-file .env -f deploy/docker/compose.dev.yaml exec -T postgres psql -U ferrumdeck -d ferrumdeck -f /docker-entrypoint-initdb.d/init.sql
 
 # =============================================================================
 # Services (Development)
@@ -175,7 +188,7 @@ run-gateway:
 
 run-worker:
 	@echo "Starting Python worker..."
-	uv run python -m fd_worker
+	REDIS_URL=redis://localhost:6379 CONTROL_PLANE_URL=http://localhost:8080 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 uv run python -m fd_worker
 
 # =============================================================================
 # Contracts / Code Generation
@@ -195,11 +208,20 @@ gen-schemas:
 
 eval-run:
 	@echo "Running evaluation suite..."
-	uv run python -m fd_evals run
+	FD_API_KEY=fd_dev_key_abc123 uv run python -m fd_evals run --suite evals/suites/smoke.yaml --agent agt_01JFVX0000000000000000001
+
+eval-run-full:
+	@echo "Running full evaluation suite..."
+	FD_API_KEY=fd_dev_key_abc123 uv run python -m fd_evals run --suite evals/suites/regression.yaml --agent agt_01JFVX0000000000000000001
 
 eval-report:
 	@echo "Generating evaluation report..."
-	uv run python -m fd_evals report
+	@LATEST=$$(ls -t evals/reports/*.json 2>/dev/null | head -1) && \
+	if [ -n "$$LATEST" ]; then \
+		uv run python -m fd_evals report "$$LATEST"; \
+	else \
+		echo "No eval results found in evals/reports/"; \
+	fi
 
 # =============================================================================
 # Clean
@@ -221,7 +243,7 @@ clean-python:
 
 clean-docker:
 	@echo "Cleaning Docker volumes..."
-	docker compose -f deploy/docker/compose.dev.yaml down -v
+	docker compose --env-file .env -f deploy/docker/compose.dev.yaml down -v
 
 # =============================================================================
 # CI Helpers

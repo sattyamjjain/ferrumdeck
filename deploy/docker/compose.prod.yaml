@@ -45,6 +45,9 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_ENDPOINT:-http://otel-collector:4317}
       OTEL_SERVICE_NAME: ferrumdeck-gateway
 
+      # Rate limiting (requests per minute)
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-100}
+
       # Migrations (disable if using external migration runner)
       RUN_MIGRATIONS: ${RUN_MIGRATIONS:-false}
 
@@ -112,7 +115,13 @@ services:
     restart: unless-stopped
     environment:
       # Control plane connection
-      FD_CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:-http://gateway:8080}
+      CONTROL_PLANE_URL: ${CONTROL_PLANE_URL:-http://gateway:8080}
+
+      # API key for worker to authenticate with gateway
+      FD_API_KEY: ${FD_API_KEY}
+
+      # Database
+      DATABASE_URL: ${DATABASE_URL}
 
       # Redis
       REDIS_URL: ${REDIS_URL}
@@ -121,6 +130,9 @@ services:
       LITELLM_MODEL: ${LITELLM_MODEL:-anthropic/claude-sonnet-4-20250514}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+      # GitHub token for GitHub operations
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
 
       # Telemetry
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_ENDPOINT:-http://otel-collector:4317}
@@ -181,6 +193,8 @@ services:
     secrets:
       - anthropic_api_key
       - openai_api_key
+      - fd_api_key
+      - github_token
 
   # =============================================================================
   # OpenTelemetry Collector (optional - can use external collector)
@@ -238,6 +252,10 @@ secrets:
     external: true
   openai_api_key:
     external: true
+  fd_api_key:
+    external: true
+  github_token:
+    external: true
 
 # =============================================================================
 # Example .env file for production:
@@ -250,5 +268,8 @@ secrets:
 # OTEL_ENDPOINT=https://otel.example.com:4317
 # GATEWAY_REPLICAS=3
 # WORKER_REPLICAS=5
+# RATE_LIMIT_PER_MINUTE=100
+# FD_API_KEY=fd_prod_key_xxx
 # ANTHROPIC_API_KEY=sk-ant-xxx
+# GITHUB_TOKEN=ghp_xxx
 # =============================================================================

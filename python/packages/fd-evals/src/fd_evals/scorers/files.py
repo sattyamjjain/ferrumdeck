@@ -26,14 +26,14 @@ class FilesChangedScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Check if expected files were changed.
 
         Args:
             task: Task with expected.files_changed list.
-            actual_output: Agent output.
+            actual_output: Agent output (string or dict).
             run_context: Must contain 'files_changed' list.
 
         Returns:
@@ -104,14 +104,14 @@ class FilesCreatedScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Check if expected files were created.
 
         Args:
             task: Task with expected.file_created or expected.files_created.
-            actual_output: Agent output.
+            actual_output: Agent output (string or dict).
             run_context: Must contain 'files_created' list.
 
         Returns:

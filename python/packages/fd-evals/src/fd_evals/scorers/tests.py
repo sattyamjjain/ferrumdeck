@@ -19,14 +19,14 @@ class TestPassScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Check if tests passed.
 
         Args:
             task: The evaluation task.
-            actual_output: Agent output (not used directly).
+            actual_output: Agent output (string or dict, not used directly).
             run_context: Must contain 'test_results' with 'passed' and 'total'.
 
         Returns:
@@ -95,14 +95,14 @@ class TestCoverageScorer(BaseScorer):
     def score(
         self,
         task: EvalTask,
-        actual_output: dict[str, Any],
+        actual_output: str | dict[str, Any],
         run_context: dict[str, Any],
     ) -> ScorerResult:
         """Check test coverage.
 
         Args:
             task: The evaluation task.
-            actual_output: Agent output.
+            actual_output: Agent output (string or dict).
             run_context: Must contain 'coverage' with coverage percentage.
 
         Returns:

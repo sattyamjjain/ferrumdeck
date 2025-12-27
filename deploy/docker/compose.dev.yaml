@@ -1,9 +1,12 @@
+# Load environment variables from project root .env
+# This allows ANTHROPIC_API_KEY and other secrets to be passed to containers
+
 services:
   # =============================================================================
   # PostgreSQL - Primary Database
   # =============================================================================
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: fd-postgres
     ports:
       - "5433:5432"  # Use 5433 externally to avoid conflict
@@ -90,6 +93,8 @@ services:
       GATEWAY_PORT: "8080"
       RUST_LOG: info,tower_http=debug,gateway=debug
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      # Higher rate limit for dev (1000/min vs 100/min production)
+      RATE_LIMIT_PER_MINUTE: "1000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -112,7 +117,7 @@ services:
       dockerfile: deploy/docker/Dockerfile.worker
     container_name: fd-worker
     environment:
-      FD_CONTROL_PLANE_URL: http://gateway:8080
+      CONTROL_PLANE_URL: http://gateway:8080
       REDIS_URL: redis://redis:6379
       DATABASE_URL: postgres://ferrumdeck:ferrumdeck@postgres:5432/ferrumdeck
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
@@ -120,6 +125,12 @@ services:
       WORKER_RETRY_DELAY_MS: "1000"
       SANDBOX_MODE: subprocess
       PYTHONUNBUFFERED: "1"
+      # API key for worker to authenticate with gateway
+      FD_API_KEY: fd_dev_key_abc123
+      # LLM API key - pass from host environment
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # GitHub token for GitHub operations
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     depends_on:
       gateway:
         condition: service_healthy
