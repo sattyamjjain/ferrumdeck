@@ -255,9 +255,9 @@ impl RunsRepo {
                 COUNT(*) as total_runs,
                 COUNT(*) FILTER (WHERE status = 'completed') as successful_runs,
                 COUNT(*) FILTER (WHERE status = 'failed') as failed_runs,
-                COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) * 1000) FILTER (WHERE completed_at IS NOT NULL AND started_at IS NOT NULL), 0) as avg_duration_ms,
-                COALESCE(SUM(cost_cents), 0) as total_cost_cents,
-                MAX(created_at) as last_run_at
+                COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) * 1000) FILTER (WHERE completed_at IS NOT NULL AND started_at IS NOT NULL), 0.0::DOUBLE PRECISION) as avg_duration_ms,
+                COALESCE(SUM(cost_cents)::BIGINT, 0::BIGINT) as total_cost_cents,
+                MAX(r.created_at) as last_run_at
             FROM runs r
             JOIN agent_versions av ON r.agent_version_id = av.id
             WHERE av.agent_id = $1
