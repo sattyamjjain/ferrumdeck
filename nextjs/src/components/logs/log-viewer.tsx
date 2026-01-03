@@ -36,7 +36,7 @@ interface LogViewerProps {
 export function LogViewer({
   container,
   containerName,
-  tail = 100,
+  tail = 0,
   className,
 }: LogViewerProps) {
   const [logs, setLogs] = useState<LogEntry[]>([]);

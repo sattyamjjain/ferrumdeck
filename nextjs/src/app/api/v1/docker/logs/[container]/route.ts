@@ -20,7 +20,7 @@ export async function GET(
 
   const { container } = await params;
   const searchParams = request.nextUrl.searchParams;
-  const tail = searchParams.get("tail") || "100";
+  const tail = searchParams.get("tail") || "0";
   const since = searchParams.get("since") || "";
   const timestamps = searchParams.get("timestamps") === "true";
 

@@ -215,7 +215,7 @@ export default function LogsPage() {
               key={selectedContainer.id}
               container={selectedContainer.id}
               containerName={selectedContainer.name}
-              tail={200}
+              tail={0}
               className="h-full"
             />
           ) : (

@@ -174,7 +174,7 @@ class AgenticExecutor:
         self,
         mcp_configs: list[MCPServerConfig],
         allowlist: ToolAllowlist,
-        max_iterations: int = 10,
+        max_iterations: int = 25,
     ):
         self.mcp_configs = mcp_configs
         self.allowlist = allowlist

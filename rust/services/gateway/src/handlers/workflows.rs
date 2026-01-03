@@ -29,6 +29,7 @@ pub struct CreateWorkflowRequest {
     pub description: Option<String>,
     pub version: String,
     pub definition: serde_json::Value,
+    pub project_id: Option<String>,
     #[serde(default = "default_max_iterations")]
     pub max_iterations: i32,
     #[serde(default = "default_on_error")]
@@ -219,18 +220,23 @@ fn parse_step_type(s: &str) -> Result<WorkflowStepType, ApiError> {
 // =============================================================================
 
 /// Create a new workflow definition
-#[instrument(skip(state, auth))]
+#[instrument(skip(state, _auth))]
 pub async fn create_workflow(
     State(state): State<AppState>,
-    Extension(auth): Extension<AuthContext>,
+    Extension(_auth): Extension<AuthContext>,
     Json(request): Json<CreateWorkflowRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let repos = state.repos();
 
+    // Require project_id in request
+    let project_id = request
+        .project_id
+        .ok_or_else(|| ApiError::bad_request("project_id is required"))?;
+
     let workflow_id = format!("wf_{}", Ulid::new());
     let create = CreateWorkflow {
         id: workflow_id.clone(),
-        project_id: auth.tenant_id.clone(),
+        project_id,
         name: request.name,
         description: request.description,
         version: request.version,

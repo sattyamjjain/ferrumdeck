@@ -102,7 +102,7 @@ class StepExecutor:
             self._agentic_executor = AgenticExecutor(
                 mcp_configs=self._mcp_servers,
                 allowlist=self._tool_allowlist,
-                max_iterations=int(os.getenv("AGENTIC_MAX_ITERATIONS", "10")),
+                max_iterations=int(os.getenv("AGENTIC_MAX_ITERATIONS", "25")),
             )
             await self._agentic_executor.connect()
             self._agentic_connected = True
