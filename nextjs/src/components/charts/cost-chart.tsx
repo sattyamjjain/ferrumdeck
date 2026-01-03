@@ -59,8 +59,8 @@ export function CostChart({ runs }: CostChartProps) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
+        <div className="h-64 w-full min-h-[256px]">
+          <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200} aspect={undefined}>
             <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <XAxis
                 dataKey="date"

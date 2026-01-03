@@ -78,8 +78,8 @@ export function StatusDistributionChart({ runs }: StatusDistributionChartProps) 
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
+        <div className="h-64 w-full min-h-[256px]">
+          <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200} aspect={undefined}>
             <PieChart>
               <Pie
                 data={chartData}

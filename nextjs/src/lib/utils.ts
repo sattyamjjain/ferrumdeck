@@ -78,16 +78,25 @@ export function formatDurationBetween(
   return formatDuration(ms);
 }
 
-export function formatDateTime(dateString: string): string {
-  return format(new Date(dateString), "MMM d, yyyy HH:mm:ss");
+export function formatDateTime(dateString: string | undefined | null): string {
+  if (!dateString) return "-";
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return "-";
+  return format(date, "MMM d, yyyy HH:mm:ss");
 }
 
-export function formatDateShort(dateString: string): string {
-  return format(new Date(dateString), "MMM d, HH:mm");
+export function formatDateShort(dateString: string | undefined | null): string {
+  if (!dateString) return "-";
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return "-";
+  return format(date, "MMM d, HH:mm");
 }
 
-export function formatRelativeTime(dateString: string): string {
-  return formatDistanceToNow(new Date(dateString), { addSuffix: true });
+export function formatRelativeTime(dateString: string | undefined | null): string {
+  if (!dateString) return "-";
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return "-";
+  return formatDistanceToNow(date, { addSuffix: true });
 }
 
 // ============================================================================
