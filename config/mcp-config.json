@@ -4,13 +4,10 @@
   "servers": [
     {
       "name": "github",
-      "command": "docker",
+      "command": "npx",
       "args": [
-        "run",
-        "-i",
-        "--rm",
-        "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
-        "ghcr.io/github/github-mcp-server"
+        "-y",
+        "@modelcontextprotocol/server-github"
       ]
     }
   ],

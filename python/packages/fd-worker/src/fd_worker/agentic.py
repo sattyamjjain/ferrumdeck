@@ -82,36 +82,43 @@ class MCPConnection:
             env=env,
         )
 
-        # Enter the context managers manually to keep connection alive
-        stdio_ctx = stdio_client(server_params)
-        read_stream, write_stream = await stdio_ctx.__aenter__()
-        self._context_stack.append(stdio_ctx)
+        try:
+            # Enter the context managers manually to keep connection alive
+            stdio_ctx = stdio_client(server_params)
+            read_stream, write_stream = await stdio_ctx.__aenter__()
+            self._context_stack.append(stdio_ctx)
 
-        session_ctx = ClientSession(read_stream, write_stream)
-        self.session = await session_ctx.__aenter__()
-        self._context_stack.append(session_ctx)
+            session_ctx = ClientSession(read_stream, write_stream)
+            self.session = await session_ctx.__aenter__()
+            self._context_stack.append(session_ctx)
 
-        await self.session.initialize()
+            await self.session.initialize()
 
-        # Discover tools
-        tools_response = await self.session.list_tools()
-        self.tools = []
+            # Discover tools
+            tools_response = await self.session.list_tools()
+            self.tools = []
 
-        for tool in tools_response.tools:
-            self.tools.append(
-                ToolInfo(
-                    name=tool.name,
-                    server_name=self.config.name,
-                    description=tool.description or "",
-                    input_schema=tool.inputSchema or {},
+            for tool in tools_response.tools:
+                self.tools.append(
+                    ToolInfo(
+                        name=tool.name,
+                        server_name=self.config.name,
+                        description=tool.description or "",
+                        input_schema=tool.inputSchema or {},
+                    )
                 )
-            )
 
-        logger.info(f"Connected to {self.config.name}, discovered {len(self.tools)} tools")
-        for tool in self.tools:
-            logger.info(f"  - {tool.name}: {tool.description[:60]}...")
+            logger.info(f"Connected to {self.config.name}, discovered {len(self.tools)} tools")
+            for tool in self.tools:
+                logger.info(f"  - {tool.name}: {tool.description[:60]}...")
 
-        return self.tools
+            return self.tools
+        except Exception as e:
+            logger.error(f"Failed to connect to MCP server {self.config.name}: {e}")
+            # Clean up any partial state
+            self._context_stack.clear()
+            self.session = None
+            return []
 
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> Any:
         """Call a tool and return the result."""
@@ -134,9 +141,19 @@ class MCPConnection:
 
     async def disconnect(self) -> None:
         """Disconnect from the server."""
+        if not self._context_stack:
+            self.session = None
+            return
+
         for ctx in reversed(self._context_stack):
             try:
                 await ctx.__aexit__(None, None, None)
+            except RuntimeError as e:
+                # Handle async cancel scope issues gracefully
+                if "cancel scope" in str(e).lower():
+                    logger.debug(f"Ignoring cancel scope error during disconnect: {e}")
+                else:
+                    logger.warning(f"Error closing context: {e}")
             except Exception as e:
                 logger.warning(f"Error closing context: {e}")
         self._context_stack.clear()

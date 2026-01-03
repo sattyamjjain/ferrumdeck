@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { ListEvalRunsResponse } from "@/types/eval";
 
 // Stub API route for eval runs - returns empty data until backend is implemented
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   // Return empty list response
   const response: ListEvalRunsResponse = {
     runs: [],
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(response);
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(_request: NextRequest) {
   // Stub for running eval suite - return mock response
   return NextResponse.json(
     { eval_run_id: "eval_stub_" + Date.now() },

@@ -33,9 +33,14 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Create a non-root user
+# Install Docker CLI for container log streaming
+RUN apk add --no-cache docker-cli
+
+# Create a non-root user and add to docker group
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
+# Add nextjs user to docker group for socket access
+RUN addgroup nextjs docker || true
 
 # Copy built application
 COPY --from=builder /app/public ./public

@@ -30,7 +30,7 @@ export function CreateRunDialog() {
   // Hydration fix - ensure client-only rendering for Radix components
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
-    setMounted(true);
+    queueMicrotask(() => setMounted(true));
   }, []);
 
   const [open, setOpen] = useState(false);
@@ -41,10 +41,16 @@ export function CreateRunDialog() {
   // Fetch agents for dropdown
   const { data: agents, isLoading: agentsLoading } = useAgents({ status: "active" });
 
+  // Find selected agent for display and API request
+  const selectedAgent = agents?.find(
+    (a) => a.latest_version?.id === selectedAgentVersionId
+  );
+
   const mutation = useMutation({
     mutationFn: () =>
       createRun({
-        agent_version_id: selectedAgentVersionId || undefined,
+        agent_id: selectedAgent?.id,
+        agent_version: selectedAgentVersionId || undefined,
         input: { task },
       }),
     onSuccess: (data) => {
@@ -71,11 +77,6 @@ export function CreateRunDialog() {
     }
     mutation.mutate();
   };
-
-  // Find selected agent for display
-  const selectedAgent = agents?.find(
-    (a) => a.latest_version?.id === selectedAgentVersionId
-  );
 
   // Render just the trigger button during SSR to avoid hydration mismatch
   if (!mounted) {

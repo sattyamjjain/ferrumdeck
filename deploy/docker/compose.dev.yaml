@@ -116,6 +116,8 @@ services:
       context: ../../nextjs
       dockerfile: Dockerfile
     container_name: fd-dashboard
+    # Run as root for Docker socket access (dev only)
+    user: root
     ports:
       - "3001:3000"
     environment:
@@ -123,6 +125,11 @@ services:
       FD_API_KEY: fd_dev_key_abc123
       FD_PROJECT_ID: prj_01JFVX0000000000000000001
       NEXT_PUBLIC_POLL_INTERVAL: "2000"
+      # Enable Docker logs feature (requires Docker socket mount)
+      DOCKER_LOGS_ENABLED: "true"
+    volumes:
+      # Mount Docker socket for container log streaming
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       gateway:
         condition: service_healthy
@@ -168,10 +175,14 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      # Mount docker socket for MCP server execution
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       # Mount MCP configuration
       - ../../config/mcp-config.json:/app/config/mcp-config.json:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://gateway:8080/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     networks:
       - ferrumdeck
 

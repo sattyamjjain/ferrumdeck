@@ -138,7 +138,7 @@ export interface StepArtifact {
 // Create run request
 export interface CreateRunRequest {
   agent_id?: string;
-  agent_version_id?: string;
+  agent_version?: string; // Optional specific version ID (uses latest if not provided)
   input: {
     task: string;
     repository?: string;
