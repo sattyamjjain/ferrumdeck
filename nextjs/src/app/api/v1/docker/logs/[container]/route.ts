@@ -41,6 +41,31 @@ export async function GET(
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
+      let isClosed = false;
+
+      // Safe enqueue that checks if controller is still open
+      const safeEnqueue = (data: string) => {
+        if (!isClosed) {
+          try {
+            controller.enqueue(encoder.encode(data));
+          } catch {
+            // Controller was closed, ignore
+            isClosed = true;
+          }
+        }
+      };
+
+      // Safe close that checks if controller is still open
+      const safeClose = () => {
+        if (!isClosed) {
+          isClosed = true;
+          try {
+            controller.close();
+          } catch {
+            // Already closed, ignore
+          }
+        }
+      };
 
       // Spawn docker logs process
       const docker = spawn("docker", args);
@@ -48,12 +73,11 @@ export async function GET(
       activeStreams.set(streamId, docker);
 
       // Send initial connection message
-      controller.enqueue(
-        encoder.encode(`data: ${JSON.stringify({ type: "connected", container })}\n\n`)
-      );
+      safeEnqueue(`data: ${JSON.stringify({ type: "connected", container })}\n\n`);
 
       // Handle stdout (normal logs)
       docker.stdout.on("data", (data: Buffer) => {
+        if (isClosed) return;
         const lines = data.toString().split("\n").filter((line) => line.length > 0);
         for (const line of lines) {
           const logEntry = {
@@ -62,12 +86,13 @@ export async function GET(
             message: line,
             timestamp: new Date().toISOString(),
           };
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(logEntry)}\n\n`));
+          safeEnqueue(`data: ${JSON.stringify(logEntry)}\n\n`);
         }
       });
 
       // Handle stderr (error logs)
       docker.stderr.on("data", (data: Buffer) => {
+        if (isClosed) return;
         const lines = data.toString().split("\n").filter((line) => line.length > 0);
         for (const line of lines) {
           const logEntry = {
@@ -76,35 +101,41 @@ export async function GET(
             message: line,
             timestamp: new Date().toISOString(),
           };
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(logEntry)}\n\n`));
+          safeEnqueue(`data: ${JSON.stringify(logEntry)}\n\n`);
         }
       });
 
       // Handle process errors
       docker.on("error", (error) => {
+        if (isClosed) return;
         const errorEntry = {
           type: "error",
           message: `Failed to stream logs: ${error.message}`,
         };
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorEntry)}\n\n`));
-        controller.close();
+        safeEnqueue(`data: ${JSON.stringify(errorEntry)}\n\n`);
+        safeClose();
         activeStreams.delete(streamId);
       });
 
       // Handle process exit
       docker.on("close", (code) => {
+        if (isClosed) {
+          activeStreams.delete(streamId);
+          return;
+        }
         const closeEntry = {
           type: "close",
           code,
           message: code === 0 ? "Log stream ended" : `Log stream closed with code ${code}`,
         };
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(closeEntry)}\n\n`));
-        controller.close();
+        safeEnqueue(`data: ${JSON.stringify(closeEntry)}\n\n`);
+        safeClose();
         activeStreams.delete(streamId);
       });
 
-      // Cleanup on abort
+      // Cleanup on abort (client disconnect)
       request.signal.addEventListener("abort", () => {
+        isClosed = true; // Mark as closed BEFORE killing to prevent close event from writing
         docker.kill();
         activeStreams.delete(streamId);
       });
