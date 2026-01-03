@@ -11,6 +11,9 @@ labels:
     pairs:
       app.kubernetes.io/name: ferrumdeck
       app.kubernetes.io/managed-by: kustomize
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: ferrumdeck
 
 resources:
   - gateway-deployment.yaml
@@ -23,11 +26,6 @@ images:
     newTag: latest
   - name: ghcr.io/ferrumdeck/worker
     newTag: latest
-
-labels:
-  - pairs:
-      app.kubernetes.io/part-of: ferrumdeck
-    includeSelectors: false
 
 # Override for specific environments by creating overlays
 # Example: deploy/k8s/overlays/production/kustomization.yaml

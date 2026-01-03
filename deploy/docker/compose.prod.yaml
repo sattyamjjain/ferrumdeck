@@ -62,11 +62,11 @@ services:
       replicas: ${GATEWAY_REPLICAS:-2}
       resources:
         limits:
-          cpus: "${GATEWAY_CPU_LIMIT:-2}"
-          memory: ${GATEWAY_MEMORY_LIMIT:-1G}
+          cpus: "${GATEWAY_CPU_LIMIT:-2.0}"
+          memory: "${GATEWAY_MEMORY_LIMIT:-1G}"
         reservations:
           cpus: "${GATEWAY_CPU_RESERVATION:-0.5}"
-          memory: ${GATEWAY_MEMORY_RESERVATION:-256M}
+          memory: "${GATEWAY_MEMORY_RESERVATION:-256M}"
       restart_policy:
         condition: on-failure
         delay: 5s
@@ -154,11 +154,11 @@ services:
       replicas: ${WORKER_REPLICAS:-3}
       resources:
         limits:
-          cpus: "${WORKER_CPU_LIMIT:-2}"
-          memory: ${WORKER_MEMORY_LIMIT:-2G}
+          cpus: "${WORKER_CPU_LIMIT:-2.0}"
+          memory: "${WORKER_MEMORY_LIMIT:-2G}"
         reservations:
           cpus: "${WORKER_CPU_RESERVATION:-0.5}"
-          memory: ${WORKER_MEMORY_RESERVATION:-512M}
+          memory: "${WORKER_MEMORY_RESERVATION:-512M}"
       restart_policy:
         condition: on-failure
         delay: 5s
@@ -215,11 +215,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1"
-          memory: 512M
+          cpus: "1.0"
+          memory: "512M"
         reservations:
           cpus: "0.25"
-          memory: 128M
+          memory: "128M"
 
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133/"]
