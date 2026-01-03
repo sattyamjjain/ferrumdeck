@@ -327,6 +327,7 @@ pub async fn create_agent_version(
 // =============================================================================
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct AgentStatsResponse {
     pub total_runs: i64,
     pub successful_runs: i64,

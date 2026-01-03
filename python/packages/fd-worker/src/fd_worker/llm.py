@@ -145,7 +145,7 @@ class LLMExecutor:
                 tool_calls.append(
                     ToolCall(
                         id=tc.id,
-                        name=tc.function.name,
+                        name=tc.function.name or "",
                         arguments=args,
                     )
                 )

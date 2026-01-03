@@ -55,6 +55,7 @@ pub struct PolicyRuleResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct ListPoliciesQuery {
     pub project_id: Option<String>,
     #[serde(default = "default_limit")]

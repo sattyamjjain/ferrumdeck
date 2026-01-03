@@ -18,6 +18,7 @@ use crate::state::AppState;
 // =============================================================================
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct ListApiKeysQuery {
     pub project_id: Option<String>,
     #[serde(default)]
@@ -37,6 +38,7 @@ pub struct ApiKeyResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct CreateApiKeyRequest {
     pub name: String,
     #[serde(default)]
