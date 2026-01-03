@@ -150,6 +150,7 @@ export function DataTable<TData, TValue>({
   defaultSorting = [],
   onSortingChange,
   enableColumnResizing = true,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   enableColumnReordering = false,
   columnResizeMode = "onChange",
   defaultColumnVisibility = {},

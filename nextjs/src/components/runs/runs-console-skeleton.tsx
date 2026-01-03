@@ -71,6 +71,7 @@ export function RunsConsoleSkeleton() {
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function RunRowSkeleton({ index }: { index: number }) {
   return (
     <div

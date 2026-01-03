@@ -27,12 +27,10 @@ export function RunDetail({ runId }: RunDetailProps) {
     data: run,
     isLoading: runLoading,
     error: runError,
-    refetch: refetchRun,
   } = useRun(runId);
   const {
     data: steps,
     isLoading: stepsLoading,
-    refetch: refetchSteps,
   } = useSteps(runId);
 
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
@@ -47,6 +45,7 @@ export function RunDetail({ runId }: RunDetailProps) {
   // Auto-select first step if none selected
   useEffect(() => {
     if (!selectedStepId && steps && steps.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedStepId(steps[0].id);
     }
   }, [selectedStepId, steps]);
@@ -298,7 +297,7 @@ import {
   XCircle,
   Loader2,
 } from "lucide-react";
-import { cn, formatDuration, truncateId } from "@/lib/utils";
+import { cn, formatDuration } from "@/lib/utils";
 import type { StepType, StepStatus } from "@/types/run";
 
 const stepTypeIcons: Record<StepType, typeof Brain> = {
@@ -346,13 +345,27 @@ function CompactStepCard({ step, isSelected, onClick }: CompactStepCardProps) {
   const StatusIcon = stepStatusIcons[step.status] || Clock;
   const typeColor = stepTypeColors[step.step_type] || "text-blue-400";
   const statusColor = stepStatusColors[step.status] || "text-muted-foreground";
+  const [currentTime, setCurrentTime] = useState(0);
+
+  // Update current time for running steps
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCurrentTime(Date.now());
+
+    if (step.status === "running" && step.started_at && !step.completed_at) {
+      const interval = setInterval(() => {
+        setCurrentTime(Date.now());
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [step.status, step.started_at, step.completed_at]);
 
   const duration =
     step.started_at && step.completed_at
       ? new Date(step.completed_at).getTime() -
         new Date(step.started_at).getTime()
-      : step.started_at
-      ? Date.now() - new Date(step.started_at).getTime()
+      : step.started_at && currentTime > 0
+      ? currentTime - new Date(step.started_at).getTime()
       : 0;
 
   return (

@@ -23,6 +23,7 @@ export function CreateRunDialog() {
   // Hydration fix - ensure client-only rendering for Radix components
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 

@@ -102,9 +102,8 @@ function formatRelativeTime(dateString?: string): string {
 export default function ApiKeysPage() {
   // Hydration fix - ensure client-only rendering for Radix components
   const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setMounted(true), []);
 
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");

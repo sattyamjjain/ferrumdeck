@@ -85,6 +85,7 @@ export function ApprovalList() {
     });
 
     if (newIds.size > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setNewApprovalIds(newIds);
       // Clear animation after it completes
       const timer = setTimeout(() => {

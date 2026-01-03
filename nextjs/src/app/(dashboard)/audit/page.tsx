@@ -395,9 +395,8 @@ function ExportDropdown({ onExport, isExporting, disabled }: ExportDropdownProps
 export default function AuditPage() {
   // Hydration fix - ensure client-only rendering for Radix components
   const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setMounted(true), []);
 
   // Filter state
   const [search, setSearch] = useState("");
@@ -494,6 +493,7 @@ export default function AuditPage() {
   }, []);
 
   // Handle export
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleExport = useCallback(
     (format: "csv" | "json") => {
       exportMutation.mutate({

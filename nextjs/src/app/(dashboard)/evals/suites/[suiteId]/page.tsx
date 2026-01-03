@@ -8,7 +8,6 @@ import {
   Play,
   Clock,
   Target,
-  Settings,
   CheckCircle2,
   XCircle,
   Minus,

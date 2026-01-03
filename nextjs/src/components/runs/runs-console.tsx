@@ -73,7 +73,6 @@ import {
   isRunActive,
 } from "@/lib/utils";
 import type { Run, RunStatus } from "@/types/run";
-import type { Agent } from "@/types/agent";
 
 // Saved view configuration
 interface SavedView {
@@ -119,6 +118,7 @@ export function RunsConsole() {
   // Hydration fix - ensure client-only rendering for Radix components
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 

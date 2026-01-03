@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Clock, DollarSign, Zap, ChevronRight, Bot, ArrowRight } from "lucide-react";
+import { DollarSign, Zap, ChevronRight, Bot, ArrowRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";

@@ -11,7 +11,6 @@ import {
   promoteVersion,
   rollbackVersion,
   updateAgentTools,
-  type AgentsParams,
 } from "@/lib/api/agents";
 import type {
   AgentStatus,

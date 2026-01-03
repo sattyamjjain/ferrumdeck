@@ -45,6 +45,7 @@ const periodConfig: Record<BudgetPeriod, { label: string; shortLabel: string }> 
   monthly: { label: "Monthly", shortLabel: "month" },
 };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const statusConfig: Record<BudgetStatus, { label: string; className: string }> = {
   active: { label: "Active", className: "bg-green-500/20 text-green-400 border-green-500/30" },
   inactive: { label: "Inactive", className: "bg-secondary text-secondary-foreground border-border" },
@@ -201,7 +202,6 @@ export function BudgetTable({
           {budgets.map((budget) => {
             const type = typeConfig[budget.budget_type] || typeConfig.cost;
             const period = periodConfig[budget.period] || periodConfig.per_run;
-            const status = statusConfig[budget.status] || statusConfig.active;
             const TypeIcon = type.icon;
 
             return (

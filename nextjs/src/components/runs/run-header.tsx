@@ -38,7 +38,6 @@ import {
 } from "@/components/ui/tooltip";
 import { RunStatusBadge } from "./run-status-badge";
 import {
-  formatTimeAgo,
   formatCost,
   formatTokens,
   truncateId,

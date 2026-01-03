@@ -27,7 +27,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { Step, StepType, StepStatus } from "@/types/run";
+import type { Step, StepType } from "@/types/run";
 
 // Step type configuration with colors matching the design system
 const STEP_TYPE_CONFIG: Record<
@@ -107,9 +107,34 @@ export function TraceWaterfall({
   const [dragStartX, setDragStartX] = useState(0);
   const [dragStartOffset, setDragStartOffset] = useState(0);
   const [hoveredStepId, setHoveredStepId] = useState<string | null>(null);
-  const [currentTime, setCurrentTime] = useState(Date.now());
+  const [currentTime, setCurrentTime] = useState(0);
+  const [containerWidth, setContainerWidth] = useState(800);
 
-  // Update current time for running steps animation
+  // Measure container width on mount and resize
+  useEffect(() => {
+    const measureContainer = () => {
+      if (containerRef.current) {
+        setContainerWidth(containerRef.current.clientWidth);
+      }
+    };
+
+    measureContainer();
+
+    const resizeObserver = new ResizeObserver(measureContainer);
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  // Initialize and update current time for running steps animation
+  useEffect(() => {
+    // Initialize with current time on mount
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCurrentTime(Date.now());
+  }, []);
+
   useEffect(() => {
     const hasRunningSteps = steps.some((s) => s.status === "running");
     if (!hasRunningSteps) return;
@@ -170,8 +195,7 @@ export function TraceWaterfall({
     };
   }, [steps, currentTime]);
 
-  // Calculate visible dimensions
-  const containerWidth = containerRef.current?.clientWidth || 800;
+  // Calculate visible dimensions based on measured container
   const timelineWidth = containerWidth - LABEL_WIDTH - 40;
   const scaledWidth = timelineWidth * zoom;
 

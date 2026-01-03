@@ -22,7 +22,6 @@ import {
   CheckCircle,
   DollarSign,
   TrendingUp,
-  Clock,
   Layers,
   Wrench,
   Settings,
@@ -34,7 +33,7 @@ import {
   ShieldCheck,
   ShieldAlert,
 } from "lucide-react";
-import { cn, formatCost, formatTimeAgo, formatDateTime } from "@/lib/utils";
+import { cn, formatCost, formatDateTime } from "@/lib/utils";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Skeleton } from "@/components/shared/loading-spinner";
 import { useAgent, useAgentStats, useAgentVersions } from "@/hooks/use-agents";
@@ -153,6 +152,7 @@ export default function AgentDetailPage() {
   useEffect(() => {
     const tabFromUrl = searchParams.get("tab");
     if (tabFromUrl) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTab(tabFromUrl);
     }
   }, [searchParams]);
@@ -537,7 +537,6 @@ export default function AgentDetailPage() {
         {/* Versions Tab */}
         <TabsContent value="versions">
           <AgentVersions
-            agentId={agentId}
             versions={versions || (version ? [version] : [])}
             onPromote={handlePromote}
           />

@@ -10,8 +10,6 @@ import {
   AlertTriangle,
   Loader2,
   User,
-  Wrench,
-  Brain,
   Ban,
   DollarSign,
   Timer,
@@ -224,7 +222,7 @@ interface AuditEventCardProps {
   isLast: boolean;
 }
 
-function AuditEventCard({ event, isFirst, isLast }: AuditEventCardProps) {
+function AuditEventCard({ event }: AuditEventCardProps) {
   const config = getEventConfig(event.type);
   const Icon = config.icon;
 

@@ -91,7 +91,8 @@ const healthConfig: Record<ToolHealthStatus, { label: string; icon: typeof Check
   },
 };
 
-// Status configuration
+// Status configuration - reserved for future use
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const statusConfig: Record<ToolStatus, { label: string; className: string }> = {
   active: { label: "Active", className: "bg-accent-green/15 text-accent-green" },
   deprecated: { label: "Deprecated", className: "bg-accent-yellow/15 text-accent-yellow" },
@@ -186,7 +187,6 @@ interface ToolTableRowProps {
 function ToolTableRow({ tool, onDelete }: ToolTableRowProps) {
   const risk = riskConfig[tool.risk_level] || riskConfig.low;
   const health = healthConfig[tool.health_status] || healthConfig.unknown;
-  const status = statusConfig[tool.status] || statusConfig.active;
   const HealthIcon = health.icon;
 
   return (

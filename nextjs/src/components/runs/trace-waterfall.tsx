@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useEffect } from "react";
+import { useMemo, useRef, useEffect, useState } from "react";
 import {
   Brain,
   Wrench,
@@ -96,10 +96,19 @@ export function TraceWaterfall({
     });
   }, [steps]);
 
+  // State for current time (for running steps)
+  const [currentTime, setCurrentTime] = useState(0);
+
+  // Initialize current time
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCurrentTime(Date.now());
+  }, []);
+
   // Calculate time bounds for the waterfall
-  const { minTime, maxTime, totalDuration } = useMemo(() => {
+  const { minTime, totalDuration } = useMemo(() => {
     if (sortedSteps.length === 0) {
-      return { minTime: 0, maxTime: 0, totalDuration: 0 };
+      return { minTime: 0, totalDuration: 0 };
     }
 
     const startTimes = sortedSteps.map((s) =>
@@ -114,14 +123,13 @@ export function TraceWaterfall({
       : Math.min(...startTimes);
     const max = runEndTime
       ? new Date(runEndTime).getTime()
-      : Math.max(...endTimes, Date.now());
+      : Math.max(...endTimes, currentTime > 0 ? currentTime : endTimes[endTimes.length - 1] || 0);
 
     return {
       minTime: min,
-      maxTime: max,
       totalDuration: max - min,
     };
-  }, [sortedSteps, runStartTime, runEndTime]);
+  }, [sortedSteps, runStartTime, runEndTime, currentTime]);
 
   // Scroll selected step into view
   useEffect(() => {
@@ -134,16 +142,9 @@ export function TraceWaterfall({
     }
   }, [selectedStepId]);
 
-  if (sortedSteps.length === 0) {
-    return (
-      <div className="h-24 flex items-center justify-center text-muted-foreground text-sm">
-        No steps to display
-      </div>
-    );
-  }
-
-  // Time scale markers
+  // Time scale markers - must be before early return
   const timeMarkers = useMemo(() => {
+    if (totalDuration === 0) return [];
     const markers: number[] = [];
     const interval = totalDuration / 5;
     for (let i = 0; i <= 5; i++) {
@@ -151,6 +152,14 @@ export function TraceWaterfall({
     }
     return markers;
   }, [minTime, totalDuration]);
+
+  if (sortedSteps.length === 0) {
+    return (
+      <div className="h-24 flex items-center justify-center text-muted-foreground text-sm">
+        No steps to display
+      </div>
+    );
+  }
 
   return (
     <TooltipProvider>
@@ -183,7 +192,7 @@ export function TraceWaterfall({
           style={{ maxHeight: "200px" }}
         >
           <div className="min-w-[600px]">
-            {sortedSteps.map((step, index) => {
+            {sortedSteps.map((step) => {
               const typeConfig =
                 stepTypeConfig[step.step_type] || stepTypeConfig.tool;
               const statusConfig =
@@ -201,8 +210,9 @@ export function TraceWaterfall({
 
               // Calculate position and width
               const left = ((stepStart - minTime) / totalDuration) * 100;
+              const runningTime = currentTime > 0 ? currentTime : stepEnd;
               const width = isRunning
-                ? ((Date.now() - stepStart) / totalDuration) * 100
+                ? ((runningTime - stepStart) / totalDuration) * 100
                 : ((stepEnd - stepStart) / totalDuration) * 100;
               const minWidth = 2; // Minimum visible width
 
@@ -272,7 +282,7 @@ export function TraceWaterfall({
                           <div className="text-xs text-muted-foreground">
                             Duration:{" "}
                             {formatDuration(
-                              isRunning ? Date.now() - stepStart : stepEnd - stepStart
+                              isRunning ? runningTime - stepStart : stepEnd - stepStart
                             )}
                           </div>
                           {step.input_tokens && (

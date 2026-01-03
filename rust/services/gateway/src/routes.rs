@@ -1,6 +1,8 @@
 //! API routes
 
-use axum::{middleware, routing::delete, routing::get, routing::patch, routing::post, routing::put, Router};
+use axum::{
+    middleware, routing::delete, routing::get, routing::patch, routing::post, routing::put, Router,
+};
 
 use crate::handlers;
 use crate::middleware::{auth_middleware, rate_limit_middleware, request_id_middleware};
@@ -42,10 +44,7 @@ pub fn build_router(state: AppState) -> Router {
                 // Policies
                 .route("/policies", get(handlers::policies::list_policies))
                 .route("/policies", post(handlers::policies::create_policy))
-                .route(
-                    "/policies/{policy_id}",
-                    get(handlers::policies::get_policy),
-                )
+                .route("/policies/{policy_id}", get(handlers::policies::get_policy))
                 .route(
                     "/policies/{policy_id}",
                     patch(handlers::policies::update_policy),

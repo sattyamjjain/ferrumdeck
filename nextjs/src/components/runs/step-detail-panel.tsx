@@ -11,11 +11,10 @@ import {
   Clock,
   Loader2,
   Copy,
-  ExternalLink,
   Timer,
   Zap,
 } from "lucide-react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -87,6 +86,7 @@ interface StepDetailPanelProps {
 
 export function StepDetailPanel({ step, className }: StepDetailPanelProps) {
   const [activeTab, setActiveTab] = useState("input");
+  const [currentTime, setCurrentTime] = useState(0);
 
   const handleCopyId = useCallback(async () => {
     if (!step) return;
@@ -95,6 +95,19 @@ export function StepDetailPanel({ step, className }: StepDetailPanelProps) {
       toast.success("Step ID copied");
     }
   }, [step]);
+
+  // Update current time for running steps
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCurrentTime(Date.now());
+
+    if (step?.status === "running" && step.started_at && !step.completed_at) {
+      const interval = setInterval(() => {
+        setCurrentTime(Date.now());
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [step?.status, step?.started_at, step?.completed_at]);
 
   if (!step) {
     return (
@@ -116,8 +129,8 @@ export function StepDetailPanel({ step, className }: StepDetailPanelProps) {
     step.started_at && step.completed_at
       ? new Date(step.completed_at).getTime() -
         new Date(step.started_at).getTime()
-      : step.started_at
-      ? Date.now() - new Date(step.started_at).getTime()
+      : step.started_at && currentTime > 0
+      ? currentTime - new Date(step.started_at).getTime()
       : 0;
 
   return (

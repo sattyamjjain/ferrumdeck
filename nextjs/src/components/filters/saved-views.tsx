@@ -10,7 +10,6 @@ import {
   Plus,
   Star,
   Trash2,
-  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -83,7 +82,6 @@ export function SavedViews<TFilters = Record<string, unknown>>({
   const [viewName, setViewName] = React.useState("");
 
   const activeView = views.find((v) => v.id === activeViewId);
-  const defaultView = views.find((v) => v.isDefault);
 
   const handleCreate = () => {
     if (viewName.trim()) {

@@ -7,16 +7,10 @@ import {
   Bot,
   Key,
   Settings,
-  Clock,
-  FileText,
-  AlertTriangle,
   ExternalLink,
   Copy,
   Check,
-  Eye,
   EyeOff,
-  Globe,
-  Activity,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -131,18 +125,18 @@ function DetailRow({
   );
 }
 
-function getActorIcon(actorType: AuditActorType) {
+function ActorIconDisplay({ actorType, className }: { actorType: AuditActorType; className?: string }) {
   switch (actorType) {
     case "user":
-      return User;
+      return <User className={className} />;
     case "api_key":
-      return Key;
+      return <Key className={className} />;
     case "agent":
-      return Bot;
+      return <Bot className={className} />;
     case "system":
-      return Settings;
+      return <Settings className={className} />;
     default:
-      return User;
+      return <User className={className} />;
   }
 }
 
@@ -294,7 +288,6 @@ export function AuditEventDrawer({ event, open, onOpenChange }: AuditEventDrawer
 
   const eventType = event.event_type || event.action;
   const colors = getEventTypeColors(eventType);
-  const ActorIcon = getActorIcon(event.actor_type);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -344,7 +337,7 @@ export function AuditEventDrawer({ event, open, onOpenChange }: AuditEventDrawer
             <div className="rounded-lg bg-slate-900/50 border border-slate-800 p-4">
               <div className="flex items-center gap-3 mb-3">
                 <div className="p-2 rounded-lg bg-slate-800">
-                  <ActorIcon className="h-5 w-5 text-muted-foreground" />
+                  <ActorIconDisplay actorType={event.actor_type} className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <div>
                   <p className="font-medium">{event.actor_name || event.actor_id}</p>

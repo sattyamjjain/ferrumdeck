@@ -51,72 +51,72 @@ interface AuditTimelineProps {
 }
 
 // ============================================================================
-// Icon Helpers
+// Icon Components
 // ============================================================================
 
-function getEventIcon(eventType: AuditEventType) {
+function EventIconDisplay({ eventType, className }: { eventType: AuditEventType; className?: string }) {
   // Run events
   if (eventType.startsWith("run.")) {
-    if (eventType === "run.completed") return CheckCircle;
+    if (eventType === "run.completed") return <CheckCircle className={className} />;
     if (eventType === "run.failed" || eventType === "run.timeout" || eventType === "run.budget_killed")
-      return XCircle;
-    return Play;
+      return <XCircle className={className} />;
+    return <Play className={className} />;
   }
   // Step events
   if (eventType.startsWith("step.")) {
-    if (eventType === "step.retry") return RotateCcw;
-    return Activity;
+    if (eventType === "step.retry") return <RotateCcw className={className} />;
+    return <Activity className={className} />;
   }
   // Policy events
   if (eventType.startsWith("policy.")) {
-    if (eventType === "policy.denied") return XCircle;
-    if (eventType === "policy.allowed") return CheckCircle;
-    return Shield;
+    if (eventType === "policy.denied") return <XCircle className={className} />;
+    if (eventType === "policy.allowed") return <CheckCircle className={className} />;
+    return <Shield className={className} />;
   }
   // Approval events
   if (eventType.startsWith("approval.")) {
     if (eventType === "approval.approved" || eventType === "approval.auto_approved")
-      return CheckCircle;
-    if (eventType === "approval.rejected") return XCircle;
-    return Shield;
+      return <CheckCircle className={className} />;
+    if (eventType === "approval.rejected") return <XCircle className={className} />;
+    return <Shield className={className} />;
   }
   // Budget events
   if (eventType.startsWith("budget.")) {
-    if (eventType === "budget.exceeded") return AlertTriangle;
-    return DollarSign;
+    if (eventType === "budget.exceeded") return <AlertTriangle className={className} />;
+    return <DollarSign className={className} />;
   }
   // Agent events
-  if (eventType.startsWith("agent.")) return Bot;
+  if (eventType.startsWith("agent.")) return <Bot className={className} />;
   // Tool events
-  if (eventType.startsWith("tool.")) return Wrench;
+  if (eventType.startsWith("tool.")) return <Wrench className={className} />;
   // Admin events
   if (eventType.startsWith("admin.")) {
-    if (eventType === "admin.login") return LogIn;
-    if (eventType === "admin.logout") return LogOut;
-    if (eventType === "admin.user_created") return UserPlus;
-    if (eventType === "admin.user_deleted") return UserMinus;
-    return Settings;
+    if (eventType === "admin.login") return <LogIn className={className} />;
+    if (eventType === "admin.logout") return <LogOut className={className} />;
+    if (eventType === "admin.user_created") return <UserPlus className={className} />;
+    if (eventType === "admin.user_deleted") return <UserMinus className={className} />;
+    return <Settings className={className} />;
   }
   // API Key events
-  if (eventType.startsWith("api_key.")) return Key;
+  if (eventType.startsWith("api_key.")) return <Key className={className} />;
   // Settings events
-  if (eventType.startsWith("settings.")) return Settings;
+  if (eventType.startsWith("settings.")) return <Settings className={className} />;
 
-  return Activity;
+  return <Activity className={className} />;
 }
 
-function getActorIcon(actorType: AuditActorType) {
+function ActorIconDisplay({ actorType, className }: { actorType: AuditActorType; className?: string }) {
   switch (actorType) {
     case "user":
-      return User;
+      return <User className={className} />;
     case "api_key":
-      return Key;
+      return <Key className={className} />;
     case "agent":
-      return Bot;
+      return <Bot className={className} />;
     case "system":
-      return Settings;
+      return <Settings className={className} />;
     default:
-      return User;
+      return <User className={className} />;
   }
 }
 
@@ -132,8 +132,6 @@ interface AuditEventRowProps {
 function AuditEventRow({ event, onClick }: AuditEventRowProps) {
   const eventType = event.event_type || event.action;
   const colors = getEventTypeColors(eventType);
-  const EventIcon = getEventIcon(eventType);
-  const ActorIcon = getActorIcon(event.actor_type);
 
   // Get target link if applicable
   const getTargetLink = useCallback(() => {
@@ -209,14 +207,14 @@ function AuditEventRow({ event, onClick }: AuditEventRowProps) {
         variant="outline"
         className={cn("gap-1.5 font-medium flex-shrink-0 w-[140px]", colors.bg, colors.text, colors.border)}
       >
-        <EventIcon className="h-3 w-3" />
+        <EventIconDisplay eventType={eventType} className="h-3 w-3" />
         <span className="truncate">{getEventTypeDisplayName(eventType)}</span>
       </Badge>
 
       {/* Actor */}
       <div className="flex items-center gap-2 w-[140px] flex-shrink-0">
         <div className="p-1 rounded bg-slate-800">
-          <ActorIcon className="h-3 w-3 text-muted-foreground" />
+          <ActorIconDisplay actorType={event.actor_type} className="h-3 w-3 text-muted-foreground" />
         </div>
         <div className="min-w-0">
           {actorLink ? (

@@ -5,14 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -23,7 +15,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Layers,
   Rocket,
-  RotateCcw,
   GitCompare,
   Calendar,
   User,
@@ -32,14 +23,12 @@ import {
   ChevronDown,
   ChevronRight,
   CheckCircle,
-  Clock,
 } from "lucide-react";
 import { cn, formatDateTime, formatTimeAgo } from "@/lib/utils";
 import { EmptyState } from "@/components/shared/empty-state";
 import type { AgentVersion, DeploymentEnvironment } from "@/types/agent";
 
 interface AgentVersionsProps {
-  agentId: string;
   versions: AgentVersion[];
   onPromote: (version: AgentVersion) => void;
 }
@@ -218,7 +207,7 @@ function VersionDiffDialog({
   );
 }
 
-export function AgentVersions({ agentId, versions, onPromote }: AgentVersionsProps) {
+export function AgentVersions({ versions, onPromote }: AgentVersionsProps) {
   const [expandedVersions, setExpandedVersions] = useState<Set<string>>(new Set());
   const [diffDialogOpen, setDiffDialogOpen] = useState(false);
   const [diffVersions, setDiffVersions] = useState<{

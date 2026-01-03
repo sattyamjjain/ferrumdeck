@@ -259,7 +259,9 @@ class StepExecutor:
             "You are a helpful AI assistant. Complete the requested task.",
         )
 
-        logger.info(f"LLM step: task={task[:50] if task else None}... mcp_servers={len(self._mcp_servers)}")
+        logger.info(
+            f"LLM step: task={task[:50] if task else None}... mcp_servers={len(self._mcp_servers)}"
+        )
 
         # Check if we should use agentic mode
         # Default to agentic when we have MCP servers configured
@@ -377,7 +379,9 @@ class StepExecutor:
         step_id: str,
     ) -> dict[str, Any]:
         """Execute a simple LLM call without tool support."""
-        logger.info(f"Using simple LLM mode (no agentic). step_input keys: {list(step_input.keys())}")
+        logger.info(
+            f"Using simple LLM mode (no agentic). step_input keys: {list(step_input.keys())}"
+        )
         messages = step_input.get("messages", [])
         tools = step_input.get("tools")
 

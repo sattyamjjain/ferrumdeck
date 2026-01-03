@@ -411,6 +411,30 @@ const NodeRow = memo(function NodeRow({
 }: NodeRowProps) {
   const [showContextMenu, setShowContextMenu] = useState(false);
 
+  // Move hooks before any early returns
+  const handleCopyPath = useCallback(() => {
+    const jsonPath = node.path.replace(/^\$\.?/, "").replace(/\.(\d+)/g, "[$1]");
+    if (onCopyPath) {
+      onCopyPath(jsonPath || "$");
+    } else {
+      navigator.clipboard.writeText(jsonPath || "$");
+    }
+    setShowContextMenu(false);
+  }, [node.path, onCopyPath]);
+
+  const handleCopyValue = useCallback(() => {
+    const stringified =
+      node.type === "primitive"
+        ? stringifyValue(node.value)
+        : JSON.stringify(node.value, null, 2);
+    if (onCopyValue) {
+      onCopyValue(node.value);
+    } else {
+      navigator.clipboard.writeText(stringified);
+    }
+    setShowContextMenu(false);
+  }, [node.value, node.type, onCopyValue]);
+
   // Handle truncated node
   if (node.key === "__truncated__") {
     const truncInfo = node.value as { remaining: number; total: number };
@@ -443,29 +467,6 @@ const NodeRow = memo(function NodeRow({
       </div>
     );
   }
-
-  const handleCopyPath = useCallback(() => {
-    const jsonPath = node.path.replace(/^\$\.?/, "").replace(/\.(\d+)/g, "[$1]");
-    if (onCopyPath) {
-      onCopyPath(jsonPath || "$");
-    } else {
-      navigator.clipboard.writeText(jsonPath || "$");
-    }
-    setShowContextMenu(false);
-  }, [node.path, onCopyPath]);
-
-  const handleCopyValue = useCallback(() => {
-    const stringified =
-      node.type === "primitive"
-        ? stringifyValue(node.value)
-        : JSON.stringify(node.value, null, 2);
-    if (onCopyValue) {
-      onCopyValue(node.value);
-    } else {
-      navigator.clipboard.writeText(stringified);
-    }
-    setShowContextMenu(false);
-  }, [node.value, node.type, onCopyValue]);
 
   const renderToggle = () => {
     if (node.type === "primitive") {

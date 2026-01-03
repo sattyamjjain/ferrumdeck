@@ -42,9 +42,8 @@ interface CreateAgentDialogProps {
 export function CreateAgentDialog({ trigger }: CreateAgentDialogProps) {
   // Hydration fix - ensure client-only rendering for Radix components
   const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setMounted(true), []);
 
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);

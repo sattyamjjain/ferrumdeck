@@ -48,9 +48,10 @@ export function AgentCard({ agent }: AgentCardProps) {
   const remainingTools = totalTools - displayTools.length;
 
   // Mock stats for display - these would come from useAgentStats in a real implementation
+  // Using deterministic values based on agent id to avoid React purity issues
   const mockStats = {
-    runs24h: Math.floor(Math.random() * 100),
-    successRate: 85 + Math.floor(Math.random() * 15),
+    runs24h: (agent.id.charCodeAt(0) % 50) + 10,
+    successRate: 85 + (agent.id.charCodeAt(1) % 15),
     lastRun: agent.updated_at,
   };
 

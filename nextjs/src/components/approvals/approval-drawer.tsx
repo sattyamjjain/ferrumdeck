@@ -265,7 +265,7 @@ export function ApprovalDrawer({
   };
 
   // Generate "what will happen" description
-  const whatWillHappen = useMemo(() => {
+  const whatWillHappen = (() => {
     const toolName = approval.tool_name || approval.action_type || "action";
     const details = approval.action_details;
 
@@ -283,7 +283,7 @@ export function ApprovalDrawer({
     }
 
     return `The agent will perform the "${toolName}" action with the specified parameters`;
-  }, [approval]);
+  })();
 
   return (
     <>

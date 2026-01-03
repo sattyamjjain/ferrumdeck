@@ -8,7 +8,6 @@ import {
   File,
   Download,
   Eye,
-  X,
   FileCode,
   FileArchive,
 } from "lucide-react";

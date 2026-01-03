@@ -20,9 +20,8 @@ import { toast } from "sonner";
 export default function SettingsPage() {
   // Hydration fix - ensure client-only rendering for Radix components
   const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setMounted(true), []);
 
   const [copied, setCopied] = useState(false);
   const [showKey, setShowKey] = useState(false);

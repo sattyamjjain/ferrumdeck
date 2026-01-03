@@ -6,12 +6,10 @@ import {
   Bot,
   Clock,
   ExternalLink,
-  AlertCircle,
   CheckCircle,
   XCircle,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -22,7 +20,7 @@ import {
 } from "@/components/ui/table";
 import { useToolUsageStats, useToolCalls } from "@/hooks/use-tools";
 import { ToolUsageChart, UsageStatsCards } from "./tool-usage-stats";
-import { LoadingPage, SkeletonTableRow, Skeleton } from "@/components/shared/loading-spinner";
+import { SkeletonTableRow, Skeleton } from "@/components/shared/loading-spinner";
 import { EmptyState, EmptyRow } from "@/components/shared/empty-state";
 import { cn, formatTimeAgo, formatNumber, truncateId } from "@/lib/utils";
 

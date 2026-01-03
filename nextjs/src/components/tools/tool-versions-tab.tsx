@@ -7,8 +7,6 @@ import {
   User,
   Eye,
   ArrowLeftRight,
-  ChevronDown,
-  ChevronRight,
   Tag,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,10 +28,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { JsonViewer } from "@/components/shared/json-viewer";
-import { LoadingPage, SkeletonTableRow } from "@/components/shared/loading-spinner";
+import { SkeletonTableRow } from "@/components/shared/loading-spinner";
 import { EmptyRow } from "@/components/shared/empty-state";
 import { useToolVersions } from "@/hooks/use-tools";
-import { cn, formatTimeAgo, formatDateTime } from "@/lib/utils";
+import { formatTimeAgo, formatDateTime } from "@/lib/utils";
 import type { ToolVersion } from "@/types/tool";
 
 interface ToolVersionsTabProps {
@@ -111,7 +109,6 @@ export function ToolVersionsTab({ toolId }: ToolVersionsTabProps) {
                     key={version.id}
                     version={version}
                     isLatest={index === 0}
-                    previousVersion={index < versions.length - 1 ? versions[index + 1] : undefined}
                     onView={() => handleViewSchema(version)}
                     onCompare={
                       index < versions.length - 1
@@ -237,12 +234,11 @@ export function ToolVersionsTab({ toolId }: ToolVersionsTabProps) {
 interface VersionRowProps {
   version: ToolVersion;
   isLatest: boolean;
-  previousVersion?: ToolVersion;
   onView: () => void;
   onCompare?: () => void;
 }
 
-function VersionRow({ version, isLatest, previousVersion, onView, onCompare }: VersionRowProps) {
+function VersionRow({ version, isLatest, onView, onCompare }: VersionRowProps) {
   return (
     <TableRow className="group">
       <TableCell>
