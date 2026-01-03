@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Settings, Key, Copy, Check, Eye, EyeOff, Trash2, Plus, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,12 @@ import {
 import { toast } from "sonner";
 
 export default function SettingsPage() {
+  // Hydration fix - ensure client-only rendering for Radix components
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const [copied, setCopied] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [apiKey] = useState("fd_live_key_*********************");
@@ -127,18 +133,20 @@ export default function SettingsPage() {
         <CardContent className="space-y-6">
           <div className="space-y-2">
             <Label>Refresh Interval</Label>
-            <Select value={refreshInterval} onValueChange={setRefreshInterval}>
-              <SelectTrigger className="w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="1000">1 second</SelectItem>
-                <SelectItem value="2000">2 seconds</SelectItem>
-                <SelectItem value="5000">5 seconds</SelectItem>
-                <SelectItem value="10000">10 seconds</SelectItem>
-                <SelectItem value="30000">30 seconds</SelectItem>
-              </SelectContent>
-            </Select>
+            {mounted && (
+              <Select value={refreshInterval} onValueChange={setRefreshInterval}>
+                <SelectTrigger className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1000">1 second</SelectItem>
+                  <SelectItem value="2000">2 seconds</SelectItem>
+                  <SelectItem value="5000">5 seconds</SelectItem>
+                  <SelectItem value="10000">10 seconds</SelectItem>
+                  <SelectItem value="30000">30 seconds</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
             <p className="text-xs text-muted-foreground">
               How often to poll for updates
             </p>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Loader2, Play, Sparkles } from "lucide-react";
 import {
@@ -20,6 +20,12 @@ import { toast } from "sonner";
 import { createRun } from "@/lib/api/runs";
 
 export function CreateRunDialog() {
+  // Hydration fix - ensure client-only rendering for Radix components
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const [open, setOpen] = useState(false);
   const [agentId, setAgentId] = useState("");
   const [task, setTask] = useState("");
@@ -47,6 +53,16 @@ export function CreateRunDialog() {
     }
     mutation.mutate();
   };
+
+  // Render just the trigger button during SSR to avoid hydration mismatch
+  if (!mounted) {
+    return (
+      <Button className="bg-accent-blue hover:bg-accent-blue/90 text-white gap-2">
+        <Plus className="h-4 w-4" />
+        New Run
+      </Button>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

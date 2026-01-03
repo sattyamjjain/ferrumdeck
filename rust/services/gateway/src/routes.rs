@@ -1,6 +1,6 @@
 //! API routes
 
-use axum::{middleware, routing::get, routing::post, routing::put, Router};
+use axum::{middleware, routing::delete, routing::get, routing::patch, routing::post, routing::put, Router};
 
 use crate::handlers;
 use crate::middleware::{auth_middleware, rate_limit_middleware, request_id_middleware};
@@ -39,6 +39,21 @@ pub fn build_router(state: AppState) -> Router {
                     "/approvals/{approval_id}",
                     put(handlers::approvals::resolve_approval),
                 )
+                // Policies
+                .route("/policies", get(handlers::policies::list_policies))
+                .route("/policies", post(handlers::policies::create_policy))
+                .route(
+                    "/policies/{policy_id}",
+                    get(handlers::policies::get_policy),
+                )
+                .route(
+                    "/policies/{policy_id}",
+                    patch(handlers::policies::update_policy),
+                )
+                .route(
+                    "/policies/{policy_id}",
+                    delete(handlers::policies::delete_policy),
+                )
                 // Registry
                 .route("/registry/agents", get(handlers::registry::list_agents))
                 .route("/registry/agents", post(handlers::registry::create_agent))
@@ -48,10 +63,30 @@ pub fn build_router(state: AppState) -> Router {
                 )
                 .route(
                     "/registry/agents/{agent_id}/versions",
-                    post(handlers::registry::create_agent_version),
+                    get(handlers::registry::list_agent_versions)
+                        .post(handlers::registry::create_agent_version),
+                )
+                .route(
+                    "/registry/agents/{agent_id}/stats",
+                    get(handlers::registry::get_agent_stats),
+                )
+                .route(
+                    "/registry/tools/{tool_id}",
+                    get(handlers::registry::get_tool),
                 )
                 .route("/registry/tools", get(handlers::registry::list_tools))
                 .route("/registry/tools", post(handlers::registry::create_tool))
+                .route(
+                    "/registry/mcp-servers",
+                    get(handlers::registry::list_mcp_servers),
+                )
+                // API Keys
+                .route("/api-keys", get(handlers::api_keys::list_api_keys))
+                .route("/api-keys/{key_id}", get(handlers::api_keys::get_api_key))
+                .route(
+                    "/api-keys/{key_id}/revoke",
+                    post(handlers::api_keys::revoke_api_key),
+                )
                 // Workflows
                 .route("/workflows", post(handlers::workflows::create_workflow))
                 .route("/workflows", get(handlers::workflows::list_workflows))

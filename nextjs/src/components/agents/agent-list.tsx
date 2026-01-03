@@ -1,14 +1,18 @@
 "use client";
 
 import { Bot } from "lucide-react";
-import { useAgents } from "@/hooks/use-agents";
 import { AgentCard } from "./agent-card";
 import { LoadingPage } from "@/components/shared/loading-spinner";
 import { EmptyState } from "@/components/shared/empty-state";
+import type { Agent } from "@/types/agent";
 
-export function AgentList() {
-  const { data: agents, isLoading, error } = useAgents();
+interface AgentListProps {
+  agents?: Agent[];
+  isLoading?: boolean;
+  error?: Error | null;
+}
 
+export function AgentList({ agents, isLoading, error }: AgentListProps) {
   if (isLoading) {
     return <LoadingPage />;
   }
@@ -27,8 +31,8 @@ export function AgentList() {
     return (
       <EmptyState
         icon={Bot}
-        title="No agents yet"
-        description="Create your first agent to get started"
+        title="No agents found"
+        description="No agents match your current filters. Try adjusting your search or create a new agent."
       />
     );
   }

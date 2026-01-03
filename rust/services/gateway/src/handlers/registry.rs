@@ -233,6 +233,38 @@ pub async fn get_agent(
     Ok(Json(agent_to_response(agent, latest)))
 }
 
+/// List all versions of an agent
+#[instrument(skip(state, _auth))]
+pub async fn list_agent_versions(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(agent_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let repos = state.repos();
+
+    // Verify agent exists
+    repos
+        .agents()
+        .get(&agent_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Agent", &agent_id))?;
+
+    let versions = repos.agents().list_versions(&agent_id).await?;
+
+    let responses: Vec<AgentVersionResponse> = versions
+        .into_iter()
+        .map(|v| AgentVersionResponse {
+            id: v.id,
+            version: v.version,
+            model: v.model,
+            allowed_tools: v.allowed_tools,
+            created_at: v.created_at.to_rfc3339(),
+        })
+        .collect();
+
+    Ok(Json(responses))
+}
+
 /// Create a new agent version
 #[instrument(skip(state, auth))]
 pub async fn create_agent_version(
@@ -291,8 +323,62 @@ pub async fn create_agent_version(
 }
 
 // =============================================================================
+// Agent Stats
+// =============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct AgentStatsResponse {
+    pub total_runs: i64,
+    pub successful_runs: i64,
+    pub failed_runs: i64,
+    pub success_rate: f64,
+    pub avg_duration_ms: i64,
+    pub total_cost_cents: i64,
+    pub last_run_at: Option<String>,
+}
+
+/// Get agent stats (run statistics)
+#[instrument(skip(state, _auth))]
+pub async fn get_agent_stats(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(agent_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let repos = state.repos();
+
+    // Verify agent exists
+    repos
+        .agents()
+        .get(&agent_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Agent", &agent_id))?;
+
+    // Get run stats for this agent
+    let stats = repos.runs().get_agent_stats(&agent_id).await?;
+
+    Ok(Json(stats))
+}
+
+// =============================================================================
 // Tool Handlers
 // =============================================================================
+
+/// Get a tool by ID
+#[instrument(skip(state, _auth))]
+pub async fn get_tool(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthContext>,
+    Path(tool_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let tool = state
+        .repos()
+        .tools()
+        .get(&tool_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Tool", &tool_id))?;
+
+    Ok(Json(tool_to_response(tool)))
+}
 
 /// List tools
 #[instrument(skip(state, _auth))]
@@ -356,4 +442,53 @@ pub async fn create_tool(
     repos.tools().create_version(create_version).await?;
 
     Ok((StatusCode::CREATED, Json(tool_to_response(tool))))
+}
+
+// =============================================================================
+// MCP Server DTOs
+// =============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct McpServerResponse {
+    pub name: String,
+    pub tool_count: i64,
+    pub status: String,
+    pub first_seen: String,
+    pub last_seen: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListMcpServersQuery {
+    pub project_id: Option<String>,
+}
+
+// =============================================================================
+// MCP Server Handlers
+// =============================================================================
+
+/// List MCP servers (derived from registered tools)
+#[instrument(skip(state, _auth))]
+pub async fn list_mcp_servers(
+    State(state): State<AppState>,
+    Extension(_auth): Extension<AuthContext>,
+    Query(query): Query<ListMcpServersQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let servers = state
+        .repos()
+        .tools()
+        .list_mcp_servers(query.project_id.as_deref())
+        .await?;
+
+    let responses: Vec<McpServerResponse> = servers
+        .into_iter()
+        .map(|s| McpServerResponse {
+            name: s.name,
+            tool_count: s.tool_count,
+            status: "active".to_string(), // Default to active since we derive from tools
+            first_seen: s.first_seen.to_rfc3339(),
+            last_seen: s.last_seen.to_rfc3339(),
+        })
+        .collect();
+
+    Ok(Json(responses))
 }

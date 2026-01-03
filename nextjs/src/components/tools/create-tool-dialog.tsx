@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Wrench, AlertCircle, Shield, FileEdit, Trash2 } from "lucide-react";
+import { Plus, Wrench, AlertCircle, Shield, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import { useCreateTool } from "@/hooks/use-tools";
@@ -34,44 +34,51 @@ function generateSlug(name: string): string {
     .replace(/^-|-$/g, "");
 }
 
-function getRiskLevelInfo(level: ToolRiskLevel) {
-  switch (level) {
-    case "read":
-      return {
-        icon: <Shield className="h-4 w-4 text-emerald-400" />,
-        color: "text-emerald-400",
-        bgColor: "bg-emerald-500/10",
-        description: "Read-only access. No data modification.",
-      };
-    case "write":
-      return {
-        icon: <FileEdit className="h-4 w-4 text-amber-400" />,
-        color: "text-amber-400",
-        bgColor: "bg-amber-500/10",
-        description: "Can modify data. Requires caution.",
-      };
-    case "destructive":
-      return {
-        icon: <Trash2 className="h-4 w-4 text-red-400" />,
-        color: "text-red-400",
-        bgColor: "bg-red-500/10",
-        description: "Can delete data. High risk operations.",
-      };
-  }
-}
+const riskLevelInfo: Record<ToolRiskLevel, { icon: React.ReactNode; color: string; bgColor: string; description: string }> = {
+  low: {
+    icon: <Shield className="h-4 w-4 text-accent-green" />,
+    color: "text-accent-green",
+    bgColor: "bg-accent-green/10",
+    description: "Read-only or minimal impact. Safe for autonomous execution.",
+  },
+  medium: {
+    icon: <AlertTriangle className="h-4 w-4 text-accent-yellow" />,
+    color: "text-accent-yellow",
+    bgColor: "bg-accent-yellow/10",
+    description: "Can modify non-critical data. Periodic review recommended.",
+  },
+  high: {
+    icon: <AlertTriangle className="h-4 w-4 text-accent-orange" />,
+    color: "text-accent-orange",
+    bgColor: "bg-accent-orange/10",
+    description: "Can modify important data. Should be monitored closely.",
+  },
+  critical: {
+    icon: <AlertTriangle className="h-4 w-4 text-accent-red" />,
+    color: "text-accent-red",
+    bgColor: "bg-accent-red/10",
+    description: "Destructive or irreversible operations. Requires approval.",
+  },
+};
 
 interface CreateToolDialogProps {
   trigger?: React.ReactNode;
 }
 
 export function CreateToolDialog({ trigger }: CreateToolDialogProps) {
+  // Hydration fix - ensure client-only rendering for Radix components
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
   const [description, setDescription] = useState("");
   const [mcpServer, setMcpServer] = useState("");
-  const [riskLevel, setRiskLevel] = useState<ToolRiskLevel>("read");
+  const [riskLevel, setRiskLevel] = useState<ToolRiskLevel>("low");
   const [status, setStatus] = useState<ToolStatus>("active");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -149,27 +156,37 @@ export function CreateToolDialog({ trigger }: CreateToolDialogProps) {
     setSlugManuallyEdited(false);
     setDescription("");
     setMcpServer("");
-    setRiskLevel("read");
+    setRiskLevel("low");
     setStatus("active");
     setErrors({});
   };
 
-  const riskInfo = getRiskLevelInfo(riskLevel);
+  const riskInfo = riskLevelInfo[riskLevel];
+
+  // Render just the trigger button during SSR to avoid hydration mismatch
+  if (!mounted) {
+    return trigger || (
+      <Button className="gap-2 bg-accent-cyan hover:bg-accent-cyan/90">
+        <Plus className="h-4 w-4" />
+        Register Tool
+      </Button>
+    );
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
         {trigger || (
-          <Button className="gap-2 bg-purple-600 hover:bg-purple-700">
+          <Button className="gap-2 bg-accent-cyan hover:bg-accent-cyan/90">
             <Plus className="h-4 w-4" />
-            New Tool
+            Register Tool
           </Button>
         )}
       </DialogTrigger>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Wrench className="h-5 w-5 text-purple-400" />
+            <Wrench className="h-5 w-5 text-accent-cyan" />
             Register New Tool
           </DialogTitle>
           <DialogDescription>
@@ -183,19 +200,19 @@ export function CreateToolDialog({ trigger }: CreateToolDialogProps) {
           <div className="space-y-2">
             <Label htmlFor="tool-name" className="flex items-center gap-1">
               Name
-              <span className="text-red-400">*</span>
+              <span className="text-accent-red">*</span>
             </Label>
             <Input
               id="tool-name"
               placeholder="e.g., File System"
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
-              className={`bg-slate-900/50 border-slate-700 ${
-                errors.name ? "border-red-500" : ""
+              className={`bg-background-secondary border-border ${
+                errors.name ? "border-accent-red" : ""
               }`}
             />
             {errors.name ? (
-              <p className="text-xs text-red-400 flex items-center gap-1">
+              <p className="text-xs text-accent-red flex items-center gap-1">
                 <AlertCircle className="h-3 w-3" />
                 {errors.name}
               </p>
@@ -210,19 +227,19 @@ export function CreateToolDialog({ trigger }: CreateToolDialogProps) {
           <div className="space-y-2">
             <Label htmlFor="tool-slug" className="flex items-center gap-1">
               Slug
-              <span className="text-red-400">*</span>
+              <span className="text-accent-red">*</span>
             </Label>
             <Input
               id="tool-slug"
               placeholder="e.g., file-system"
               value={slug}
               onChange={(e) => handleSlugChange(e.target.value)}
-              className={`bg-slate-900/50 border-slate-700 font-mono ${
-                errors.slug ? "border-red-500" : ""
+              className={`bg-background-secondary border-border font-mono ${
+                errors.slug ? "border-accent-red" : ""
               }`}
             />
             {errors.slug ? (
-              <p className="text-xs text-red-400 flex items-center gap-1">
+              <p className="text-xs text-accent-red flex items-center gap-1">
                 <AlertCircle className="h-3 w-3" />
                 {errors.slug}
               </p>
@@ -237,7 +254,7 @@ export function CreateToolDialog({ trigger }: CreateToolDialogProps) {
           <div className="space-y-2">
             <Label htmlFor="mcp-server" className="flex items-center gap-1">
               MCP Server
-              <span className="text-red-400">*</span>
+              <span className="text-accent-red">*</span>
             </Label>
             <Input
               id="mcp-server"
@@ -249,12 +266,12 @@ export function CreateToolDialog({ trigger }: CreateToolDialogProps) {
                   setErrors((prev) => ({ ...prev, mcpServer: "" }));
                 }
               }}
-              className={`bg-slate-900/50 border-slate-700 font-mono ${
-                errors.mcpServer ? "border-red-500" : ""
+              className={`bg-background-secondary border-border font-mono ${
+                errors.mcpServer ? "border-accent-red" : ""
               }`}
             />
             {errors.mcpServer ? (
-              <p className="text-xs text-red-400 flex items-center gap-1">
+              <p className="text-xs text-accent-red flex items-center gap-1">
                 <AlertCircle className="h-3 w-3" />
                 {errors.mcpServer}
               </p>
@@ -273,7 +290,7 @@ export function CreateToolDialog({ trigger }: CreateToolDialogProps) {
               placeholder="Describe what this tool does..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="bg-slate-900/50 border-slate-700 min-h-[80px] resize-none"
+              className="bg-background-secondary border-border min-h-[80px] resize-none"
             />
           </div>
 
@@ -281,26 +298,32 @@ export function CreateToolDialog({ trigger }: CreateToolDialogProps) {
           <div className="space-y-2">
             <Label>Risk Level</Label>
             <Select value={riskLevel} onValueChange={(v) => setRiskLevel(v as ToolRiskLevel)}>
-              <SelectTrigger className="bg-slate-900/50 border-slate-700">
+              <SelectTrigger className="bg-background-secondary border-border">
                 <SelectValue placeholder="Select risk level" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="read">
+                <SelectItem value="low">
                   <div className="flex items-center gap-2">
-                    <Shield className="h-4 w-4 text-emerald-400" />
-                    Read Only
+                    <div className="h-2 w-2 rounded-full bg-accent-green" />
+                    Low
                   </div>
                 </SelectItem>
-                <SelectItem value="write">
+                <SelectItem value="medium">
                   <div className="flex items-center gap-2">
-                    <FileEdit className="h-4 w-4 text-amber-400" />
-                    Write
+                    <div className="h-2 w-2 rounded-full bg-accent-yellow" />
+                    Medium
                   </div>
                 </SelectItem>
-                <SelectItem value="destructive">
+                <SelectItem value="high">
                   <div className="flex items-center gap-2">
-                    <Trash2 className="h-4 w-4 text-red-400" />
-                    Destructive
+                    <div className="h-2 w-2 rounded-full bg-accent-orange" />
+                    High
+                  </div>
+                </SelectItem>
+                <SelectItem value="critical">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-accent-red" />
+                    Critical
                   </div>
                 </SelectItem>
               </SelectContent>
@@ -315,19 +338,19 @@ export function CreateToolDialog({ trigger }: CreateToolDialogProps) {
           <div className="space-y-2">
             <Label>Status</Label>
             <Select value={status} onValueChange={(v) => setStatus(v as ToolStatus)}>
-              <SelectTrigger className="bg-slate-900/50 border-slate-700">
+              <SelectTrigger className="bg-background-secondary border-border">
                 <SelectValue placeholder="Select status" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="active">
                   <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-emerald-400" />
+                    <div className="h-2 w-2 rounded-full bg-accent-green" />
                     Active
                   </div>
                 </SelectItem>
                 <SelectItem value="disabled">
                   <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-slate-400" />
+                    <div className="h-2 w-2 rounded-full bg-muted-foreground" />
                     Disabled
                   </div>
                 </SelectItem>
@@ -343,7 +366,7 @@ export function CreateToolDialog({ trigger }: CreateToolDialogProps) {
           <Button
             onClick={handleCreate}
             disabled={createMutation.isPending}
-            className="bg-purple-600 hover:bg-purple-700"
+            className="bg-accent-cyan hover:bg-accent-cyan/90"
           >
             {createMutation.isPending ? (
               <>

@@ -6,6 +6,10 @@ import { ToolCard } from "./tool-card";
 import { LoadingPage } from "@/components/shared/loading-spinner";
 import { EmptyState } from "@/components/shared/empty-state";
 
+/**
+ * @deprecated Use ToolTable for table view on the tools page.
+ * This component is kept for potential use in grid/card layouts elsewhere.
+ */
 export function ToolList() {
   const { data: tools, isLoading, error } = useTools();
 

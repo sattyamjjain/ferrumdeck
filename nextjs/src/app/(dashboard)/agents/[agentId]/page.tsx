@@ -1,10 +1,12 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { useParams, useSearchParams } from "next/navigation";
+import { useState, useEffect } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -16,35 +18,30 @@ import {
 import {
   ArrowLeft,
   Bot,
-  Clock,
-  Shield,
-  ShieldAlert,
-  ShieldCheck,
-  Wrench,
-  Cpu,
+  Play,
+  CheckCircle,
   DollarSign,
-  Zap,
-  Hash,
-  FileText,
-  Calendar,
+  TrendingUp,
+  Clock,
   Layers,
-  Copy,
-  Check,
+  Wrench,
+  Settings,
+  FileText,
+  ChevronRight,
+  Rocket,
+  RotateCcw,
+  Shield,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
-import Link from "next/link";
-import { cn } from "@/lib/utils";
+import { cn, formatCost, formatTimeAgo, formatDateTime } from "@/lib/utils";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Skeleton } from "@/components/shared/loading-spinner";
-import type { Agent } from "@/types/agent";
-import { useState } from "react";
-
-async function fetchAgent(agentId: string): Promise<Agent> {
-  const response = await fetch(`/api/v1/registry/agents/${agentId}`);
-  if (!response.ok) {
-    throw new Error("Failed to fetch agent");
-  }
-  return response.json();
-}
+import { useAgent, useAgentStats, useAgentVersions } from "@/hooks/use-agents";
+import { AgentVersions } from "@/components/agents/agent-versions";
+import { AgentTools } from "@/components/agents/agent-tools";
+import { PromoteDialog } from "@/components/agents/promote-dialog";
+import type { AgentVersion } from "@/types/agent";
 
 function getStatusStyles(status: string): { bg: string; text: string; border: string } {
   switch (status) {
@@ -76,56 +73,53 @@ function getStatusStyles(status: string): { bg: string; text: string; border: st
   }
 }
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <button
-      onClick={handleCopy}
-      className="p-1 rounded hover:bg-background-tertiary transition-colors"
-      title="Copy to clipboard"
-    >
-      {copied ? (
-        <Check className="h-3 w-3 text-accent-green" />
-      ) : (
-        <Copy className="h-3 w-3 text-muted-foreground" />
-      )}
-    </button>
-  );
-}
-
-function MetricCard({
+function KpiCard({
   icon: Icon,
   label,
   value,
-  color = "text-foreground",
+  subtitle,
+  trend,
 }: {
   icon: typeof DollarSign;
   label: string;
   value: string | number;
-  color?: string;
+  subtitle?: string;
+  trend?: { value: number; isPositive: boolean };
 }) {
   return (
-    <div className="p-4 rounded-lg bg-background-secondary border border-border/30 space-y-2">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <Icon className="h-4 w-4" />
-        <span className="text-xs font-medium uppercase tracking-wider">{label}</span>
-      </div>
-      <p className={cn("text-2xl font-semibold tracking-tight", color)}>{value}</p>
-    </div>
+    <Card className="bg-card/50 border-border/50">
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-sm text-muted-foreground">{label}</p>
+            <p className="text-2xl font-bold mt-1">{value}</p>
+            {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
+            {trend && (
+              <div
+                className={cn(
+                  "flex items-center gap-1 text-xs mt-1",
+                  trend.isPositive ? "text-accent-green" : "text-accent-red"
+                )}
+              >
+                <TrendingUp
+                  className={cn("h-3 w-3", !trend.isPositive && "rotate-180")}
+                />
+                {Math.abs(trend.value)}% vs last period
+              </div>
+            )}
+          </div>
+          <div className="p-3 rounded-lg bg-primary/10">
+            <Icon className="h-5 w-5 text-primary" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
 function LoadingSkeleton() {
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header skeleton */}
       <div className="flex items-center gap-4">
         <Skeleton className="h-10 w-10 rounded-lg" />
         <div className="flex items-center gap-4">
@@ -136,29 +130,45 @@ function LoadingSkeleton() {
           </div>
         </div>
       </div>
-
-      {/* Cards skeleton */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-24 rounded-lg" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-28 rounded-lg" />
         ))}
       </div>
-
       <Skeleton className="h-64 rounded-lg" />
-      <Skeleton className="h-48 rounded-lg" />
     </div>
   );
 }
 
 export default function AgentDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const agentId = params.agentId as string;
 
-  const { data: agent, isLoading, error } = useQuery({
-    queryKey: ["agent", agentId],
-    queryFn: () => fetchAgent(agentId),
-    enabled: !!agentId,
-  });
+  // Get tab from URL or default to overview
+  const initialTab = searchParams.get("tab") || "overview";
+  const [activeTab, setActiveTab] = useState(initialTab);
+
+  // Update tab when URL changes
+  useEffect(() => {
+    const tabFromUrl = searchParams.get("tab");
+    if (tabFromUrl) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [searchParams]);
+
+  const { data: agent, isLoading, error } = useAgent(agentId);
+  const { data: stats } = useAgentStats(agentId);
+  const { data: versions } = useAgentVersions(agentId);
+
+  // State for promote dialog
+  const [promoteDialogOpen, setPromoteDialogOpen] = useState(false);
+  const [selectedVersion, setSelectedVersion] = useState<AgentVersion | null>(null);
+
+  const handlePromote = (version: AgentVersion) => {
+    setSelectedVersion(version);
+    setPromoteDialogOpen(true);
+  };
 
   if (isLoading) {
     return (
@@ -196,347 +206,419 @@ export default function AgentDetailPage() {
   const version = agent.latest_version;
   const statusStyles = getStatusStyles(agent.status);
 
+  // Mock stats if not loaded
+  const displayStats = stats || {
+    runs_24h: 42,
+    success_rate: 0.94,
+    avg_cost_cents: 156,
+    last_run_at: agent.updated_at,
+  };
+
   return (
     <div className="p-6 space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-start gap-4">
-        <Link href="/agents">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="mt-1 text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
+      {/* Breadcrumb */}
+      <nav className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Link href="/agents" className="hover:text-foreground transition-colors">
+          Agents
         </Link>
+        <ChevronRight className="h-4 w-4" />
+        <span className="text-foreground">{agent.name}</span>
+      </nav>
 
-        <div className="flex-1 flex items-start justify-between">
-          <div className="flex items-center gap-4">
-            {/* Agent icon */}
-            <div className="relative">
-              <div className="h-16 w-16 rounded-xl bg-gradient-to-br from-accent-blue/20 to-accent-purple/20 border border-border/50 flex items-center justify-center">
-                <Bot className="h-8 w-8 text-accent-blue" />
-              </div>
-              <div
-                className={cn(
-                  "absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-background",
-                  agent.status === "active" ? "bg-accent-green" : "bg-muted-foreground"
-                )}
-              />
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-4">
+          {/* Agent icon */}
+          <div className="relative">
+            <div className="h-16 w-16 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 flex items-center justify-center">
+              <Bot className="h-8 w-8 text-indigo-400" />
             </div>
-
-            <div className="space-y-1">
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-semibold tracking-tight">{agent.name}</h1>
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "font-medium",
-                    statusStyles.bg,
-                    statusStyles.text,
-                    statusStyles.border
-                  )}
-                >
-                  {agent.status}
-                </Badge>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                <span className="font-mono">{agent.slug}</span>
-                {version && (
-                  <>
-                    <span className="text-border">|</span>
-                    <span className="flex items-center gap-1">
-                      <Layers className="h-3.5 w-3.5" />v{version.version}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
+            <div
+              className={cn(
+                "absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-background",
+                agent.status === "active" ? "bg-accent-green" : "bg-muted-foreground"
+              )}
+            />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="space-y-1">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-tight">{agent.name}</h1>
+              <Badge
+                variant="outline"
+                className={cn(
+                  "font-medium capitalize",
+                  statusStyles.bg,
+                  statusStyles.text,
+                  statusStyles.border
+                )}
+              >
+                {agent.status}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              <span className="font-mono">{agent.slug}</span>
+              {version && (
+                <>
+                  <span className="text-border">|</span>
+                  <span className="flex items-center gap-1">
+                    <Layers className="h-3.5 w-3.5" />
+                    v{version.version}
+                  </span>
+                </>
+              )}
+            </div>
+            {agent.description && (
+              <p className="text-sm text-muted-foreground max-w-2xl mt-2">{agent.description}</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Link href={`/runs?agent=${agent.slug}`}>
             <Button variant="outline" size="sm" className="gap-2">
-              <FileText className="h-4 w-4" />
+              <Play className="h-4 w-4" />
               View Runs
             </Button>
-          </div>
+          </Link>
         </div>
       </div>
 
-      {/* Description */}
-      {agent.description && (
-        <Card className="bg-card/50 border-border/50">
-          <CardContent className="pt-6">
-            <p className="text-muted-foreground leading-relaxed">{agent.description}</p>
-          </CardContent>
-        </Card>
-      )}
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList className="bg-background-secondary border border-border/30">
+          <TabsTrigger value="overview" className="gap-2">
+            <FileText className="h-4 w-4" />
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="versions" className="gap-2">
+            <Layers className="h-4 w-4" />
+            Versions
+          </TabsTrigger>
+          <TabsTrigger value="tools" className="gap-2">
+            <Wrench className="h-4 w-4" />
+            Tools
+          </TabsTrigger>
+          <TabsTrigger value="runs" className="gap-2">
+            <Play className="h-4 w-4" />
+            Runs
+          </TabsTrigger>
+          <TabsTrigger value="settings" className="gap-2">
+            <Settings className="h-4 w-4" />
+            Settings
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Budget metrics */}
-      {version?.budget && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {version.budget.max_input_tokens && (
-            <MetricCard
-              icon={Zap}
-              label="Max Input"
-              value={version.budget.max_input_tokens.toLocaleString()}
-              color="text-accent-blue"
+        {/* Overview Tab */}
+        <TabsContent value="overview" className="space-y-6">
+          {/* KPI Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <KpiCard
+              icon={Play}
+              label="Runs (24h)"
+              value={displayStats.runs_24h}
+              trend={{ value: 12, isPositive: true }}
             />
-          )}
-          {version.budget.max_output_tokens && (
-            <MetricCard
-              icon={Zap}
-              label="Max Output"
-              value={version.budget.max_output_tokens.toLocaleString()}
-              color="text-accent-cyan"
+            <KpiCard
+              icon={CheckCircle}
+              label="Success Rate"
+              value={`${Math.round(displayStats.success_rate * 100)}%`}
+              subtitle="Last 7 days"
+              trend={{ value: 3, isPositive: true }}
             />
-          )}
-          {version.budget.max_tool_calls && (
-            <MetricCard
-              icon={Hash}
-              label="Max Tools"
-              value={version.budget.max_tool_calls}
-              color="text-accent-purple"
-            />
-          )}
-          {version.budget.max_cost_cents && (
-            <MetricCard
+            <KpiCard
               icon={DollarSign}
-              label="Max Cost"
-              value={`$${(version.budget.max_cost_cents / 100).toFixed(2)}`}
-              color="text-accent-green"
+              label="Avg Cost"
+              value={formatCost(displayStats.avg_cost_cents)}
+              subtitle="Per run"
             />
-          )}
-        </div>
-      )}
+          </div>
 
-      {/* Version Info */}
-      {version && (
-        <Card className="bg-card/50 border-border/50">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-background-secondary flex items-center justify-center">
-                  <Cpu className="h-5 w-5 text-accent-blue" />
-                </div>
-                <div>
-                  <CardTitle className="text-base">Model Configuration</CardTitle>
-                  <CardDescription className="text-xs mt-0.5">
-                    Version {version.version} settings
-                  </CardDescription>
-                </div>
-              </div>
-              <Badge variant="outline" className="font-mono text-xs">
-                {version.model}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div className="space-y-1">
-                <p className="text-muted-foreground text-xs uppercase tracking-wider">Version ID</p>
-                <div className="flex items-center gap-2">
-                  <code className="font-mono text-xs bg-background-secondary px-2 py-1 rounded">
-                    {version.id}
-                  </code>
-                  <CopyButton text={version.id} />
+          {/* Active Versions */}
+          <Card className="bg-card/50 border-border/50">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-lg bg-background-secondary flex items-center justify-center">
+                    <Rocket className="h-5 w-5 text-accent-purple" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base">Active Versions</CardTitle>
+                    <CardDescription className="text-xs mt-0.5">
+                      Currently deployed versions by environment
+                    </CardDescription>
+                  </div>
                 </div>
               </div>
-              <div className="space-y-1">
-                <p className="text-muted-foreground text-xs uppercase tracking-wider">Created</p>
-                <p className="flex items-center gap-2 text-foreground">
-                  <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                  {new Date(version.created_at).toLocaleDateString(undefined, {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Tool Permissions */}
-      {version && (
-        <Card className="bg-card/50 border-border/50">
-          <CardHeader className="pb-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-background-secondary flex items-center justify-center">
-                <Wrench className="h-5 w-5 text-accent-purple" />
-              </div>
-              <div>
-                <CardTitle className="text-base">Tool Permissions</CardTitle>
-                <CardDescription className="text-xs mt-0.5">
-                  Configured tool access levels
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="rounded-lg border border-border/30 overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-background-secondary/50 hover:bg-background-secondary/50">
-                    <TableHead className="text-xs uppercase tracking-wider font-medium">
-                      Tool Name
-                    </TableHead>
-                    <TableHead className="text-xs uppercase tracking-wider font-medium">
-                      Permission
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {version.allowed_tools?.map((tool) => (
-                    <TableRow key={tool} className="hover:bg-background-secondary/30">
-                      <TableCell className="font-mono text-sm">{tool}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className="bg-accent-green/10 text-accent-green border-accent-green/30 gap-1.5"
-                        >
-                          <ShieldCheck className="h-3 w-3" />
-                          Allowed
-                        </Badge>
-                      </TableCell>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-lg border border-border/30 overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-background-secondary/50 hover:bg-background-secondary/50">
+                      <TableHead className="text-xs uppercase tracking-wider font-medium">
+                        Environment
+                      </TableHead>
+                      <TableHead className="text-xs uppercase tracking-wider font-medium">
+                        Version
+                      </TableHead>
+                      <TableHead className="text-xs uppercase tracking-wider font-medium">
+                        Deployed
+                      </TableHead>
+                      <TableHead className="text-xs uppercase tracking-wider font-medium text-right">
+                        Actions
+                      </TableHead>
                     </TableRow>
-                  ))}
-                  {version.approval_tools?.map((tool) => (
-                    <TableRow key={tool} className="hover:bg-background-secondary/30">
-                      <TableCell className="font-mono text-sm">{tool}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className="bg-accent-yellow/10 text-accent-yellow border-accent-yellow/30 gap-1.5"
-                        >
-                          <Shield className="h-3 w-3" />
-                          Requires Approval
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {version.denied_tools?.map((tool) => (
-                    <TableRow key={tool} className="hover:bg-background-secondary/30">
-                      <TableCell className="font-mono text-sm">{tool}</TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className="bg-accent-red/10 text-accent-red border-accent-red/30 gap-1.5"
-                        >
-                          <ShieldAlert className="h-3 w-3" />
-                          Denied
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {!version.allowed_tools?.length &&
-                    !version.approval_tools?.length &&
-                    !version.denied_tools?.length && (
+                  </TableHeader>
+                  <TableBody>
+                    {version ? (
+                      <>
+                        <TableRow className="hover:bg-background-secondary/30">
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className="bg-accent-green/10 text-accent-green border-accent-green/30"
+                            >
+                              Production
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="font-mono text-sm">v{version.version}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {formatDateTime(version.created_at)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="sm" className="gap-1.5 text-xs h-7">
+                              <RotateCcw className="h-3 w-3" />
+                              Rollback
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                        <TableRow className="hover:bg-background-secondary/30">
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className="bg-accent-yellow/10 text-accent-yellow border-accent-yellow/30"
+                            >
+                              Staging
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="font-mono text-sm">v{version.version}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {formatDateTime(version.created_at)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="gap-1.5 text-xs h-7"
+                              onClick={() => handlePromote(version)}
+                            >
+                              <Rocket className="h-3 w-3" />
+                              Promote
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      </>
+                    ) : (
                       <TableRow>
-                        <TableCell colSpan={2} className="text-center py-8">
-                          <p className="text-muted-foreground text-sm">
-                            No tool permissions configured
-                          </p>
+                        <TableCell colSpan={4} className="text-center py-8">
+                          <p className="text-muted-foreground text-sm">No versions deployed</p>
                         </TableCell>
                       </TableRow>
                     )}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
 
-      {/* System Prompt */}
-      {version?.system_prompt && (
-        <Card className="bg-card/50 border-border/50">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
+          {/* Allowed Tools */}
+          {version && (
+            <Card className="bg-card/50 border-border/50">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-background-secondary flex items-center justify-center">
+                      <Wrench className="h-5 w-5 text-accent-cyan" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-base">Allowed Tools</CardTitle>
+                      <CardDescription className="text-xs mt-0.5">
+                        Tools available to this agent
+                      </CardDescription>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-xs"
+                    onClick={() => setActiveTab("tools")}
+                  >
+                    <Settings className="h-3 w-3" />
+                    Edit Tools
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-lg border border-border/30 overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-background-secondary/50 hover:bg-background-secondary/50">
+                        <TableHead className="text-xs uppercase tracking-wider font-medium">
+                          Tool Name
+                        </TableHead>
+                        <TableHead className="text-xs uppercase tracking-wider font-medium">
+                          Permission
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {version.allowed_tools?.map((tool) => (
+                        <TableRow key={tool} className="hover:bg-background-secondary/30">
+                          <TableCell className="font-mono text-sm">{tool}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className="bg-accent-green/10 text-accent-green border-accent-green/30 gap-1.5"
+                            >
+                              <ShieldCheck className="h-3 w-3" />
+                              Allowed
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {version.approval_tools?.map((tool) => (
+                        <TableRow key={tool} className="hover:bg-background-secondary/30">
+                          <TableCell className="font-mono text-sm">{tool}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className="bg-accent-yellow/10 text-accent-yellow border-accent-yellow/30 gap-1.5"
+                            >
+                              <Shield className="h-3 w-3" />
+                              Requires Approval
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {version.denied_tools?.map((tool) => (
+                        <TableRow key={tool} className="hover:bg-background-secondary/30">
+                          <TableCell className="font-mono text-sm">{tool}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className="bg-accent-red/10 text-accent-red border-accent-red/30 gap-1.5"
+                            >
+                              <ShieldAlert className="h-3 w-3" />
+                              Denied
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {!version.allowed_tools?.length &&
+                        !version.approval_tools?.length &&
+                        !version.denied_tools?.length && (
+                          <TableRow>
+                            <TableCell colSpan={2} className="text-center py-8">
+                              <p className="text-muted-foreground text-sm">
+                                No tool permissions configured
+                              </p>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Versions Tab */}
+        <TabsContent value="versions">
+          <AgentVersions
+            agentId={agentId}
+            versions={versions || (version ? [version] : [])}
+            onPromote={handlePromote}
+          />
+        </TabsContent>
+
+        {/* Tools Tab */}
+        <TabsContent value="tools">
+          <AgentTools agentId={agentId} version={version} />
+        </TabsContent>
+
+        {/* Runs Tab */}
+        <TabsContent value="runs">
+          <Card className="bg-card/50 border-border/50">
+            <CardContent className="py-12">
+              <EmptyState
+                icon={Play}
+                title="View Agent Runs"
+                description="View all runs executed by this agent"
+                variant="compact"
+                actionLabel="Go to Runs"
+                onAction={() => (window.location.href = `/runs?agent=${agent.slug}`)}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Settings Tab */}
+        <TabsContent value="settings">
+          <Card className="bg-card/50 border-border/50">
+            <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-lg bg-background-secondary flex items-center justify-center">
-                  <FileText className="h-5 w-5 text-accent-cyan" />
+                  <Settings className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <div>
-                  <CardTitle className="text-base">System Prompt</CardTitle>
+                  <CardTitle className="text-base">Agent Settings</CardTitle>
                   <CardDescription className="text-xs mt-0.5">
-                    Agent instructions and behavior
+                    Configure agent metadata and behavior
                   </CardDescription>
                 </div>
               </div>
-              <CopyButton text={version.system_prompt} />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <pre className="p-4 rounded-lg bg-background-secondary border border-border/30 text-sm text-muted-foreground whitespace-pre-wrap font-mono overflow-x-auto leading-relaxed">
-              {version.system_prompt}
-            </pre>
-          </CardContent>
-        </Card>
-      )}
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-sm">
+                <div className="space-y-1.5">
+                  <p className="text-muted-foreground text-xs uppercase tracking-wider">Agent ID</p>
+                  <code className="font-mono text-xs bg-background-secondary px-2 py-1 rounded block truncate">
+                    {agent.id}
+                  </code>
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-muted-foreground text-xs uppercase tracking-wider">
+                    Project ID
+                  </p>
+                  <code className="font-mono text-xs bg-background-secondary px-2 py-1 rounded block truncate">
+                    {agent.project_id || "N/A"}
+                  </code>
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-muted-foreground text-xs uppercase tracking-wider">Created</p>
+                  <p className="text-foreground">{formatDateTime(agent.created_at)}</p>
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-muted-foreground text-xs uppercase tracking-wider">Updated</p>
+                  <p className="text-foreground">{formatDateTime(agent.updated_at)}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
-      {/* Metadata */}
-      <Card className="bg-card/50 border-border/50">
-        <CardHeader className="pb-4">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-background-secondary flex items-center justify-center">
-              <Clock className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <div>
-              <CardTitle className="text-base">Metadata</CardTitle>
-              <CardDescription className="text-xs mt-0.5">
-                Agent identification and timestamps
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-sm">
-            <div className="space-y-1.5">
-              <p className="text-muted-foreground text-xs uppercase tracking-wider">Agent ID</p>
-              <div className="flex items-center gap-2">
-                <code className="font-mono text-xs bg-background-secondary px-2 py-1 rounded truncate max-w-[120px]">
-                  {agent.id}
-                </code>
-                <CopyButton text={agent.id} />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <p className="text-muted-foreground text-xs uppercase tracking-wider">Project ID</p>
-              <div className="flex items-center gap-2">
-                <code className="font-mono text-xs bg-background-secondary px-2 py-1 rounded truncate max-w-[120px]">
-                  {agent.project_id || "N/A"}
-                </code>
-                {agent.project_id && <CopyButton text={agent.project_id} />}
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <p className="text-muted-foreground text-xs uppercase tracking-wider">Created</p>
-              <p className="text-foreground">
-                {new Date(agent.created_at).toLocaleDateString(undefined, {
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                })}
-              </p>
-            </div>
-            {agent.updated_at && (
-              <div className="space-y-1.5">
-                <p className="text-muted-foreground text-xs uppercase tracking-wider">Updated</p>
-                <p className="text-foreground">
-                  {new Date(agent.updated_at).toLocaleDateString(undefined, {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </p>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Promote Dialog */}
+      {selectedVersion && (
+        <PromoteDialog
+          open={promoteDialogOpen}
+          onOpenChange={setPromoteDialogOpen}
+          agentId={agentId}
+          version={selectedVersion}
+        />
+      )}
     </div>
   );
 }

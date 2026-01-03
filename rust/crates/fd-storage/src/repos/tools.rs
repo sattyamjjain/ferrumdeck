@@ -230,4 +230,57 @@ impl ToolsRepo {
         .fetch_optional(&self.pool)
         .await
     }
+
+    /// List unique MCP servers with tool counts
+    #[instrument(skip(self))]
+    pub async fn list_mcp_servers(
+        &self,
+        project_id: Option<&str>,
+    ) -> Result<Vec<McpServerInfo>, sqlx::Error> {
+        match project_id {
+            Some(pid) => {
+                sqlx::query_as::<_, McpServerInfo>(
+                    r#"
+                    SELECT
+                        mcp_server as name,
+                        COUNT(*) as tool_count,
+                        MIN(created_at) as first_seen,
+                        MAX(created_at) as last_seen
+                    FROM tools
+                    WHERE project_id = $1 OR project_id IS NULL
+                    GROUP BY mcp_server
+                    ORDER BY mcp_server ASC
+                    "#,
+                )
+                .bind(pid)
+                .fetch_all(&self.pool)
+                .await
+            }
+            None => {
+                sqlx::query_as::<_, McpServerInfo>(
+                    r#"
+                    SELECT
+                        mcp_server as name,
+                        COUNT(*) as tool_count,
+                        MIN(created_at) as first_seen,
+                        MAX(created_at) as last_seen
+                    FROM tools
+                    GROUP BY mcp_server
+                    ORDER BY mcp_server ASC
+                    "#,
+                )
+                .fetch_all(&self.pool)
+                .await
+            }
+        }
+    }
+}
+
+/// MCP Server info derived from tools table
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct McpServerInfo {
+    pub name: String,
+    pub tool_count: i64,
+    pub first_seen: chrono::DateTime<chrono::Utc>,
+    pub last_seen: chrono::DateTime<chrono::Utc>,
 }

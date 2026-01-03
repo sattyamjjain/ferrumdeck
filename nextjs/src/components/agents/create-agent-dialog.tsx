@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,12 @@ interface CreateAgentDialogProps {
 }
 
 export function CreateAgentDialog({ trigger }: CreateAgentDialogProps) {
+  // Hydration fix - ensure client-only rendering for Radix components
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState("");
@@ -124,6 +130,16 @@ export function CreateAgentDialog({ trigger }: CreateAgentDialogProps) {
     setStatus("draft");
     setErrors({});
   };
+
+  // Render just the trigger button during SSR to avoid hydration mismatch
+  if (!mounted) {
+    return trigger || (
+      <Button className="gap-2 bg-indigo-600 hover:bg-indigo-700">
+        <Plus className="h-4 w-4" />
+        New Agent
+      </Button>
+    );
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>

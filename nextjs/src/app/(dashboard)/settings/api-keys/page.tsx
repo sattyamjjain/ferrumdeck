@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -100,6 +100,12 @@ function formatRelativeTime(dateString?: string): string {
 }
 
 export default function ApiKeysPage() {
+  // Hydration fix - ensure client-only rendering for Radix components
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
   const [selectedScopes, setSelectedScopes] = useState<ApiKeyScope[]>([]);
@@ -197,6 +203,7 @@ export default function ApiKeysPage() {
               <RefreshCw className="h-4 w-4" />
               Refresh
             </Button>
+            {mounted && (
             <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2 bg-amber-600 hover:bg-amber-700">
@@ -387,6 +394,7 @@ export default function ApiKeysPage() {
               )}
             </DialogContent>
           </Dialog>
+            )}
         </div>
       </div>
     </div>
@@ -581,7 +589,8 @@ export default function ApiKeysPage() {
       </Card>
 
       {/* Revoke Confirmation Dialog */}
-      <AlertDialog open={!!keyToRevoke} onOpenChange={() => setKeyToRevoke(null)}>
+      {mounted && (
+        <AlertDialog open={!!keyToRevoke} onOpenChange={() => setKeyToRevoke(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
@@ -606,6 +615,7 @@ export default function ApiKeysPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      )}
 
       {/* Usage Guidelines */}
       <Card className="bg-gradient-to-br from-slate-900/50 to-slate-800/30 border-slate-700/50">

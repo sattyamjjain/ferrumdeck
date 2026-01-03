@@ -245,4 +245,61 @@ impl RunsRepo {
         .await?;
         Ok(())
     }
+
+    /// Get agent run statistics
+    #[instrument(skip(self))]
+    pub async fn get_agent_stats(&self, agent_id: &str) -> Result<AgentStats, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                COUNT(*) as total_runs,
+                COUNT(*) FILTER (WHERE status = 'completed') as successful_runs,
+                COUNT(*) FILTER (WHERE status = 'failed') as failed_runs,
+                COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) * 1000) FILTER (WHERE completed_at IS NOT NULL AND started_at IS NOT NULL), 0) as avg_duration_ms,
+                COALESCE(SUM(cost_cents), 0) as total_cost_cents,
+                MAX(created_at) as last_run_at
+            FROM runs r
+            JOIN agent_versions av ON r.agent_version_id = av.id
+            WHERE av.agent_id = $1
+            "#,
+        )
+        .bind(agent_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let total_runs: i64 = row.get("total_runs");
+        let successful_runs: i64 = row.get("successful_runs");
+        let failed_runs: i64 = row.get("failed_runs");
+        let avg_duration_ms: f64 = row.get("avg_duration_ms");
+        let total_cost_cents: i64 = row.get("total_cost_cents");
+        let last_run_at: Option<chrono::DateTime<chrono::Utc>> = row.get("last_run_at");
+
+        let success_rate = if total_runs > 0 {
+            (successful_runs as f64 / total_runs as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        Ok(AgentStats {
+            total_runs,
+            successful_runs,
+            failed_runs,
+            success_rate,
+            avg_duration_ms: avg_duration_ms as i64,
+            total_cost_cents,
+            last_run_at: last_run_at.map(|t| t.to_rfc3339()),
+        })
+    }
+}
+
+/// Agent run statistics
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AgentStats {
+    pub total_runs: i64,
+    pub successful_runs: i64,
+    pub failed_runs: i64,
+    pub success_rate: f64,
+    pub avg_duration_ms: i64,
+    pub total_cost_cents: i64,
+    pub last_run_at: Option<String>,
 }
