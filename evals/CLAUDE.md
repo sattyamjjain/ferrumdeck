@@ -15,11 +15,14 @@ The evals directory contains configuration and data for the FerrumDeck evaluatio
 ```
 evals/
 ├── suites/                   # Test suite definitions
-│   └── *.yaml                # Suite configs (tasks, scorers)
+│   ├── smoke.yaml            # Quick smoke tests
+│   └── regression.yaml       # Full regression suite
 ├── datasets/                 # Test data
-│   └── *.json                # Input/expected output pairs
+│   └── safe-pr-agent/        # Safe PR Agent test cases
+│       └── *.json            # Input/expected output pairs
 ├── agents/                   # Agent configurations
-│   └── *.yaml                # Agent definitions for testing
+│   └── safe-pr-agent/        # Agent definitions for testing
+│       └── *.yaml            # Agent config files
 ├── scorers/                  # Custom scorer configs
 │   └── *.yaml                # Scorer parameters
 └── reports/                  # Generated reports (gitignored)
@@ -36,16 +39,16 @@ evals/
 
 ### Suite Definition
 ```yaml
-# suites/code-quality.yaml
-name: Code Quality Suite
-description: Evaluate code generation quality
+# suites/smoke.yaml
+name: Smoke Suite
+description: Quick validation tests
 tasks:
-  - dataset: datasets/coding-tasks.json
+  - dataset: datasets/safe-pr-agent/basic.json
     scorers:
-      - type: code_quality
+      - type: pr_quality
         config:
-          check_syntax: true
-          check_style: true
+          check_description: true
+          check_files: true
 ```
 
 ### Dataset Format
@@ -54,8 +57,8 @@ tasks:
   "tasks": [
     {
       "id": "task-001",
-      "input": "Write a function to...",
-      "expected": { "contains": ["def ", "return"] },
+      "input": "Review this PR...",
+      "expected": { "contains": ["LGTM", "approved"] },
       "metadata": { "difficulty": "easy" }
     }
   ]
@@ -64,13 +67,18 @@ tasks:
 
 ### Running Evals
 ```bash
-# Run all suites
+# Run smoke suite
 make eval-run
 
-# Run specific suite
-uv run python -m fd_evals run --suite suites/code-quality.yaml
+# Run full regression
+make eval-run-full
 
-# Generate report
+# Run specific suite
+FD_API_KEY=fd_dev_key_abc123 uv run python -m fd_evals run \
+  --suite evals/suites/smoke.yaml \
+  --agent agt_01JFVX0000000000000000001
+
+# Generate report from latest results
 make eval-report
 ```
 
@@ -78,7 +86,7 @@ make eval-report
 - `code_quality` - Syntax, style, complexity
 - `security` - Vulnerability detection
 - `files` - File operation validation
-- `pr` - Pull request quality
+- `pr_quality` - Pull request quality
 - `llm_judge` - LLM-as-judge scoring
 
 <!-- END AUTO-MANAGED -->

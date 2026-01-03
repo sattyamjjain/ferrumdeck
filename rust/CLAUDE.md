@@ -60,6 +60,18 @@ rust/
             └── request_id.rs # Request ID injection
 ```
 
+**Crate Dependency Graph**:
+```
+gateway
+├── fd-core
+├── fd-storage ── fd-core
+├── fd-policy ─── fd-core
+├── fd-registry ─ fd-core
+├── fd-audit ──── fd-core
+├── fd-dag ────── fd-core
+└── fd-otel
+```
+
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: conventions -->
@@ -74,6 +86,7 @@ rust/
 ```rust
 define_id!(RunId, "run");     // Creates strongly-typed ID wrapper
 define_id!(StepId, "stp");    // With prefix for string representation
+define_id!(AgentId, "agt");   // agt_01HGXK...
 ```
 
 ### Error Handling
@@ -94,10 +107,21 @@ sqlx::query_as!(Model, "SELECT * FROM table WHERE id = $1", id)
     .await?
 ```
 
+### Async Patterns
+```rust
+// Use tokio for async runtime
+#[tokio::main]
+async fn main() { ... }
+
+// Tower middleware for cross-cutting concerns
+use tower::ServiceBuilder;
+```
+
 ### Testing
 - Unit tests in same file with `#[cfg(test)]`
 - Integration tests require running database
 - Use `fake` crate for test data generation
+- Run with: `cargo test --workspace`
 
 <!-- END AUTO-MANAGED -->
 
@@ -111,11 +135,17 @@ sqlx::query_as!(Model, "SELECT * FROM table WHERE id = $1", id)
 | `sqlx` | PostgreSQL with compile-time checks |
 | `redis` | Queue and caching |
 | `tower` | Middleware framework |
+| `tower-http` | HTTP middleware (cors, tracing) |
 | `tracing` | Structured logging |
 | `opentelemetry` | Distributed tracing |
 | `serde` | Serialization |
+| `serde_json` | JSON handling |
 | `ulid` | Time-sortable IDs |
+| `chrono` | Date/time handling |
 | `thiserror` | Error derive macros |
+| `anyhow` | Application error handling |
+| `dotenvy` | Environment configuration |
+| `jsonwebtoken` | JWT handling |
 
 <!-- END AUTO-MANAGED -->
 

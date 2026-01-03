@@ -20,6 +20,10 @@
 ## Build & Development Commands
 
 ```bash
+# Quick Start
+make quickstart           # Start everything (infra + gateway + worker)
+make dashboard            # Open dashboard UI in browser
+
 # Setup
 make install              # Install all dependencies (Rust + Python)
 uv sync                   # Sync Python dependencies
@@ -33,28 +37,37 @@ make dev-logs             # Tail service logs
 make build                # Build all (Rust + Python)
 make build-rust           # cargo build --workspace
 make build-python         # uv build
+make build-release        # cargo build --workspace --release
 
 # Test
 make test                 # Run all tests
 make test-rust            # cargo test --workspace
 make test-python          # pytest on fd-evals and fd-worker
+make test-integration     # Run integration tests
 
 # Code Quality
 make fmt                  # Format all code (cargo fmt + ruff format)
 make lint                 # Lint all code (clippy + ruff + pyright)
 make check                # Run fmt + lint + test
+make ci-check             # Full CI check
 
 # Database
-make db-migrate           # Run migrations
+make db-migrate           # Run migrations (auto on gateway restart)
 make db-reset             # Drop and recreate database
+make db-seed              # Seed with test data
 
 # Run services
-make run-gateway          # Start Rust gateway
-make run-worker           # Start Python worker
+make run-gateway          # Start Rust gateway (localhost:8080)
+make run-worker           # Start Python worker with MCP tools
+make run-dashboard        # Start dashboard (localhost:8000)
 
-# Evals
-make eval-run             # Run evaluation suite
-make eval-report          # Generate eval report
+# Evals (requires ANTHROPIC_API_KEY)
+make eval-run             # Run smoke evaluation suite
+make eval-run-full        # Run full regression suite
+make eval-report          # Generate report from latest results
+
+# Clean
+make clean                # Clean all build artifacts
 ```
 
 <!-- END AUTO-MANAGED -->
@@ -83,7 +96,7 @@ ferrumdeck/
 │       ├── fd-mcp-tools/     # MCP server implementations
 │       ├── fd-evals/         # Evaluation framework
 │       └── fd-cli/           # CLI tool
-├── nextjs/                   # Dashboard (Next.js 14+)
+├── nextjs/                   # Dashboard (Next.js 16+)
 │   ├── src/app/              # App Router pages
 │   ├── src/components/       # React components
 │   ├── src/hooks/            # Custom hooks
@@ -103,7 +116,10 @@ ferrumdeck/
 ├── docs/                     # Documentation
 │   ├── architecture/         # System design
 │   ├── adr/                  # Architecture decisions
+│   ├── security/             # Security docs
 │   └── runbooks/             # Operational guides
+├── examples/                 # Example agents
+│   └── safe-pr-agent/        # PR review agent example
 └── tests/                    # Integration tests
 ```
 
@@ -121,6 +137,13 @@ API Clients┘                                    │
                                  LLM Call   Tool Call   Sandbox
 ```
 
+**Service Ports**:
+- Gateway: `http://localhost:8080`
+- Dashboard: `http://localhost:3000` (Next.js dev) or `http://localhost:8000` (static)
+- PostgreSQL: `localhost:5433`
+- Redis: `localhost:6379`
+- Jaeger UI: `http://localhost:16686`
+
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: conventions -->
@@ -133,7 +156,7 @@ API Clients┘                                    │
 - **IDs**: ULID-based strongly-typed IDs with prefixes (`run_`, `stp_`, `agt_`)
 - **Database**: SQLx with compile-time checked queries
 - **Formatting**: `cargo fmt` (default rustfmt)
-- **Linting**: `cargo clippy -- -D warnings`
+- **Linting**: `cargo clippy --workspace --all-targets -- -D warnings`
 
 ### Python
 - **Version**: 3.12+ (uses modern type hints)
@@ -143,9 +166,17 @@ API Clients┘                                    │
 - **Testing**: pytest with asyncio_mode="auto"
 - **Imports**: isort via ruff (known-first-party: fd_*)
 
+### TypeScript/Next.js
+- **Version**: Next.js 16+ with React 19
+- **Styling**: Tailwind CSS 4 with dark theme
+- **Components**: shadcn/ui with Radix primitives
+- **State**: TanStack Query for server state
+- **Linting**: ESLint with next config
+
 ### Naming
 - Rust: snake_case for files/functions, PascalCase for types
 - Python: snake_case throughout, PascalCase for classes
+- TypeScript: camelCase for functions, PascalCase for components/types
 - Crate/package prefix: `fd-` (e.g., fd-core, fd-worker)
 - Module prefix: `fd_` (e.g., fd_runtime, fd_worker)
 
@@ -164,6 +195,7 @@ API Clients┘                                    │
 ```rust
 define_id!(RunId, "run");   // run_01HGXK...
 define_id!(StepId, "stp");  // stp_01HGXK...
+define_id!(AgentId, "agt"); // agt_01HGXK...
 ```
 
 ### Step Execution
@@ -176,6 +208,14 @@ define_id!(StepId, "stp");  // stp_01HGXK...
 - Unit tests in `tests/` subdirectories
 - Integration tests require `make dev-up`
 - Evals use fd-evals framework with scorers
+- Python: `pytest` with asyncio support
+- Rust: `cargo test --workspace`
+
+### API Pattern
+- REST API via Axum with typed handlers
+- BFF pattern in Next.js (`/api/v1/*` proxies to gateway)
+- SSE for real-time run updates
+- TanStack Query for data fetching with polling
 
 <!-- END AUTO-MANAGED -->
 

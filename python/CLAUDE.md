@@ -23,7 +23,8 @@ python/packages/
 │       └── artifacts.py      # Artifact storage
 ├── fd-worker/                # Queue worker
 │   └── src/fd_worker/
-│       ├── main.py           # Entry point
+│       ├── __main__.py       # Entry point
+│       ├── main.py           # Worker initialization
 │       ├── queue.py          # Redis queue consumer
 │       ├── executor.py       # Step execution logic
 │       ├── llm.py            # LLM executor (litellm)
@@ -38,14 +39,15 @@ python/packages/
 │       └── test_runner_server.py  # Test execution
 ├── fd-evals/                 # Evaluation framework
 │   └── src/fd_evals/
+│       ├── __main__.py       # CLI entry point
 │       ├── runner.py         # Eval runner
 │       ├── suite.py          # Test suites
 │       ├── task.py           # Task definitions
 │       ├── scorer.py         # Scoring interface
 │       └── scorers/          # Built-in scorers
-├── fd-cli/                   # CLI tool
-│   └── src/fd_cli/
-│       └── main.py           # CLI commands
+└── fd-cli/                   # CLI tool
+    └── src/fd_cli/
+        └── main.py           # CLI commands
 ```
 
 **Step Types**:
@@ -64,6 +66,7 @@ python/packages/
 - Each package uses `src/fd_<name>/` layout
 - Entry point in `__init__.py` with public exports
 - Tests in `tests/` subdirectory
+- CLI modules use `__main__.py`
 
 ### Async Patterns
 ```python
