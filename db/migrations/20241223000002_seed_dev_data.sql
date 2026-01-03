@@ -79,8 +79,8 @@ At the end, report:
 - PR URL created (or error if failed)
 - Summary of changes made
 - Files modified',
-     'claude-sonnet-4-20250514',
-     '{"temperature": 0.1, "max_tokens": 4096}',
+     'claude-opus-4-5-20251101',
+     '{"temperature": 0.1, "max_tokens": 16384}',
      ARRAY['git_read', 'git_write', 'test_run', 'github_create_pr'],
      '{"github_create_pr": {"requires_approval": true}}',
      100000, 75, 900, 1000)
