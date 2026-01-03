@@ -22,7 +22,6 @@ services:
   # =============================================================================
   gateway:
     image: ${GATEWAY_IMAGE:-ghcr.io/ferrumdeck/gateway:latest}
-    container_name: fd-gateway
     restart: unless-stopped
     ports:
       - "${GATEWAY_PORT:-8080}:8080"
@@ -62,11 +61,11 @@ services:
       replicas: ${GATEWAY_REPLICAS:-2}
       resources:
         limits:
-          cpus: "${GATEWAY_CPU_LIMIT:-2.0}"
-          memory: "${GATEWAY_MEMORY_LIMIT:-1G}"
+          cpus: "2.0"
+          memory: "1G"
         reservations:
-          cpus: "${GATEWAY_CPU_RESERVATION:-0.5}"
-          memory: "${GATEWAY_MEMORY_RESERVATION:-256M}"
+          cpus: "0.5"
+          memory: "256M"
       restart_policy:
         condition: on-failure
         delay: 5s
@@ -154,11 +153,11 @@ services:
       replicas: ${WORKER_REPLICAS:-3}
       resources:
         limits:
-          cpus: "${WORKER_CPU_LIMIT:-2.0}"
-          memory: "${WORKER_MEMORY_LIMIT:-2G}"
+          cpus: "2.0"
+          memory: "2G"
         reservations:
-          cpus: "${WORKER_CPU_RESERVATION:-0.5}"
-          memory: "${WORKER_MEMORY_RESERVATION:-512M}"
+          cpus: "0.5"
+          memory: "512M"
       restart_policy:
         condition: on-failure
         delay: 5s
