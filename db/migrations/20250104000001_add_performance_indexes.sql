@@ -10,10 +10,6 @@
 CREATE INDEX IF NOT EXISTS idx_runs_project_status_created
     ON runs(project_id, status, created_at DESC);
 
--- Composite index for tenant-based run listing
-CREATE INDEX IF NOT EXISTS idx_runs_tenant_created
-    ON runs(tenant_id, created_at DESC);
-
 -- =============================================================================
 -- Steps table - optimized for run detail queries
 -- =============================================================================
@@ -46,7 +42,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_run_occurred
 
 -- Partial index for pending approvals (most frequently queried)
 CREATE INDEX IF NOT EXISTS idx_approval_pending_created
-    ON approval_requests(tenant_id, created_at DESC)
+    ON approval_requests(created_at DESC)
     WHERE status = 'pending';
 
 -- =============================================================================
