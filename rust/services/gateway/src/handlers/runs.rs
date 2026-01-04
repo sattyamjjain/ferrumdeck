@@ -260,7 +260,7 @@ pub async fn create_run(
             .ok_or_else(|| ApiError::not_found("AgentVersion", version_id))?,
         None => repos
             .agents()
-            .get_latest_version(&request.agent_id)
+            .get_latest_version(&agent.id)
             .await?
             .ok_or_else(|| ApiError::bad_request("Agent has no versions"))?,
     };
