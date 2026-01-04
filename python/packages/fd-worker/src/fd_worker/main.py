@@ -197,8 +197,7 @@ async def run_worker() -> None:
                     except StepExecutionError as e:
                         # Step execution failed - log and don't ack for retry
                         logger.error(
-                            f"Step execution failed: run={run_id} step={step_id} "
-                            f"error={e.message}"
+                            f"Step execution failed: run={run_id} step={step_id} error={e.message}"
                         )
                     except Exception:
                         # Unexpected errors - log with full traceback
