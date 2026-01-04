@@ -1,8 +1,36 @@
 -- Development seed data
--- Only run in development environment
+-- SECURITY: This migration should ONLY run in development/test environments
+-- Production deployments should set: SET app.skip_dev_seed = 'true' before running migrations
 
 -- =============================================================================
--- Default Tenant & Workspace
+-- Environment Safety Check - Blocks execution in production
+-- =============================================================================
+
+DO $$
+DECLARE
+    skip_seed TEXT;
+    environment TEXT;
+BEGIN
+    -- Check for skip flag
+    skip_seed := current_setting('app.skip_dev_seed', true);
+    environment := current_setting('app.environment', true);
+
+    IF skip_seed = 'true' THEN
+        RAISE NOTICE 'Skipping development seed data (app.skip_dev_seed=true)';
+        -- Use a custom exception to skip the rest of the migration
+        RAISE EXCEPTION 'SKIP_SEED' USING ERRCODE = 'FDSKP';
+    END IF;
+
+    IF environment = 'production' THEN
+        RAISE WARNING 'Development seed migration blocked in production environment!';
+        RAISE EXCEPTION 'SKIP_SEED' USING ERRCODE = 'FDSKP';
+    END IF;
+
+    RAISE NOTICE 'Running development seed data (environment: %)', COALESCE(environment, 'development');
+END $$;
+
+-- =============================================================================
+-- Default Tenant & Workspace (Development Only)
 -- =============================================================================
 
 INSERT INTO tenants (id, name, slug, settings) VALUES
@@ -19,8 +47,9 @@ ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
 -- Development API Key
--- Hash of 'fd_dev_key_abc123' (SHA256)
--- In production, use proper key generation
+-- SECURITY WARNING: This is a development-only key with a known hash
+-- Hash of 'fd_dev_key_abc123' (SHA256 - legacy format)
+-- Production deployments MUST generate unique keys with HMAC hashing
 -- =============================================================================
 
 INSERT INTO api_keys (id, tenant_id, name, key_hash, key_prefix, scopes) VALUES

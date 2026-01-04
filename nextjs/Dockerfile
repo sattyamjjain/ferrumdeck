@@ -33,14 +33,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Install Docker CLI for container log streaming
-RUN apk add --no-cache docker-cli
+# SECURITY: Removed Docker CLI access - container log streaming should use
+# a dedicated log aggregation service (Loki, ELK, CloudWatch) instead of
+# direct Docker socket access which poses a privilege escalation risk.
 
-# Create a non-root user and add to docker group
+# Create a non-root user
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
-# Add nextjs user to docker group for socket access
-RUN addgroup nextjs docker || true
 
 # Copy built application
 COPY --from=builder /app/public ./public

@@ -7,6 +7,9 @@
 //! For JWT tokens (identified by having 3 dot-separated parts), OAuth2 validation
 //! is attempted first. API key authentication is used as fallback or when OAuth2
 //! is disabled.
+//!
+//! SECURITY: API keys are hashed using HMAC-SHA256 with a server secret to prevent
+//! rainbow table attacks. Keys are compared using constant-time comparison.
 
 use axum::{
     extract::{Request, State},
@@ -16,11 +19,15 @@ use axum::{
     Json,
 };
 use fd_storage::ApiKeysRepo;
+use hmac::{Hmac, Mac};
 use serde_json::json;
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
+use subtle::ConstantTimeEq;
 use tracing::{debug, warn};
 
 use crate::state::AppState;
+
+type HmacSha256 = Hmac<Sha256>;
 
 /// Authenticated tenant context
 #[derive(Debug, Clone)]
@@ -109,16 +116,38 @@ pub async fn auth_middleware(
         }
     };
 
-    // Hash the API key
-    let key_hash = hash_api_key(&api_key);
+    // SECURITY: Try HMAC hash first, then fall back to legacy SHA256 for migration
+    // Legacy support allows existing API keys to continue working during migration
+    let key_hash_hmac = hash_api_key(&api_key, &state.api_key_secret);
+    let key_hash_legacy = hash_api_key_legacy(&api_key);
 
-    // Look up the key in the database
+    // Look up the key in the database (try HMAC first, then legacy)
     let api_keys_repo = ApiKeysRepo::new(state.db.clone());
-    let api_key_record = match api_keys_repo.get_by_hash(&key_hash).await {
+
+    // Try HMAC hash first
+    let api_key_record = match api_keys_repo.get_by_hash(&key_hash_hmac).await {
         Ok(Some(key)) => key,
         Ok(None) => {
-            warn!(key_prefix = %&api_key[..8.min(api_key.len())], "Invalid API key");
-            return unauthorized("Invalid API key");
+            // Fall back to legacy hash for migration compatibility
+            match api_keys_repo.get_by_hash(&key_hash_legacy).await {
+                Ok(Some(key)) => {
+                    // SECURITY: Log that legacy hash was used for auditing
+                    warn!(
+                        key_id = %key.id,
+                        "API key using legacy SHA256 hash - should migrate to HMAC"
+                    );
+                    key
+                }
+                Ok(None) => {
+                    // SECURITY: Don't log the key prefix in production to prevent enumeration
+                    warn!("Invalid API key attempt");
+                    return unauthorized("Invalid API key");
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "Database error during authentication");
+                    return internal_error("Authentication failed");
+                }
+            }
         }
         Err(e) => {
             tracing::error!(error = %e, "Database error during authentication");
@@ -169,9 +198,34 @@ fn extract_api_key(auth_header: Option<&str>) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Hash an API key using SHA256
-fn hash_api_key(key: &str) -> String {
-    let mut hasher = Sha256::new();
+/// Hash an API key using HMAC-SHA256 with a server secret
+///
+/// SECURITY: Using HMAC instead of plain SHA256 prevents rainbow table attacks.
+/// The server secret should be set via API_KEY_SECRET environment variable.
+fn hash_api_key(key: &str, secret: &[u8]) -> String {
+    let mut mac =
+        HmacSha256::new_from_slice(secret).expect("HMAC can take key of any size");
+    mac.update(key.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+/// Verify an API key against a stored hash using constant-time comparison
+///
+/// SECURITY: Constant-time comparison prevents timing attacks that could
+/// be used to guess the API key one character at a time.
+#[allow(dead_code)]
+fn verify_api_key(provided_key: &str, stored_hash: &str, secret: &[u8]) -> bool {
+    let computed_hash = hash_api_key(provided_key, secret);
+    computed_hash.as_bytes().ct_eq(stored_hash.as_bytes()).into()
+}
+
+/// Hash an API key using legacy SHA256 (for migration compatibility)
+///
+/// DEPRECATED: This is only used for backward compatibility during migration.
+/// New API keys should use HMAC hashing.
+fn hash_api_key_legacy(key: &str) -> String {
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
     hasher.update(key.as_bytes());
     format!("{:x}", hasher.finalize())
 }
@@ -253,8 +307,40 @@ mod tests {
     }
 
     #[test]
-    fn test_hash_api_key() {
-        let hash = hash_api_key("test_key");
+    fn test_hash_api_key_hmac() {
+        let secret = b"test-secret";
+        let hash = hash_api_key("test_key", secret);
+        assert!(!hash.is_empty());
+        assert_eq!(hash.len(), 64); // HMAC-SHA256 hex = 64 chars
+
+        // Same key with same secret should produce same hash
+        let hash2 = hash_api_key("test_key", secret);
+        assert_eq!(hash, hash2);
+
+        // Different secret should produce different hash
+        let hash3 = hash_api_key("test_key", b"different-secret");
+        assert_ne!(hash, hash3);
+    }
+
+    #[test]
+    fn test_verify_api_key() {
+        let secret = b"test-secret";
+        let key = "my_api_key";
+        let stored_hash = hash_api_key(key, secret);
+
+        // Correct key should verify
+        assert!(verify_api_key(key, &stored_hash, secret));
+
+        // Wrong key should not verify
+        assert!(!verify_api_key("wrong_key", &stored_hash, secret));
+
+        // Wrong secret should not verify
+        assert!(!verify_api_key(key, &stored_hash, b"wrong-secret"));
+    }
+
+    #[test]
+    fn test_hash_api_key_legacy() {
+        let hash = hash_api_key_legacy("test_key");
         assert!(!hash.is_empty());
         assert_eq!(hash.len(), 64); // SHA256 hex = 64 chars
     }

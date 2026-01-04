@@ -30,6 +30,9 @@ pub struct AppState {
     /// OAuth2/JWT validator (None if disabled)
     pub oauth2_validator: Option<Arc<OAuth2Validator>>,
 
+    /// API key secret for HMAC hashing (for secure API key verification)
+    pub api_key_secret: Arc<Vec<u8>>,
+
     /// Repositories (lazy-initialized from db pool)
     repos: Repos,
 }
@@ -92,6 +95,16 @@ impl AppState {
         let redis_prefix =
             std::env::var("REDIS_QUEUE_PREFIX").unwrap_or_else(|_| "fd:queue:".to_string());
 
+        // SECURITY: Load API key secret for HMAC hashing
+        // In production, this MUST be set to a secure random value (at least 32 bytes)
+        let api_key_secret = std::env::var("API_KEY_SECRET").unwrap_or_else(|_| {
+            tracing::warn!(
+                "API_KEY_SECRET not set, using default development secret. \
+                 DO NOT USE IN PRODUCTION!"
+            );
+            "ferrumdeck-dev-secret-do-not-use-in-production".to_string()
+        });
+
         // Create database pool
         let db = fd_storage::pool::create_pool(&database_url, 20, 5).await?;
 
@@ -123,6 +136,7 @@ impl AppState {
             queue: Arc::new(RwLock::new(queue)),
             rate_limiter,
             oauth2_validator,
+            api_key_secret: Arc::new(api_key_secret.into_bytes()),
             repos: Repos::new(db),
         })
     }
