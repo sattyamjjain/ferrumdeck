@@ -284,7 +284,7 @@ jobs:
     if: (github.event_name == 'pull_request' && github.base_ref == 'main') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     services:
       postgres:
-        image: postgres:16-alpine
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: ferrumdeck
           POSTGRES_PASSWORD: ferrumdeck
@@ -326,15 +326,6 @@ jobs:
 
       - name: Build gateway
         run: cargo build --package gateway
-
-      - name: Run database migrations
-        env:
-          DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
-        run: |
-          for migration in db/migrations/*.sql; do
-            echo "Applying: $migration"
-            PGPASSWORD=ferrumdeck psql -h localhost -U ferrumdeck -d ferrumdeck -f "$migration" || true
-          done
 
       - name: Start gateway
         env:
