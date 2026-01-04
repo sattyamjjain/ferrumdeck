@@ -368,7 +368,8 @@ jobs:
           uv run python -m fd_evals run \
             --suite smoke \
             --output evals/reports/smoke_ci.json \
-            --parallel 1
+            --parallel 1 \
+            --mock
 
       - name: Check eval results
         run: |

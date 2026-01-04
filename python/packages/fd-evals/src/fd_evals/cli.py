@@ -121,6 +121,10 @@ def run_eval(
         bool,
         typer.Option("--verbose", "-v", help="Verbose output"),
     ] = False,
+    mock: Annotated[
+        bool,
+        typer.Option("--mock", help="Use mock execution (skip control plane, for testing)"),
+    ] = False,
 ) -> None:
     """Run an evaluation against a dataset or suite.
 
@@ -147,11 +151,14 @@ def run_eval(
     console.print(f"  Agent: {agent_id}")
     console.print(f"  Runs per task: {runs}")
     console.print(f"  Parallel workers: {parallel}")
+    if mock:
+        console.print("  [yellow]Mock mode: enabled (skipping control plane)[/yellow]")
 
     runner = EvalRunner(
         scorers=get_default_scorers(),
         control_plane_url=control_plane,
         api_key=api_key,
+        use_mock=mock,
     )
 
     summary = runner.run_eval(
