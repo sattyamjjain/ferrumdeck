@@ -1,6 +1,23 @@
 """FerrumDeck Worker - Agent step execution."""
 
 from fd_worker.agentic import AgenticExecutor, AgenticResult, MCPConnection, ToolInfo, ToolResult
+from fd_worker.exceptions import (
+    ApprovalRequiredError,
+    BudgetExceededError,
+    LLMError,
+    LLMRateLimitError,
+    MCPConnectionError,
+    MCPError,
+    MCPToolError,
+    MCPToolTimeoutError,
+    PolicyDeniedError,
+    QueueConnectionError,
+    QueueError,
+    StepExecutionError,
+    TransientError,
+    ValidationError,
+    WorkerError,
+)
 from fd_worker.executor import StepExecutor
 from fd_worker.llm import (
     LLMExecutor,
@@ -17,6 +34,7 @@ from fd_worker.validation import (
 )
 
 __all__ = [
+    # Executors
     "AgenticExecutor",
     "AgenticResult",
     "LLMExecutor",
@@ -32,4 +50,20 @@ __all__ = [
     "ValidationResult",
     "convert_mcp_tools_to_llm_format",
     "validate_llm_output_for_tool_use",
+    # Exceptions
+    "ApprovalRequiredError",
+    "BudgetExceededError",
+    "LLMError",
+    "LLMRateLimitError",
+    "MCPConnectionError",
+    "MCPError",
+    "MCPToolError",
+    "MCPToolTimeoutError",
+    "PolicyDeniedError",
+    "QueueConnectionError",
+    "QueueError",
+    "StepExecutionError",
+    "TransientError",
+    "ValidationError",
+    "WorkerError",
 ]

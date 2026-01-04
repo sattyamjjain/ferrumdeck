@@ -11,6 +11,13 @@ from pathlib import Path
 
 from fd_mcp_router import MCPServerConfig, ToolAllowlist
 from fd_runtime import init_tracing
+from fd_worker.exceptions import (
+    BudgetExceededError,
+    PolicyDeniedError,
+    QueueConnectionError,
+    StepExecutionError,
+    TransientError,
+)
 from fd_worker.executor import StepExecutor
 from fd_worker.queue import RedisQueueConsumer
 
@@ -136,7 +143,8 @@ async def run_worker() -> None:
         logger.info(f"Received signal {sig.name}, initiating graceful shutdown...")
         shutdown_event.set()
 
-    loop = asyncio.get_event_loop()
+    # Use get_running_loop() for Python 3.10+ compatibility
+    loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, handle_shutdown, sig)
 
@@ -165,8 +173,36 @@ async def run_worker() -> None:
                         await queue.ack(job_id)
                         jobs_processed += 1
                         logger.info(f"Job completed: run={run_id} step={step_id}")
+                    except PolicyDeniedError as e:
+                        # Policy denial is a terminal error - ack to prevent retry
+                        logger.warning(
+                            f"Job denied by policy: run={run_id} step={step_id} "
+                            f"tool={e.tool_name} reason={e.reason}"
+                        )
+                        await queue.ack(job_id)
+                    except BudgetExceededError as e:
+                        # Budget exceeded is terminal - ack to prevent retry
+                        logger.warning(
+                            f"Job exceeded budget: run={run_id} step={step_id} "
+                            f"type={e.budget_type} current={e.current} limit={e.limit}"
+                        )
+                        await queue.ack(job_id)
+                    except TransientError as e:
+                        # Transient errors should be retried - don't ack
+                        logger.warning(
+                            f"Transient error for job: run={run_id} step={step_id} "
+                            f"error={e.message}"
+                        )
+                        # Will be retried automatically
+                    except StepExecutionError as e:
+                        # Step execution failed - log and don't ack for retry
+                        logger.error(
+                            f"Step execution failed: run={run_id} step={step_id} "
+                            f"error={e.message}"
+                        )
                     except Exception:
-                        logger.exception(f"Job failed: run={run_id} step={step_id}")
+                        # Unexpected errors - log with full traceback
+                        logger.exception(f"Unexpected job failure: run={run_id} step={step_id}")
                         # Don't ack - will be retried or go to dead letter queue
 
                 else:
@@ -175,8 +211,11 @@ async def run_worker() -> None:
 
             except asyncio.CancelledError:
                 break
+            except QueueConnectionError as e:
+                logger.error(f"Queue connection error: {e.message}")
+                await asyncio.sleep(5.0)  # Longer back off for connection issues
             except Exception:
-                logger.exception("Error in worker loop")
+                logger.exception("Unexpected error in worker loop")
                 await asyncio.sleep(1.0)  # Back off on errors
 
     finally:
