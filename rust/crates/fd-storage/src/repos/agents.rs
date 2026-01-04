@@ -59,6 +59,16 @@ impl AgentsRepo {
             .await
     }
 
+    /// Find an agent by slug (global lookup without project_id)
+    /// Used when caller provides a slug instead of an ID
+    #[instrument(skip(self))]
+    pub async fn find_by_slug(&self, slug: &str) -> Result<Option<Agent>, sqlx::Error> {
+        sqlx::query_as::<_, Agent>("SELECT * FROM agents WHERE slug = $1")
+            .bind(slug)
+            .fetch_optional(&self.pool)
+            .await
+    }
+
     /// Update an agent
     #[instrument(skip(self, update), fields(agent_id = %id))]
     pub async fn update(

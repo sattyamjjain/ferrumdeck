@@ -238,12 +238,18 @@ pub async fn create_run(
 ) -> Result<impl IntoResponse, ApiError> {
     let repos = state.repos();
 
-    // Get the agent
-    let agent = repos
-        .agents()
-        .get(&request.agent_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Agent", &request.agent_id))?;
+    // Get the agent by ID, falling back to slug lookup
+    let agent = match repos.agents().get(&request.agent_id).await? {
+        Some(agent) => agent,
+        None => {
+            // Try looking up by slug if not found by ID
+            repos
+                .agents()
+                .find_by_slug(&request.agent_id)
+                .await?
+                .ok_or_else(|| ApiError::not_found("Agent", &request.agent_id))?
+        }
+    };
 
     // Get agent version (latest or specific)
     let agent_version = match &request.agent_version {
