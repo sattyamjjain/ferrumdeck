@@ -222,10 +222,7 @@ pub async fn resolve_approval(
             "note": request.note,
         }))
         .build();
-
-    if let Err(e) = repos.audit().create(audit_event).await {
-        warn!(error = %e, "Failed to log approval audit event");
-    }
+    repos.spawn_audit(audit_event);
 
     // Update the step status based on the decision
     if request.approved {

@@ -213,9 +213,8 @@ pub async fn create_run(
             "agent_version_id": agent_version.id,
         }))
         .build();
-    if let Err(e) = repos.audit().create(audit_event).await {
-        warn!(error = %e, "Failed to create audit event for run creation");
-    }
+    // Spawn audit write in background to reduce latency
+    repos.spawn_audit(audit_event);
 
     // Create the initial LLM step
     let step_id = format!("stp_{}", Ulid::new());
@@ -368,9 +367,7 @@ pub async fn cancel_run(
             "previous_status": format!("{:?}", run.status),
         }))
         .build();
-    if let Err(e) = repos.audit().create(audit_event).await {
-        warn!(error = %e, "Failed to create audit event for run cancellation");
-    }
+    repos.spawn_audit(audit_event);
 
     info!(run_id = %run_id, "Run cancelled by user");
 
@@ -486,9 +483,7 @@ pub async fn submit_step_result(
             "cost_cents": step_cost_cents,
         }))
         .build();
-    if let Err(e) = repos.audit().create(audit_event).await {
-        warn!(error = %e, "Failed to create audit event for step completion");
-    }
+    repos.spawn_audit(audit_event);
 
     // Check budget after step completion
     let updated_run = repos.runs().get(&run_id).await?.unwrap();
@@ -527,7 +522,7 @@ pub async fn submit_step_result(
                 "usage": usage,
             }))
             .build();
-        let _ = repos.audit().create(audit_event).await;
+        repos.spawn_audit(audit_event);
 
         repos
             .runs()
@@ -576,7 +571,7 @@ pub async fn submit_step_result(
                 "cost_cents": updated_run.cost_cents,
             }))
             .build();
-        let _ = repos.audit().create(audit_event).await;
+        repos.spawn_audit(audit_event);
 
         info!(run_id = %run_id, "Run completed successfully");
     } else if status == StepStatus::Failed {
@@ -605,7 +600,7 @@ pub async fn submit_step_result(
                 "error": updated_step.error,
             }))
             .build();
-        let _ = repos.audit().create(audit_event).await;
+        repos.spawn_audit(audit_event);
 
         warn!(run_id = %run_id, step_id = %step_id, "Run failed due to step failure");
     } else if status == StepStatus::WaitingApproval {
@@ -677,9 +672,7 @@ pub async fn check_tool_policy(
             "reason": decision.reason,
         }))
         .build();
-    if let Err(e) = repos.audit().create(audit_event).await {
-        warn!(error = %e, "Failed to create audit event for policy decision");
-    }
+    repos.spawn_audit(audit_event);
 
     // If denied, update run status to PolicyBlocked
     if decision.is_denied() {

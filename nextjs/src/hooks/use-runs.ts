@@ -2,25 +2,23 @@
 
 import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { fetchRuns, fetchRun, fetchSteps, type RunsParams, type RunsResponse } from "@/lib/api/runs";
-import { isRunActive, isRunTerminal } from "@/lib/utils";
+import { isRunActive, isRunTerminal, isRunsResponse } from "@/lib/type-guards";
+import { POLLING_INTERVALS, STALE_TIMES } from "@/lib/config/query-config";
 import type { Run } from "@/types/run";
-
-// Active polling interval (2 seconds)
-const ACTIVE_POLL_INTERVAL = 2000;
-// Inactive polling interval (30 seconds - just for occasional refresh)
-const INACTIVE_POLL_INTERVAL = 30000;
 
 export function useRuns(params: RunsParams = {}) {
   return useQuery({
     queryKey: ["runs", params],
     queryFn: () => fetchRuns(params),
     refetchInterval: (query) => {
-      // Poll faster (2s) if there are active runs, slower (5s) otherwise
-      const data = query.state.data as RunsResponse | undefined;
-      const hasActiveRuns = data?.runs?.some((r) => isRunActive(r.status));
-      return hasActiveRuns ? ACTIVE_POLL_INTERVAL : 5000;
+      // Poll faster if there are active runs, slower otherwise
+      const data = query.state.data;
+      const hasActiveRuns = isRunsResponse(data)
+        ? data.runs?.some((r) => isRunActive(r.status))
+        : false;
+      return hasActiveRuns ? POLLING_INTERVALS.ACTIVE : POLLING_INTERVALS.MEDIUM;
     },
-    staleTime: 1000,
+    staleTime: STALE_TIMES.SHORT,
   });
 }
 
@@ -33,7 +31,7 @@ export function useRunsInfinite(params: Omit<RunsParams, "cursor" | "offset"> = 
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? lastPage.next_cursor : undefined,
-    refetchInterval: ACTIVE_POLL_INTERVAL,
+    refetchInterval: POLLING_INTERVALS.ACTIVE,
   });
 }
 
@@ -43,21 +41,20 @@ export function useRun(runId: string) {
     queryFn: () => fetchRun(runId),
     refetchInterval: (query) => {
       // Only poll frequently if run is still active
-      const run = query.state.data as Run | undefined;
-      if (!run) return ACTIVE_POLL_INTERVAL;
-      return isRunActive(run.status) ? ACTIVE_POLL_INTERVAL : INACTIVE_POLL_INTERVAL;
+      const run = query.state.data;
+      if (!run) return POLLING_INTERVALS.ACTIVE;
+      return isRunActive(run.status) ? POLLING_INTERVALS.ACTIVE : POLLING_INTERVALS.BACKGROUND;
     },
     enabled: !!runId,
   });
 }
 
-export function useSteps(runId: string) {
+export function useSteps(runId: string, runStatus?: string) {
   return useQuery({
     queryKey: ["steps", runId],
     queryFn: () => fetchSteps(runId),
-    // Steps are fetched alongside run, so inherit same polling logic
-    // But we need the run data to determine polling - use 2s as safe default
-    refetchInterval: ACTIVE_POLL_INTERVAL,
+    // Adaptive polling: stop for terminal states, otherwise poll actively
+    refetchInterval: runStatus && isRunTerminal(runStatus) ? false : POLLING_INTERVALS.ACTIVE,
     enabled: !!runId,
   });
 }
@@ -65,7 +62,8 @@ export function useSteps(runId: string) {
 // Hook that combines run and steps with smart polling
 export function useRunWithSteps(runId: string) {
   const runQuery = useRun(runId);
-  const stepsQuery = useSteps(runId);
+  // Pass run status to enable adaptive polling for steps
+  const stepsQuery = useSteps(runId, runQuery.data?.status);
 
   const isActive = runQuery.data ? isRunActive(runQuery.data.status) : false;
   const isTerminal = runQuery.data ? isRunTerminal(runQuery.data.status) : false;

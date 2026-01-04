@@ -48,6 +48,17 @@ impl Repos {
         Self { db }
     }
 
+    /// Spawn an audit event write in the background (fire-and-forget).
+    /// This reduces API latency by not waiting for audit writes to complete.
+    pub fn spawn_audit(&self, event: fd_storage::models::CreateAuditEvent) {
+        let audit_repo = self.audit();
+        tokio::spawn(async move {
+            if let Err(e) = audit_repo.create(event).await {
+                tracing::warn!(error = %e, "Failed to create audit event");
+            }
+        });
+    }
+
     pub fn runs(&self) -> RunsRepo {
         RunsRepo::new(self.db.clone())
     }

@@ -13,6 +13,8 @@ import type {
   WorkflowStepType,
   WorkflowRunStatus,
 } from "@/types";
+import { POLLING_INTERVALS } from "@/lib/config/query-config";
+import { getErrorMessage } from "@/lib/type-guards";
 import { toast } from "sonner";
 
 // Fetch workflows
@@ -88,7 +90,7 @@ export function useWorkflows() {
   return useQuery({
     queryKey: ["workflows"],
     queryFn: fetchWorkflows,
-    refetchInterval: 10000,
+    refetchInterval: POLLING_INTERVALS.SLOW,
   });
 }
 
@@ -109,8 +111,8 @@ export function useCreateWorkflow() {
       queryClient.invalidateQueries({ queryKey: ["workflows"] });
       toast.success("Workflow created");
     },
-    onError: () => {
-      toast.error("Failed to create workflow");
+    onError: (error) => {
+      toast.error(getErrorMessage(error) || "Failed to create workflow");
     },
   });
 }
@@ -119,16 +121,26 @@ export function useWorkflowRuns(workflowId?: string) {
   return useQuery({
     queryKey: ["workflow-runs", workflowId],
     queryFn: () => fetchWorkflowRuns(workflowId),
-    refetchInterval: 5000,
+    refetchInterval: POLLING_INTERVALS.MEDIUM,
   });
 }
+
+// Terminal states that don't need polling
+const TERMINAL_STATUSES: WorkflowRunStatus[] = ["completed", "failed", "cancelled"];
 
 export function useWorkflowRun(runId: string) {
   return useQuery({
     queryKey: ["workflow-run", runId],
     queryFn: () => fetchWorkflowRun(runId),
     enabled: !!runId,
-    refetchInterval: 2000,
+    // Adaptive polling: stop for terminal states, slower for waiting states
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (!status) return POLLING_INTERVALS.ACTIVE; // Initial fetch
+      if (TERMINAL_STATUSES.includes(status)) return false; // Stop polling
+      if (status === "waiting_approval") return POLLING_INTERVALS.SLOW; // Slower for waiting
+      return POLLING_INTERVALS.ACTIVE; // Active polling for running states
+    },
   });
 }
 
@@ -141,8 +153,8 @@ export function useCreateWorkflowRun() {
       queryClient.invalidateQueries({ queryKey: ["workflow-runs"] });
       toast.success("Workflow run started");
     },
-    onError: () => {
-      toast.error("Failed to start workflow run");
+    onError: (error) => {
+      toast.error(getErrorMessage(error) || "Failed to start workflow run");
     },
   });
 }
@@ -156,18 +168,19 @@ export function useCancelWorkflowRun() {
       queryClient.invalidateQueries({ queryKey: ["workflow-runs"] });
       toast.success("Workflow run cancelled");
     },
-    onError: () => {
-      toast.error("Failed to cancel workflow run");
+    onError: (error) => {
+      toast.error(getErrorMessage(error) || "Failed to cancel workflow run");
     },
   });
 }
 
-export function useStepExecutions(runId: string) {
+export function useStepExecutions(runId: string, runStatus?: WorkflowRunStatus) {
   return useQuery({
     queryKey: ["step-executions", runId],
     queryFn: () => fetchStepExecutions(runId),
     enabled: !!runId,
-    refetchInterval: 2000,
+    // Stop polling when run is in a terminal state
+    refetchInterval: runStatus && TERMINAL_STATUSES.includes(runStatus) ? false : POLLING_INTERVALS.ACTIVE,
   });
 }
 

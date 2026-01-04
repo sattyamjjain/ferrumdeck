@@ -2,13 +2,15 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchApprovals, approveRequest, rejectRequest } from "@/lib/api/approvals";
+import { POLLING_INTERVALS } from "@/lib/config/query-config";
+import { getErrorMessage } from "@/lib/type-guards";
 import { toast } from "sonner";
 
 export function useApprovals() {
   return useQuery({
     queryKey: ["approvals"],
     queryFn: () => fetchApprovals({ limit: 50 }),
-    refetchInterval: 3000,
+    refetchInterval: POLLING_INTERVALS.MEDIUM,
   });
 }
 
@@ -23,8 +25,8 @@ export function useApproveAction() {
       queryClient.invalidateQueries({ queryKey: ["runs"] });
       toast.success("Approval granted");
     },
-    onError: () => {
-      toast.error("Failed to approve request");
+    onError: (error) => {
+      toast.error(getErrorMessage(error) || "Failed to approve request");
     },
   });
 }
@@ -40,8 +42,8 @@ export function useRejectAction() {
       queryClient.invalidateQueries({ queryKey: ["runs"] });
       toast.success("Request rejected");
     },
-    onError: () => {
-      toast.error("Failed to reject request");
+    onError: (error) => {
+      toast.error(getErrorMessage(error) || "Failed to reject request");
     },
   });
 }
