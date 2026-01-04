@@ -109,9 +109,7 @@ fn build_cors_layer() -> CorsLayer {
     if origins.is_empty() {
         warn!("No valid CORS origins configured, allowing localhost only");
         CorsLayer::new()
-            .allow_origin(AllowOrigin::exact(
-                "http://localhost:3000".parse().unwrap(),
-            ))
+            .allow_origin(AllowOrigin::exact("http://localhost:3000".parse().unwrap()))
             .allow_methods([
                 Method::GET,
                 Method::POST,
@@ -120,11 +118,7 @@ fn build_cors_layer() -> CorsLayer {
                 Method::DELETE,
                 Method::OPTIONS,
             ])
-            .allow_headers([
-                header::AUTHORIZATION,
-                header::CONTENT_TYPE,
-                header::ACCEPT,
-            ])
+            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
             .max_age(Duration::from_secs(86400))
     } else {
         info!("CORS allowed origins: {:?}", allowed_origins);
@@ -138,11 +132,7 @@ fn build_cors_layer() -> CorsLayer {
                 Method::DELETE,
                 Method::OPTIONS,
             ])
-            .allow_headers([
-                header::AUTHORIZATION,
-                header::CONTENT_TYPE,
-                header::ACCEPT,
-            ])
+            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
             .max_age(Duration::from_secs(86400))
     }
 }

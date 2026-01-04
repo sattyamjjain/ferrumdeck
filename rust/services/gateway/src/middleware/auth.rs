@@ -203,8 +203,7 @@ fn extract_api_key(auth_header: Option<&str>) -> Option<String> {
 /// SECURITY: Using HMAC instead of plain SHA256 prevents rainbow table attacks.
 /// The server secret should be set via API_KEY_SECRET environment variable.
 fn hash_api_key(key: &str, secret: &[u8]) -> String {
-    let mut mac =
-        HmacSha256::new_from_slice(secret).expect("HMAC can take key of any size");
+    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC can take key of any size");
     mac.update(key.as_bytes());
     hex::encode(mac.finalize().into_bytes())
 }
@@ -216,7 +215,10 @@ fn hash_api_key(key: &str, secret: &[u8]) -> String {
 #[allow(dead_code)]
 fn verify_api_key(provided_key: &str, stored_hash: &str, secret: &[u8]) -> bool {
     let computed_hash = hash_api_key(provided_key, secret);
-    computed_hash.as_bytes().ct_eq(stored_hash.as_bytes()).into()
+    computed_hash
+        .as_bytes()
+        .ct_eq(stored_hash.as_bytes())
+        .into()
 }
 
 /// Hash an API key using legacy SHA256 (for migration compatibility)
