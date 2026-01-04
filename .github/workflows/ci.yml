@@ -361,6 +361,7 @@ jobs:
       - name: Run smoke tests
         env:
           FD_CONTROL_PLANE_URL: http://localhost:8080
+          FD_API_KEY: fd_dev_key_abc123
           DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
           REDIS_URL: redis://localhost:6379
         run: |
