@@ -48,6 +48,9 @@ pub struct JobContext {
 }
 
 /// Redis queue client
+///
+/// This client is designed to be shared across multiple tasks without locks.
+/// The underlying `MultiplexedConnection` is Clone and handles concurrency internally.
 #[derive(Clone)]
 pub struct QueueClient {
     conn: MultiplexedConnection,
@@ -65,6 +68,11 @@ impl QueueClient {
         })
     }
 
+    /// Get a clone of the connection for concurrent operations
+    fn conn(&self) -> MultiplexedConnection {
+        self.conn.clone()
+    }
+
     /// Get the full stream key with prefix
     fn stream_key(&self, queue: &str) -> String {
         format!("{}stream:{}", self.prefix, queue)
@@ -77,9 +85,10 @@ impl QueueClient {
 
     /// Initialize a queue (create stream and consumer group)
     #[instrument(skip(self))]
-    pub async fn init_queue(&mut self, queue: &str) -> Result<(), RedisError> {
+    pub async fn init_queue(&self, queue: &str) -> Result<(), RedisError> {
         let key = self.stream_key(queue);
         let group = self.group_name(queue);
+        let mut conn = self.conn();
 
         // Create consumer group (creates stream if needed)
         // MKSTREAM creates the stream if it doesn't exist
@@ -89,7 +98,7 @@ impl QueueClient {
             .arg(&group)
             .arg("$")
             .arg("MKSTREAM")
-            .query_async(&mut self.conn)
+            .query_async(&mut conn)
             .await;
 
         // Ignore "BUSYGROUP Consumer Group name already exists" error
@@ -103,11 +112,12 @@ impl QueueClient {
     /// Enqueue a message
     #[instrument(skip(self, message))]
     pub async fn enqueue<T: Serialize>(
-        &mut self,
+        &self,
         queue: &str,
         message: &QueueMessage<T>,
     ) -> Result<String, RedisError> {
         let key = self.stream_key(queue);
+        let mut conn = self.conn();
         let payload = serde_json::to_string(message).map_err(|e| {
             RedisError::from((
                 redis::ErrorKind::TypeError,
@@ -121,7 +131,7 @@ impl QueueClient {
             .arg("*") // Auto-generate ID
             .arg("data")
             .arg(payload)
-            .query_async(&mut self.conn)
+            .query_async(&mut conn)
             .await?;
 
         debug!(queue = %queue, stream_id = %id, "Enqueued message");
@@ -131,7 +141,7 @@ impl QueueClient {
     /// Dequeue messages (read from consumer group)
     #[instrument(skip(self))]
     pub async fn dequeue<T: for<'de> Deserialize<'de>>(
-        &mut self,
+        &self,
         queue: &str,
         consumer: &str,
         count: usize,
@@ -139,6 +149,7 @@ impl QueueClient {
     ) -> Result<Vec<(String, QueueMessage<T>)>, RedisError> {
         let key = self.stream_key(queue);
         let group = self.group_name(queue);
+        let mut conn = self.conn();
 
         // XREADGROUP GROUP group consumer [COUNT count] [BLOCK ms] STREAMS key >
         let result: redis::Value = redis::cmd("XREADGROUP")
@@ -152,7 +163,7 @@ impl QueueClient {
             .arg("STREAMS")
             .arg(&key)
             .arg(">") // Only new messages
-            .query_async(&mut self.conn)
+            .query_async(&mut conn)
             .await?;
 
         self.parse_stream_response(result)
@@ -160,15 +171,16 @@ impl QueueClient {
 
     /// Acknowledge a message (remove from pending)
     #[instrument(skip(self))]
-    pub async fn ack(&mut self, queue: &str, stream_id: &str) -> Result<(), RedisError> {
+    pub async fn ack(&self, queue: &str, stream_id: &str) -> Result<(), RedisError> {
         let key = self.stream_key(queue);
         let group = self.group_name(queue);
+        let mut conn = self.conn();
 
         let _: i32 = redis::cmd("XACK")
             .arg(&key)
             .arg(&group)
             .arg(stream_id)
-            .query_async(&mut self.conn)
+            .query_async(&mut conn)
             .await?;
 
         debug!(queue = %queue, stream_id = %stream_id, "Acknowledged message");
@@ -178,7 +190,7 @@ impl QueueClient {
     /// Claim pending messages that haven't been acknowledged
     #[instrument(skip(self))]
     pub async fn claim_pending<T: for<'de> Deserialize<'de>>(
-        &mut self,
+        &self,
         queue: &str,
         consumer: &str,
         min_idle_ms: u64,
@@ -186,6 +198,7 @@ impl QueueClient {
     ) -> Result<Vec<(String, QueueMessage<T>)>, RedisError> {
         let key = self.stream_key(queue);
         let group = self.group_name(queue);
+        let mut conn = self.conn();
 
         // First, get pending messages info
         let pending: Vec<(String, String, u64, u64)> = redis::cmd("XPENDING")
@@ -194,7 +207,7 @@ impl QueueClient {
             .arg("-")
             .arg("+")
             .arg(count)
-            .query_async(&mut self.conn)
+            .query_async(&mut conn)
             .await
             .unwrap_or_default();
 
@@ -212,7 +225,7 @@ impl QueueClient {
                     .arg(consumer)
                     .arg(min_idle_ms)
                     .arg(&id)
-                    .query_async(&mut self.conn)
+                    .query_async(&mut conn)
                     .await?;
 
                 if let Ok(messages) = self.parse_xclaim_response::<T>(result) {
@@ -226,22 +239,24 @@ impl QueueClient {
 
     /// Get queue length (approximate)
     #[instrument(skip(self))]
-    pub async fn len(&mut self, queue: &str) -> Result<usize, RedisError> {
+    pub async fn len(&self, queue: &str) -> Result<usize, RedisError> {
         let key = self.stream_key(queue);
-        let len: usize = self.conn.xlen(&key).await?;
+        let mut conn = self.conn();
+        let len: usize = conn.xlen(&key).await?;
         Ok(len)
     }
 
     /// Get pending message count for a consumer group
     #[instrument(skip(self))]
-    pub async fn pending_count(&mut self, queue: &str) -> Result<usize, RedisError> {
+    pub async fn pending_count(&self, queue: &str) -> Result<usize, RedisError> {
         let key = self.stream_key(queue);
         let group = self.group_name(queue);
+        let mut conn = self.conn();
 
         let result: redis::Value = redis::cmd("XPENDING")
             .arg(&key)
             .arg(&group)
-            .query_async(&mut self.conn)
+            .query_async(&mut conn)
             .await?;
 
         // Parse the summary response: [count, first_id, last_id, [[consumer, count], ...]]

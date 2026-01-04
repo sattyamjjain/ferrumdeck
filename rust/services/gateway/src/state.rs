@@ -6,7 +6,6 @@ use fd_storage::{
     ToolsRepo, WorkflowsRepo,
 };
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use crate::middleware::{
     create_oauth2_validator, create_rate_limiter, OAuth2Validator, RateLimiter,
@@ -21,8 +20,8 @@ pub struct AppState {
     /// Policy engine for authorization
     pub policy_engine: Arc<PolicyEngine>,
 
-    /// Queue client for job publishing
-    pub queue: Arc<RwLock<QueueClient>>,
+    /// Queue client for job publishing (lock-free, uses multiplexed connection)
+    pub queue: Arc<QueueClient>,
 
     /// Rate limiter for API requests
     pub rate_limiter: RateLimiter,
@@ -126,8 +125,8 @@ impl AppState {
                 .map_err(|e| anyhow::anyhow!("Migration failed: {}", e))?;
         }
 
-        // Create queue client
-        let mut queue = QueueClient::new(&redis_url, &redis_prefix).await?;
+        // Create queue client (lock-free, uses multiplexed connection internally)
+        let queue = QueueClient::new(&redis_url, &redis_prefix).await?;
 
         // Initialize step queue
         queue.init_queue("steps").await?;
@@ -144,7 +143,7 @@ impl AppState {
         Ok(Self {
             db: db.clone(),
             policy_engine,
-            queue: Arc::new(RwLock::new(queue)),
+            queue: Arc::new(queue),
             rate_limiter,
             oauth2_validator,
             api_key_secret: Arc::new(api_key_secret.into_bytes()),
@@ -158,11 +157,12 @@ impl AppState {
     }
 
     /// Publish a step job to the queue
+    ///
+    /// This method is lock-free and can be called concurrently from multiple tasks.
     pub async fn enqueue_step(
         &self,
         message: &fd_storage::QueueMessage<fd_storage::queue::StepJob>,
     ) -> Result<String, redis::RedisError> {
-        let mut queue = self.queue.write().await;
-        queue.enqueue("steps", message).await
+        self.queue.enqueue("steps", message).await
     }
 }

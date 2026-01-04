@@ -121,11 +121,10 @@ async fn check_database(state: &AppState) -> Result<(), String> {
 
 /// Check Redis connectivity by pinging the server
 async fn check_redis(state: &AppState) -> Result<(), String> {
-    let mut queue = state.queue.write().await;
-
     // Try to get the queue length as a connectivity check
     // This exercises the Redis connection without modifying data
-    match queue.len("steps").await {
+    // Note: No locking required - QueueClient uses multiplexed connection
+    match state.queue.len("steps").await {
         Ok(_) => Ok(()),
         Err(e) => {
             warn!(error = %e, "Redis health check failed");
