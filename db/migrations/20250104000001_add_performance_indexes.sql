@@ -64,4 +64,4 @@ CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow_created
 -- Partial index for active workflow runs
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_active
     ON workflow_runs(workflow_id, created_at DESC)
-    WHERE status IN ('pending', 'running');
+    WHERE status IN ('created', 'running');
