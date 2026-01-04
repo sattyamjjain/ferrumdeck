@@ -281,7 +281,7 @@ jobs:
     name: Evaluation Gate
     runs-on: ubuntu-latest
     needs: [rust-test, python-test, nextjs-build]
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    if: (github.event_name == 'pull_request' && github.base_ref == 'main') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     services:
       postgres:
         image: postgres:16-alpine
