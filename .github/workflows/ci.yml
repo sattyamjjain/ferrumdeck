@@ -332,10 +332,31 @@ jobs:
           DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
           REDIS_URL: redis://localhost:6379
           GATEWAY_PORT: 8080
+          RUST_BACKTRACE: 1
         run: |
-          cargo run --package gateway &
-          sleep 5
-          curl -f http://localhost:8080/health || exit 1
+          cargo run --package gateway > gateway.log 2>&1 &
+          GATEWAY_PID=$!
+          echo "Gateway PID: $GATEWAY_PID"
+
+          # Wait for gateway to be ready (up to 30 seconds)
+          for i in {1..30}; do
+            if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+              echo "Gateway is ready!"
+              exit 0
+            fi
+            # Check if process is still running
+            if ! kill -0 $GATEWAY_PID 2>/dev/null; then
+              echo "Gateway crashed! Logs:"
+              cat gateway.log
+              exit 1
+            fi
+            echo "Waiting for gateway... ($i/30)"
+            sleep 1
+          done
+
+          echo "Gateway failed to start in time. Logs:"
+          cat gateway.log
+          exit 1
 
       - name: Run smoke tests
         env:
