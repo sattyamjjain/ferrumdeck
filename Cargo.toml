@@ -66,6 +66,13 @@ regex = "1.11"
 jsonwebtoken = "9.3"
 base64 = "0.22"
 
+# Validation
+validator = { version = "0.19", features = ["derive"] }
+
+# OpenAPI documentation
+utoipa = { version = "5.3", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
+
 # Decimal precision for financial calculations
 rust_decimal = { version = "1.36", features = ["serde"] }
 

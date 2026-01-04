@@ -124,6 +124,7 @@ Thumbs.db
 # Claude Code auto-memory
 # =============================================================================
 .claude/auto-memory/dirty-files
+.claude-flow/
 
 # =============================================================================
 # Playwright MCP (test screenshots)

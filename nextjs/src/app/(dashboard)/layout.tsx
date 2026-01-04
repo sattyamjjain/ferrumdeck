@@ -1,5 +1,6 @@
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
+import { SkipLink } from "@/components/layout/skip-link";
 
 export default function DashboardLayout({
   children,
@@ -8,9 +9,13 @@ export default function DashboardLayout({
 }) {
   return (
     <SidebarProvider>
+      {/* Skip navigation link for keyboard accessibility */}
+      <SkipLink />
       <AppSidebar />
       <SidebarInset>
-        {children}
+        <main id="main-content" tabIndex={-1} className="outline-none">
+          {children}
+        </main>
       </SidebarInset>
     </SidebarProvider>
   );

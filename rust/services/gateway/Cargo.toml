@@ -32,6 +32,13 @@ tower-http = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# Validation
+validator = { workspace = true }
+
+# OpenAPI documentation
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+
 # Database
 sqlx = { workspace = true }
 

@@ -3,9 +3,12 @@
 use axum::{
     middleware, routing::delete, routing::get, routing::patch, routing::post, routing::put, Router,
 };
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 use crate::handlers;
 use crate::middleware::{auth_middleware, rate_limit_middleware, request_id_middleware};
+use crate::openapi::ApiDoc;
 use crate::state::AppState;
 
 /// Build the full application router
@@ -14,6 +17,8 @@ pub fn build_router(state: AppState) -> Router {
         // Health check (no auth required)
         .route("/health", get(handlers::health::health_check))
         .route("/ready", get(handlers::health::readiness_check))
+        // OpenAPI documentation (no auth required)
+        .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
         // V1 API (with auth)
         .nest(
             "/v1",

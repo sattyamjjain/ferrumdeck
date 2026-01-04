@@ -3,41 +3,68 @@
 use axum::{extract::State, http::StatusCode, Json};
 use serde::Serialize;
 use tracing::{debug, warn};
+use utoipa::ToSchema;
 
 use crate::state::AppState;
 
 /// Basic health check response (no dependencies)
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct HealthResponse {
+    /// Service health status
+    #[schema(example = "healthy")]
     pub status: &'static str,
+    /// Service version
+    #[schema(example = "0.1.0")]
     pub version: &'static str,
 }
 
 /// Detailed readiness check response with component status
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct ReadinessResponse {
+    /// Overall readiness status
+    #[schema(example = "ready")]
     pub status: &'static str,
+    /// Service version
+    #[schema(example = "0.1.0")]
     pub version: &'static str,
+    /// Individual component health status
     pub components: ComponentStatus,
 }
 
-#[derive(Serialize)]
+/// Health status of all backend components
+#[derive(Serialize, ToSchema)]
 pub struct ComponentStatus {
+    /// Database (PostgreSQL) health
     pub database: ComponentHealth,
+    /// Redis health
     pub redis: ComponentHealth,
 }
 
-#[derive(Serialize)]
+/// Health status of an individual component
+#[derive(Serialize, ToSchema)]
 pub struct ComponentHealth {
+    /// Component health status
+    #[schema(example = "healthy")]
     pub status: &'static str,
+    /// Response latency in milliseconds
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = 5)]
     pub latency_ms: Option<u64>,
+    /// Error message if unhealthy
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
 /// Liveness probe - just checks if the service is running
 /// Does not check dependencies (useful for Kubernetes liveness probes)
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "health",
+    responses(
+        (status = 200, description = "Service is alive", body = HealthResponse)
+    )
+)]
 pub async fn health_check() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "healthy",
@@ -47,6 +74,15 @@ pub async fn health_check() -> Json<HealthResponse> {
 
 /// Readiness probe - checks if the service can handle requests
 /// Verifies database and Redis connectivity
+#[utoipa::path(
+    get,
+    path = "/ready",
+    tag = "health",
+    responses(
+        (status = 200, description = "Service is ready to handle requests", body = ReadinessResponse),
+        (status = 503, description = "Service is not ready", body = ReadinessResponse)
+    )
+)]
 pub async fn readiness_check(
     State(state): State<AppState>,
 ) -> Result<Json<ReadinessResponse>, (StatusCode, Json<ReadinessResponse>)> {

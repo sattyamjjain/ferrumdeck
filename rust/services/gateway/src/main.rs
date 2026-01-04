@@ -16,6 +16,7 @@ use tracing::{info, warn};
 
 mod handlers;
 mod middleware;
+mod openapi;
 mod routes;
 mod state;
 
@@ -64,7 +65,8 @@ async fn main() -> anyhow::Result<()> {
         ))
         .layer(SetResponseHeaderLayer::overriding(
             header::CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static("default-src 'self'; frame-ancestors 'none'"),
+            // Allow 'unsafe-inline' for styles to support Swagger UI
+            HeaderValue::from_static("default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'"),
         ))
         .layer(SetResponseHeaderLayer::overriding(
             header::STRICT_TRANSPORT_SECURITY,

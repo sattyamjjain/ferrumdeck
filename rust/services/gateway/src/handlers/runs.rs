@@ -1,7 +1,7 @@
 //! Run management handlers
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
     Extension, Json,
@@ -20,8 +20,10 @@ use fd_storage::{
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, warn};
 use ulid::Ulid;
+use utoipa::{IntoParams, ToSchema};
+use validator::Validate;
 
-use crate::handlers::ApiError;
+use crate::handlers::{ApiError, ValidatedJson, ValidatedQuery};
 use crate::middleware::AuthContext;
 use crate::state::AppState;
 
@@ -29,39 +31,72 @@ use crate::state::AppState;
 // Request/Response DTOs
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+/// Request to create a new agent run
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CreateRunRequest {
+    /// ID of the agent to run
+    #[validate(length(min = 1, max = 255, message = "agent_id must be 1-255 characters"))]
+    #[schema(example = "agt_01HGXK...")]
     pub agent_id: String,
+    /// Optional specific agent version (uses latest if not specified)
     #[serde(default)]
+    #[validate(length(max = 255, message = "agent_version must be at most 255 characters"))]
     pub agent_version: Option<String>,
+    /// Input data for the agent (task, messages, etc.)
     pub input: serde_json::Value,
+    /// Optional run configuration overrides
     #[serde(default)]
     pub config: serde_json::Value,
 }
 
-#[derive(Debug, Serialize)]
+/// Agent run response
+#[derive(Debug, Serialize, ToSchema)]
 pub struct RunResponse {
+    /// Unique run ID (prefixed with run_)
+    #[schema(example = "run_01HGXK...")]
     pub id: String,
+    /// Project this run belongs to
     pub project_id: String,
+    /// Agent version used for this run
     pub agent_version_id: String,
+    /// Current run status
+    #[schema(example = "running")]
     pub status: String,
+    /// Input provided to the agent
     pub input: serde_json::Value,
+    /// Output from the agent (if completed)
     pub output: Option<serde_json::Value>,
+    /// Total input tokens consumed
     pub input_tokens: i32,
+    /// Total output tokens generated
     pub output_tokens: i32,
+    /// Number of tool calls made
     pub tool_calls: i32,
+    /// Total cost in cents
     pub cost_cents: i32,
+    /// When the run was created
     pub created_at: String,
+    /// When execution started
     pub started_at: Option<String>,
+    /// When execution completed
     pub completed_at: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+/// Query parameters for listing runs
+#[derive(Debug, Deserialize, Validate, IntoParams)]
 pub struct ListRunsQuery {
+    /// Maximum number of runs to return (1-100)
     #[serde(default = "default_limit")]
+    #[validate(range(min = 1, max = 100, message = "limit must be between 1 and 100"))]
+    #[param(default = 20, minimum = 1, maximum = 100)]
     pub limit: i64,
+    /// Number of runs to skip for pagination
     #[serde(default)]
+    #[validate(range(min = 0, message = "offset must be non-negative"))]
+    #[param(default = 0, minimum = 0)]
     pub offset: i64,
+    /// Filter by project ID (required)
+    #[validate(length(min = 1, max = 255, message = "project_id must be 1-255 characters"))]
     pub project_id: Option<String>,
 }
 
@@ -69,37 +104,73 @@ fn default_limit() -> i64 {
     20
 }
 
-#[derive(Debug, Serialize)]
+/// Paginated list of runs
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ListRunsResponse {
+    /// List of runs
     pub runs: Vec<RunResponse>,
+    /// Total count of matching runs
     pub total: i64,
 }
 
-#[derive(Debug, Serialize)]
+/// Execution step within a run
+#[derive(Debug, Serialize, ToSchema)]
 pub struct StepResponse {
+    /// Unique step ID (prefixed with stp_)
+    #[schema(example = "stp_01HGXK...")]
     pub id: String,
+    /// Parent run ID
     pub run_id: String,
+    /// Step sequence number
     pub step_number: i32,
+    /// Type of step (llm, tool, etc.)
+    #[schema(example = "llm")]
     pub step_type: String,
+    /// Current step status
+    #[schema(example = "completed")]
     pub status: String,
+    /// Input to this step
     pub input: serde_json::Value,
+    /// Output from this step
     pub output: Option<serde_json::Value>,
+    /// Error details if failed
     pub error: Option<serde_json::Value>,
+    /// Tool name if tool step
     pub tool_name: Option<String>,
+    /// Model used if LLM step
     pub model: Option<String>,
+    /// Input tokens consumed
     pub input_tokens: Option<i32>,
+    /// Output tokens generated
     pub output_tokens: Option<i32>,
+    /// When step was created
     pub created_at: String,
+    /// When step completed
     pub completed_at: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct SubmitStepResultRequest {
+    #[validate(custom(function = "validate_step_status"))]
     pub status: String,
     pub output: Option<serde_json::Value>,
     pub error: Option<serde_json::Value>,
+    #[validate(range(min = 0, message = "input_tokens must be non-negative"))]
     pub input_tokens: Option<i32>,
+    #[validate(range(min = 0, message = "output_tokens must be non-negative"))]
     pub output_tokens: Option<i32>,
+}
+
+/// Custom validator for step status
+fn validate_step_status(status: &str) -> Result<(), validator::ValidationError> {
+    match status {
+        "completed" | "failed" | "waiting_approval" => Ok(()),
+        _ => {
+            let mut err = validator::ValidationError::new("invalid_status");
+            err.message = Some("status must be one of: completed, failed, waiting_approval".into());
+            Err(err)
+        }
+    }
 }
 
 // =============================================================================
@@ -148,11 +219,22 @@ fn step_to_response(step: fd_storage::models::Step) -> StepResponse {
 // =============================================================================
 
 /// Create a new run
+#[utoipa::path(
+    post,
+    path = "/v1/runs",
+    tag = "runs",
+    request_body = CreateRunRequest,
+    responses(
+        (status = 201, description = "Run created and queued", body = RunResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 404, description = "Agent not found"),
+    )
+)]
 #[instrument(skip(state, auth), fields(run_id, agent_id = %request.agent_id))]
 pub async fn create_run(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
-    Json(request): Json<CreateRunRequest>,
+    ValidatedJson(request): ValidatedJson<CreateRunRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let repos = state.repos();
 
@@ -280,6 +362,16 @@ pub async fn create_run(
 }
 
 /// Get a run by ID
+#[utoipa::path(
+    get,
+    path = "/v1/runs/{run_id}",
+    tag = "runs",
+    params(("run_id" = String, Path, description = "Run ID")),
+    responses(
+        (status = 200, description = "Run details", body = RunResponse),
+        (status = 404, description = "Run not found"),
+    )
+)]
 #[instrument(skip(state, _auth))]
 pub async fn get_run(
     State(state): State<AppState>,
@@ -297,11 +389,21 @@ pub async fn get_run(
 }
 
 /// List runs
+#[utoipa::path(
+    get,
+    path = "/v1/runs",
+    tag = "runs",
+    params(ListRunsQuery),
+    responses(
+        (status = 200, description = "List of runs", body = ListRunsResponse),
+        (status = 400, description = "Invalid query parameters"),
+    )
+)]
 #[instrument(skip(state, _auth))]
 pub async fn list_runs(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthContext>,
-    Query(query): Query<ListRunsQuery>,
+    ValidatedQuery(query): ValidatedQuery<ListRunsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let project_id = query
         .project_id
@@ -321,6 +423,17 @@ pub async fn list_runs(
 }
 
 /// Cancel a run
+#[utoipa::path(
+    post,
+    path = "/v1/runs/{run_id}/cancel",
+    tag = "runs",
+    params(("run_id" = String, Path, description = "Run ID to cancel")),
+    responses(
+        (status = 200, description = "Run cancelled", body = RunResponse),
+        (status = 400, description = "Run already in terminal state"),
+        (status = 404, description = "Run not found"),
+    )
+)]
 #[instrument(skip(state, auth), fields(run_id = %run_id))]
 pub async fn cancel_run(
     State(state): State<AppState>,
@@ -375,6 +488,18 @@ pub async fn cancel_run(
 }
 
 /// List steps for a run
+#[utoipa::path(
+    get,
+    path = "/v1/runs/{run_id}/steps",
+    tag = "runs",
+    params(
+        ("run_id" = String, Path, description = "Run ID")
+    ),
+    responses(
+        (status = 200, description = "List of steps for the run", body = Vec<StepResponse>),
+        (status = 404, description = "Run not found")
+    )
+)]
 #[instrument(skip(state, _auth))]
 pub async fn list_steps(
     State(state): State<AppState>,
@@ -401,7 +526,7 @@ pub async fn submit_step_result(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthContext>,
     Path((run_id, step_id)): Path<(String, String)>,
-    Json(request): Json<SubmitStepResultRequest>,
+    ValidatedJson(request): ValidatedJson<SubmitStepResultRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let repos = state.repos();
 
@@ -619,8 +744,9 @@ pub async fn submit_step_result(
 // Tool Policy Check
 // =============================================================================
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct CheckToolRequest {
+    #[validate(length(min = 1, max = 255, message = "tool_name must be 1-255 characters"))]
     pub tool_name: String,
 }
 
@@ -639,7 +765,7 @@ pub async fn check_tool_policy(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthContext>,
     Path(run_id): Path<String>,
-    Json(request): Json<CheckToolRequest>,
+    ValidatedJson(request): ValidatedJson<CheckToolRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let repos = state.repos();
 
