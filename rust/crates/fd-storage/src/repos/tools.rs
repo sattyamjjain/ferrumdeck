@@ -74,7 +74,6 @@ impl ToolsRepo {
         }
         if update.risk_level.is_some() {
             set_clauses.push(format!("risk_level = ${}", param_idx));
-            // param_idx += 1;
         }
 
         if set_clauses.is_empty() {

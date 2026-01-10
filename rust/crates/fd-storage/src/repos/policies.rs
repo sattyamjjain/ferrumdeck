@@ -86,7 +86,6 @@ impl PoliciesRepo {
         }
         if update.enabled.is_some() {
             set_clauses.push(format!("enabled = ${}", param_idx));
-            // param_idx += 1;
         }
 
         if set_clauses.is_empty() {

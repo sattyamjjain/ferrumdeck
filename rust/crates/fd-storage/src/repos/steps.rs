@@ -81,7 +81,6 @@ impl StepsRepo {
         }
         if update.completed_at.is_some() {
             set_clauses.push(format!("completed_at = ${}", param_idx));
-            // param_idx += 1;
         }
 
         if set_clauses.is_empty() {

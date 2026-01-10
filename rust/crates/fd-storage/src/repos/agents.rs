@@ -89,7 +89,6 @@ impl AgentsRepo {
         }
         if update.status.is_some() {
             set_clauses.push(format!("status = ${}", param_idx));
-            // param_idx += 1;
         }
 
         if set_clauses.is_empty() {

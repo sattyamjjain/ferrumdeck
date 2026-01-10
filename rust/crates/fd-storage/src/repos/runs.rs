@@ -91,7 +91,6 @@ impl RunsRepo {
         }
         if update.error.is_some() {
             set_clauses.push(format!("error = ${}", param_idx));
-            // param_idx += 1;
         }
 
         if set_clauses.is_empty() {

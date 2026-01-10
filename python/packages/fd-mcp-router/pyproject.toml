@@ -5,7 +5,6 @@ description = "FerrumDeck MCP tool router - deny-by-default tool execution"
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.0",
-    "httpx>=0.28",
     "mcp>=1.0",
 ]
 
