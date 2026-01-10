@@ -4,6 +4,9 @@
 
 [![CI](https://github.com/sattyamjjain/ferrumdeck/actions/workflows/ci.yml/badge.svg)](https://github.com/sattyamjjain/ferrumdeck/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.80+-orange.svg)](https://www.rust-lang.org/)
+[![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
+[![Next.js](https://img.shields.io/badge/next.js-16.1-black.svg)](https://nextjs.org/)
 
 ---
 
@@ -17,6 +20,7 @@
 - [Components](#components)
   - [Control Plane (Rust)](#control-plane-rust)
   - [Data Plane (Python)](#data-plane-python)
+  - [Dashboard (Next.js)](#dashboard-nextjs)
 - [API Reference](#api-reference)
 - [Configuration](#configuration)
 - [Security Model](#security-model)
@@ -85,52 +89,52 @@ FerrumDeck provides a **dual-plane architecture**:
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                              Clients                                      │
-│                  (Web UI / CLI / SDK / CI Pipelines)                     │
+│              (Dashboard / CLI / SDK / CI Pipelines)                      │
 └─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        CONTROL PLANE (Rust)                              │
-│                                                                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐  │
-│  │   Gateway    │  │    Policy    │  │   Registry   │  │    Audit    │  │
-│  │   (Axum)     │  │    Engine    │  │  (Versioned) │  │     Log     │  │
-│  │              │  │              │  │              │  │             │  │
-│  │ • REST API   │  │ • Allowlists │  │ • Agents     │  │ • Immutable │  │
-│  │ • Auth       │  │ • Budgets    │  │ • Tools      │  │ • Queryable │  │
-│  │ • Rate Limit │  │ • Approvals  │  │ • Prompts    │  │ • Compliant │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  └─────────────┘  │
-└─────────────────────────────────────────────────────────────────────────┘
-                          │                      │
-                ┌─────────┴─────────┐   ┌───────┴────────┐
-                ▼                   ▼   ▼                ▼
-        ┌───────────────┐    ┌───────────────────────────────┐
-        │     Redis     │    │          PostgreSQL           │
-        │    Streams    │    │                               │
-        │               │    │  • runs, steps, artifacts     │
-        │  • Job Queue  │    │  • agents, tools, versions    │
-        │  • Pub/Sub    │    │  • policies, approvals        │
-        └───────────────┘    │  • audit_events               │
-                │            └───────────────────────────────┘
-                ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         DATA PLANE (Python)                              │
-│                                                                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐  │
-│  │    Worker    │  │     LLM      │  │     MCP      │  │   Artifact  │  │
-│  │              │  │   Executor   │  │    Router    │  │    Store    │  │
-│  │              │  │              │  │              │  │             │  │
-│  │ • Poll Queue │  │ • Claude     │  │ • GitHub     │  │ • Logs      │  │
-│  │ • Execute    │  │ • GPT-4      │  │ • Filesystem │  │ • Outputs   │  │
-│  │ • Report     │  │ • Retry      │  │ • Custom     │  │ • Traces    │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  └─────────────┘  │
-└─────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-                        ┌───────────────────────┐
-                        │    OpenTelemetry      │
-                        │    Collector → Jaeger │
-                        └───────────────────────┘
+        │                           │                           │
+        ▼                           ▼                           ▼
+┌─────────────────┐    ┌──────────────────────────────────────────────────┐
+│    DASHBOARD    │    │                CONTROL PLANE (Rust)               │
+│   (Next.js)     │    │                                                   │
+│                 │    │  ┌───────────┐  ┌──────────┐  ┌──────────────┐   │
+│ • Runs Monitor  │◀──▶│  │  Gateway  │  │  Policy  │  │   Registry   │   │
+│ • Approvals     │    │  │  (Axum)   │  │  Engine  │  │  (Versioned) │   │
+│ • Analytics     │    │  │           │  │          │  │              │   │
+│ • Audit Trail   │    │  │ • REST    │  │ • Budget │  │ • Agents     │   │
+│ • Evals UI      │    │  │ • SSE     │  │ • Rules  │  │ • Tools      │   │
+│                 │    │  │ • Auth    │  │ • Gates  │  │ • Versions   │   │
+└─────────────────┘    │  └───────────┘  └──────────┘  └──────────────┘   │
+   :3000/:3001         │                                                   │
+                       │  ┌───────────┐  ┌──────────┐  ┌──────────────┐   │
+                       │  │   Audit   │  │   DAG    │  │    OTEL      │   │
+                       │  │    Log    │  │Scheduler │  │    Setup     │   │
+                       │  └───────────┘  └──────────┘  └──────────────┘   │
+                       └──────────────────────────────────────────────────┘
+                                              │
+                          ┌───────────────────┼───────────────────┐
+                          ▼                   ▼                   ▼
+                   ┌───────────────┐   ┌───────────────┐   ┌───────────┐
+                   │   PostgreSQL  │   │     Redis     │   │   Jaeger  │
+                   │   (pgvector)  │   │    Streams    │   │    UI     │
+                   │               │   │               │   │           │
+                   │ • runs/steps  │   │ • Job Queue   │   │ • Traces  │
+                   │ • agents/tools│   │ • Pub/Sub     │   │ • GenAI   │
+                   │ • audit_events│   │               │   │   Spans   │
+                   └───────────────┘   └───────┬───────┘   └───────────┘
+                        :5433                  │                :16686
+                                               ▼
+              ┌───────────────────────────────────────────────────────────┐
+              │                      DATA PLANE (Python)                    │
+              │                                                             │
+              │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+              │  │    Worker    │  │     LLM      │  │    MCP Router    │  │
+              │  │              │  │   Executor   │  │                  │  │
+              │  │ • Poll Queue │  │              │  │ • GitHub MCP     │  │
+              │  │ • Execute    │  │ • Claude     │  │ • Filesystem MCP │  │
+              │  │ • Report     │  │ • GPT-4      │  │ • Custom Tools   │  │
+              │  │ • Retry      │  │ • litellm    │  │ • Policy Checks  │  │
+              │  └──────────────┘  └──────────────┘  └──────────────────┘  │
+              └───────────────────────────────────────────────────────────┘
 ```
 
 ### Data Flow
@@ -143,6 +147,17 @@ FerrumDeck provides a **dual-plane architecture**:
 6. **Worker** reports result back to Gateway
 7. **Gateway** updates state, checks budget, enqueues next step
 8. **Repeat** until run completes or fails
+
+### Service Ports
+
+| Service | Port | Description |
+|---------|------|-------------|
+| Gateway | `8080` | REST API (Rust control plane) |
+| Dashboard | `3000` / `3001` | Next.js UI (dev / Docker) |
+| PostgreSQL | `5433` | Database (pgvector enabled) |
+| Redis | `6379` | Queue and cache |
+| Jaeger UI | `16686` | Distributed tracing |
+| OTel Collector | `4317` / `4318` | gRPC / HTTP endpoints |
 
 ---
 
@@ -210,7 +225,20 @@ curl http://localhost:8080/v1/runs/{run_id} \
   -H "Authorization: Bearer $API_KEY"
 ```
 
-### 4. View Traces
+### 4. Open the Dashboard
+
+```bash
+# Open the dashboard UI
+open http://localhost:3001
+```
+
+The dashboard provides a complete UI for:
+- Monitoring runs in real-time
+- Approving/rejecting tool calls
+- Managing agents and tools
+- Viewing analytics and audit trails
+
+### 5. View Traces
 
 Open Jaeger UI at [http://localhost:16686](http://localhost:16686) to see distributed traces.
 
@@ -222,11 +250,10 @@ Open Jaeger UI at [http://localhost:16686](http://localhost:16686) to see distri
 ferrumdeck/
 ├── .github/
 │   └── workflows/           # CI/CD pipelines
-│       ├── ci.yml          # Main CI (lint, test, build)
-│       └── evals.yml       # Evaluation pipeline
+│       └── ci.yml          # Main CI (lint, test, build, eval gate)
 │
 ├── contracts/               # API Contracts
-│   ├── openapi/            # OpenAPI 3.0 specifications
+│   ├── openapi/            # OpenAPI 3.1 specifications
 │   │   └── control-plane.openapi.yaml
 │   └── jsonschema/         # JSON Schema definitions
 │       ├── run.schema.json
@@ -236,45 +263,81 @@ ferrumdeck/
 │
 ├── rust/                    # Control Plane (Rust)
 │   ├── crates/             # Shared libraries
-│   │   ├── fd-core/        # IDs, errors, config
-│   │   ├── fd-policy/      # Policy engine
-│   │   ├── fd-registry/    # Versioned registry
-│   │   ├── fd-audit/       # Audit logging
-│   │   ├── fd-storage/     # Database & queue
-│   │   └── fd-otel/        # Observability
+│   │   ├── fd-core/        # IDs, errors, config, time utilities
+│   │   ├── fd-policy/      # Policy engine, budgets, rules
+│   │   ├── fd-registry/    # Agent/tool versioning
+│   │   ├── fd-audit/       # Audit logging, redaction
+│   │   ├── fd-storage/     # PostgreSQL repos + Redis queue
+│   │   ├── fd-dag/         # DAG scheduler
+│   │   └── fd-otel/        # OpenTelemetry setup
 │   └── services/
-│       └── gateway/        # HTTP API service
+│       └── gateway/        # Axum HTTP API service
 │
 ├── python/                  # Data Plane (Python)
 │   └── packages/
-│       ├── fd-runtime/     # Runtime primitives, models, client
-│       ├── fd-worker/      # Queue consumer, step executor
-│       ├── fd-mcp-router/  # MCP tool routing
+│       ├── fd-runtime/     # Workflow execution, tracing, client
+│       ├── fd-worker/      # Queue consumer, step execution
+│       ├── fd-mcp-router/  # MCP tool routing with policy checks
+│       ├── fd-mcp-tools/   # MCP server implementations (git, test runner)
 │       ├── fd-cli/         # Command-line interface
-│       └── fd-evals/       # Evaluation framework
+│       └── fd-evals/       # Evaluation framework with scorers
 │
-├── db/
-│   └── migrations/         # PostgreSQL migrations (SQLx)
+├── nextjs/                  # Dashboard (Next.js 16.1)
+│   ├── src/
+│   │   ├── app/            # App Router pages
+│   │   │   └── (dashboard)/ # Dashboard route group
+│   │   │       ├── runs/       # Run monitoring & detail
+│   │   │       ├── approvals/  # Approval queue
+│   │   │       ├── agents/     # Agent registry
+│   │   │       ├── tools/      # Tool registry
+│   │   │       ├── workflows/  # Workflow management
+│   │   │       ├── analytics/  # Usage charts
+│   │   │       ├── audit/      # Audit trail viewer
+│   │   │       ├── evals/      # Evaluation results
+│   │   │       ├── policies/   # Policy management
+│   │   │       ├── logs/       # Container logs
+│   │   │       └── settings/   # API keys & config
+│   │   ├── components/     # React components (shadcn/ui)
+│   │   ├── hooks/          # Custom React hooks
+│   │   ├── lib/            # API client, utilities
+│   │   └── types/          # TypeScript interfaces
+│   └── Dockerfile          # Multi-stage production build
+│
+├── evals/                   # Evaluation Suite
+│   ├── suites/             # Test suite definitions (YAML)
+│   │   ├── smoke.yaml      # Quick smoke tests
+│   │   └── regression.yaml # Full regression suite
+│   ├── datasets/           # Test datasets
+│   ├── agents/             # Agent configs for testing
+│   ├── scorers/            # Scorer configurations
+│   └── reports/            # Generated reports (gitignored)
+│
+├── examples/                # Example Agents
+│   └── safe-pr-agent/      # PR review agent example
+│       ├── agent.yaml      # Agent configuration
+│       └── workflow.yaml   # Multi-step workflow
 │
 ├── deploy/
 │   └── docker/
-│       └── compose.dev.yaml # Local development stack
+│       ├── compose.dev.yaml    # Local development stack
+│       ├── Dockerfile.gateway  # Gateway Docker build
+│       └── Dockerfile.worker   # Worker Docker build
+│
+├── config/
+│   └── mcp-config.json     # MCP server configuration
 │
 ├── observability/
 │   └── otel/
 │       └── collector.yaml  # OTel Collector configuration
 │
-├── evals/                   # Evaluation Suite
-│   ├── datasets/           # Test datasets (JSONL)
-│   └── reports/            # Generated reports
-│
-├── scripts/                 # Helper scripts
-│   ├── setup.sh            # Environment setup
-│   ├── run-evals.sh        # Run evaluations
-│   └── gen_openapi.sh      # Generate OpenAPI docs
+├── docs/                    # Documentation
+│   ├── architecture/       # System design docs
+│   ├── adr/                # Architecture decisions
+│   ├── security/           # Security documentation
+│   └── runbooks/           # Operational guides
 │
 ├── Cargo.toml              # Rust workspace manifest
-├── pyproject.toml          # Python workspace manifest
+├── pyproject.toml          # Python workspace manifest (uv)
 ├── Makefile                # Development commands
 └── .env.example            # Environment template
 ```
@@ -523,6 +586,91 @@ summary = runner.run_eval(
 # Returns: pass_rate, avg_score, cost_per_task, regressions
 ```
 
+#### fd-mcp-tools — MCP Server Implementations
+
+Built-in MCP tool servers for common operations:
+
+```python
+# Git operations server
+from fd_mcp_tools import GitMCPServer
+
+# Test runner server
+from fd_mcp_tools import TestRunnerMCPServer
+```
+
+---
+
+### Dashboard (Next.js)
+
+A professional admin UI built with Next.js 16.1, React 19, and Tailwind CSS 4.
+
+#### Key Pages
+
+| Page | Description |
+|------|-------------|
+| `/runs` | Real-time run monitoring with step timeline visualization |
+| `/runs/{runId}` | Detailed run view with step-by-step execution trace |
+| `/approvals` | Approval queue with approve/reject actions |
+| `/agents` | Agent registry with version management |
+| `/tools` | Tool registry and MCP server status |
+| `/workflows` | Multi-step workflow definitions and runs |
+| `/analytics` | Usage charts, cost tracking, performance metrics |
+| `/audit` | Immutable audit trail viewer with filtering |
+| `/evals` | Evaluation suite results and comparisons |
+| `/policies` | Policy configuration and management |
+| `/settings` | API key management and configuration |
+
+#### Technology Stack
+
+```
+Next.js 16.1        # App Router with standalone output
+React 19.2          # Concurrent features, Server Components
+Tailwind CSS 4      # Utility-first styling with dark theme
+TanStack Query      # Server state with polling (2-3s intervals)
+TanStack Table      # Data tables with sorting/filtering
+Radix UI            # Accessible component primitives
+shadcn/ui           # Pre-built component library
+Recharts            # Analytics visualizations
+nuqs                # URL state management
+sonner              # Toast notifications
+```
+
+#### Running the Dashboard
+
+```bash
+# Development (hot reload)
+cd nextjs && npm install && npm run dev
+# Open http://localhost:3000
+
+# Production build
+npm run build
+npm start
+
+# Docker
+docker build -t ferrumdeck-dashboard nextjs/
+docker run -p 3000:3000 \
+  -e GATEWAY_URL=http://gateway:8080 \
+  -e FD_API_KEY=fd_dev_key_abc123 \
+  ferrumdeck-dashboard
+```
+
+#### Environment Variables
+
+```bash
+GATEWAY_URL=http://localhost:8080     # Control plane URL
+FD_API_KEY=fd_dev_key_abc123          # API key for authentication
+NEXT_PUBLIC_POLL_INTERVAL=2000        # Polling interval (ms)
+```
+
+#### API Proxy (BFF Pattern)
+
+The dashboard proxies all API calls through `/api/v1/*` routes:
+
+```typescript
+// src/app/api/v1/[...path]/route.ts
+// Forwards requests to GATEWAY_URL with authentication
+```
+
 ---
 
 ## API Reference
@@ -551,6 +699,7 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIs...
 | POST | `/v1/runs/{runId}/cancel` | Cancel a running run |
 | GET | `/v1/runs/{runId}/steps` | List steps in a run |
 | POST | `/v1/runs/{runId}/steps/{stepId}` | Submit step result (worker) |
+| POST | `/v1/runs/{runId}/check-tool` | Check tool policy before execution |
 
 #### Registry
 
@@ -559,9 +708,13 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIs...
 | GET | `/v1/registry/agents` | List agents |
 | POST | `/v1/registry/agents` | Create agent |
 | GET | `/v1/registry/agents/{agentId}` | Get agent details |
+| GET | `/v1/registry/agents/{agentId}/versions` | List agent versions |
 | POST | `/v1/registry/agents/{agentId}/versions` | Create agent version |
+| GET | `/v1/registry/agents/{agentId}/stats` | Get agent statistics |
 | GET | `/v1/registry/tools` | List tools |
 | POST | `/v1/registry/tools` | Create tool |
+| GET | `/v1/registry/tools/{toolId}` | Get tool details |
+| GET | `/v1/registry/mcp-servers` | List MCP servers |
 
 #### Approvals
 
@@ -570,6 +723,24 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIs...
 | GET | `/v1/approvals` | List pending approvals |
 | PUT | `/v1/approvals/{approvalId}` | Approve or reject |
 
+#### Policies
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/policies` | List policies |
+| POST | `/v1/policies` | Create policy |
+| GET | `/v1/policies/{policyId}` | Get policy details |
+| PATCH | `/v1/policies/{policyId}` | Update policy |
+| DELETE | `/v1/policies/{policyId}` | Delete policy |
+
+#### API Keys
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/api-keys` | List API keys |
+| GET | `/v1/api-keys/{keyId}` | Get API key details |
+| POST | `/v1/api-keys/{keyId}/revoke` | Revoke an API key |
+
 #### Workflows
 
 | Method | Endpoint | Description |
@@ -577,15 +748,22 @@ Authorization: Bearer eyJhbGciOiJSUzI1NiIs...
 | POST | `/v1/workflows` | Create workflow |
 | GET | `/v1/workflows` | List workflows |
 | GET | `/v1/workflows/{workflowId}` | Get workflow |
+| GET | `/v1/workflows/{workflowId}/runs` | List workflow runs |
 | POST | `/v1/workflow-runs` | Execute workflow |
 | GET | `/v1/workflow-runs/{runId}` | Get execution status |
+| POST | `/v1/workflow-runs/{runId}/cancel` | Cancel workflow run |
+| GET | `/v1/workflow-runs/{runId}/executions` | List step executions |
+| POST | `/v1/workflow-runs/{runId}/executions` | Create step execution |
+| POST | `/v1/workflow-runs/{runId}/executions/{executionId}` | Submit step result |
 
-#### Health
+#### Health & Documentation
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Liveness probe |
 | GET | `/ready` | Readiness probe |
+| GET | `/docs` | Swagger UI documentation |
+| GET | `/api-docs/openapi.json` | OpenAPI specification |
 
 ### Example: Create a Run
 
@@ -820,6 +998,59 @@ Automatic cost calculation based on model pricing:
 
 ---
 
+## Example Agents
+
+### Safe PR Agent
+
+A flagship example demonstrating FerrumDeck's governance features. Located in `examples/safe-pr-agent/`.
+
+**Agent Configuration** (`agent.yaml`):
+```yaml
+name: safe-pr-agent
+description: |
+  Reads a repository, analyzes code, proposes changes,
+  runs tests in sandbox, and creates a pull request.
+  Every action is permissioned, traced, and cost-accounted.
+
+default_model: claude-sonnet-4-20250514
+
+# Read-only tools allowed by default
+allowed_tools:
+  - read_file
+  - list_files
+  - search_code
+
+# These require human approval
+approval_required_tools:
+  - write_file
+  - create_pr
+
+# Governance limits
+budget:
+  max_input_tokens: 50000
+  max_output_tokens: 20000
+  max_tool_calls: 30
+  max_wall_time_ms: 180000  # 3 minutes
+  max_cost_cents: 100       # $1
+```
+
+**Create Your Own Agent**:
+```bash
+# Copy the example
+cp -r examples/safe-pr-agent examples/my-agent
+
+# Edit the configuration
+vim examples/my-agent/agent.yaml
+
+# Register with the control plane
+curl -X POST http://localhost:8080/v1/registry/agents \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d @examples/my-agent/agent.yaml
+```
+
+---
+
 ## Evaluation Framework
 
 ### Running Evaluations
@@ -921,11 +1152,15 @@ make run-worker
 ### Running Tests
 
 ```bash
+# All tests
+make test
+
 # Rust tests
 cargo test --workspace
 
 # Python tests
-uv run pytest
+uv run pytest python/packages/fd-evals/tests/ -v
+uv run pytest python/packages/fd-worker/tests/ -v
 
 # Specific package
 cargo test -p fd-policy
@@ -934,11 +1169,17 @@ uv run pytest python/packages/fd-runtime
 # With coverage
 cargo tarpaulin --out Html
 uv run pytest --cov=fd_runtime --cov-report=html
+
+# Next.js type checking
+cd nextjs && npx tsc --noEmit
 ```
 
 ### Code Quality
 
 ```bash
+# All checks
+make check
+
 # Rust
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -947,6 +1188,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 uv run ruff check python/
 uv run ruff format --check python/
 uv run pyright python/
+
+# Next.js
+cd nextjs && npm run lint
 ```
 
 ---
@@ -955,30 +1199,43 @@ uv run pyright python/
 
 ### Production Checklist
 
-- [ ] **Database**: Use managed PostgreSQL (RDS, Cloud SQL, etc.)
+- [ ] **Database**: Use managed PostgreSQL with pgvector (RDS, Cloud SQL, etc.)
 - [ ] **Redis**: Use managed Redis (ElastiCache, Redis Cloud, etc.)
 - [ ] **TLS**: Enable HTTPS for all API endpoints
-- [ ] **Secrets**: Use secrets manager for API keys
+- [ ] **Secrets**: Use secrets manager for API keys and LLM tokens
 - [ ] **Monitoring**: Set up CloudWatch/Datadog metrics
 - [ ] **Logging**: Centralized logging (ELK, CloudWatch Logs)
 - [ ] **Backups**: Daily PostgreSQL snapshots
 - [ ] **Rate Limiting**: Configure per-tenant limits
 - [ ] **OAuth2**: Enable for production authentication
+- [ ] **Dashboard**: Deploy behind CDN with proper CORS settings
+- [ ] **Workers**: Scale horizontally with multiple instances
 
 ### Docker Deployment
 
 ```bash
-# Build images
+# Build all images
 docker build -t ferrumdeck-gateway -f deploy/docker/Dockerfile.gateway .
 docker build -t ferrumdeck-worker -f deploy/docker/Dockerfile.worker .
+docker build -t ferrumdeck-dashboard nextjs/
 
-# Run with Docker Compose
-docker compose -f deploy/docker/compose.prod.yaml up -d
+# Run with Docker Compose (development)
+docker compose --env-file .env -f deploy/docker/compose.dev.yaml up -d
+
+# Services will be available at:
+#   Gateway:   http://localhost:8080
+#   Dashboard: http://localhost:3001
+#   Jaeger:    http://localhost:16686
 ```
 
 ### Kubernetes
 
 Helm charts coming soon. For now, use the Docker images with your preferred orchestration.
+
+**Minimum resources per service:**
+- Gateway: 512MB RAM, 0.5 CPU
+- Worker: 1GB RAM, 1 CPU (scales horizontally)
+- Dashboard: 256MB RAM, 0.25 CPU
 
 ---
 
@@ -1008,8 +1265,26 @@ Apache-2.0 — see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-- [Axum](https://github.com/tokio-rs/axum) — Rust web framework
-- [SQLx](https://github.com/launchbadge/sqlx) — Async SQL toolkit
+**Rust Control Plane:**
+- [Axum](https://github.com/tokio-rs/axum) — Web framework
+- [SQLx](https://github.com/launchbadge/sqlx) — Async SQL with compile-time checks
+- [Tower](https://github.com/tower-rs/tower) — Middleware framework
+- [Tokio](https://github.com/tokio-rs/tokio) — Async runtime
+
+**Python Data Plane:**
 - [litellm](https://github.com/BerriAI/litellm) — Unified LLM interface
 - [MCP](https://modelcontextprotocol.io/) — Model Context Protocol
-- [OpenTelemetry](https://opentelemetry.io/) — Observability framework
+- [Pydantic](https://github.com/pydantic/pydantic) — Data validation
+- [Tenacity](https://github.com/jd/tenacity) — Retry with backoff
+
+**Dashboard:**
+- [Next.js](https://nextjs.org/) — React framework
+- [Tailwind CSS](https://tailwindcss.com/) — Utility-first CSS
+- [shadcn/ui](https://ui.shadcn.com/) — Component library
+- [TanStack Query](https://tanstack.com/query) — Server state management
+- [Radix UI](https://www.radix-ui.com/) — Accessible primitives
+- [Recharts](https://recharts.org/) — Chart library
+
+**Observability:**
+- [OpenTelemetry](https://opentelemetry.io/) — Tracing framework
+- [Jaeger](https://www.jaegertracing.io/) — Distributed tracing UI
