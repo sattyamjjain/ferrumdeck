@@ -4,7 +4,9 @@
 
 set -e
 
-FERRUMDECK_ROOT="/Users/sattyamjain/CommonProjects/ferrumdeck"
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FERRUMDECK_ROOT="$SCRIPT_DIR"
 cd "$FERRUMDECK_ROOT"
 
 echo "======================================================================"

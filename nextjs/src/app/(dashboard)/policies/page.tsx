@@ -8,18 +8,17 @@ import { PolicyCard } from "@/components/policies/policy-card";
 import { BudgetTable } from "@/components/policies/budget-table";
 import { PolicySimulator } from "@/components/policies/policy-simulator";
 import { usePolicies, useBudgets, useDeletePolicy, useDuplicatePolicy, useDeleteBudget } from "@/hooks/use-policies";
+import { useAdmin } from "@/hooks/use-admin";
 import { EmptyState } from "@/components/shared/empty-state";
 import { LoadingSpinner } from "@/components/shared/loading-spinner";
 import type { Policy, Budget } from "@/types/policy";
 import { toast } from "sonner";
 
-// Temporary admin flag - in production this would come from auth context
-const IS_ADMIN = true;
-
 function PoliciesTab() {
   const { data: policies, isLoading, refetch, isRefetching } = usePolicies();
   const deletePolicy = useDeletePolicy();
   const duplicatePolicy = useDuplicatePolicy();
+  const isAdmin = useAdmin();
 
   const handleEdit = (policy: Policy) => {
     // TODO: Open edit dialog
@@ -85,7 +84,7 @@ function PoliciesTab() {
             onEdit={handleEdit}
             onDuplicate={handleDuplicate}
             onDelete={handleDelete}
-            isAdmin={IS_ADMIN}
+            isAdmin={isAdmin}
           />
         ))}
       </div>
@@ -96,6 +95,7 @@ function PoliciesTab() {
 function BudgetsTab() {
   const { data: budgets, isLoading, refetch, isRefetching } = useBudgets();
   const deleteBudget = useDeleteBudget();
+  const isAdmin = useAdmin();
 
   const handleEdit = (budget: Budget) => {
     // TODO: Open edit dialog
@@ -138,7 +138,7 @@ function BudgetsTab() {
         budgets={budgets || []}
         onEdit={handleEdit}
         onDelete={handleDelete}
-        isAdmin={IS_ADMIN}
+        isAdmin={isAdmin}
       />
     </div>
   );

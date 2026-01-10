@@ -361,9 +361,7 @@ export class SubscriptionManager {
 
     channelState.reconnectAttempts++;
 
-    console.log(
-      `[SubscriptionManager] Reconnecting to ${channel} in ${delay}ms (attempt ${channelState.reconnectAttempts})`
-    );
+    // Debug logging removed for production
 
     // Schedule reconnection
     channelState.reconnectTimeoutId = setTimeout(() => {

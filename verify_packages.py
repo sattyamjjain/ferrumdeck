@@ -14,8 +14,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Base directory
-FERRUMDECK_ROOT = Path("/Users/sattyamjain/CommonProjects/ferrumdeck")
+# Base directory - use script location to find project root
+FERRUMDECK_ROOT = Path(__file__).parent.resolve()
 PACKAGES_DIR = FERRUMDECK_ROOT / "python" / "packages"
 
 # Test cases for each package
