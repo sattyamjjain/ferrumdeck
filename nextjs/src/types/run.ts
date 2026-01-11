@@ -79,6 +79,9 @@ export interface Run {
   output_tokens: number;
   tool_calls: number;
   cost_cents: number;
+  // Airlock security fields
+  threat_count?: number;
+  highest_threat_level?: string;
   // Timestamps
   created_at: string;
   started_at?: string;
@@ -115,6 +118,10 @@ export interface Step {
   // Token tracking
   input_tokens?: number;
   output_tokens?: number;
+  // Airlock security fields
+  airlock_risk_score?: number;
+  airlock_violation_type?: string;
+  airlock_blocked?: boolean;
   // Timestamps
   created_at: string;
   started_at?: string;

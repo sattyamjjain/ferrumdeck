@@ -2,6 +2,7 @@
 
 from fd_worker.agentic import AgenticExecutor, AgenticResult, MCPConnection, ToolInfo, ToolResult
 from fd_worker.exceptions import (
+    AirlockBlockedError,
     ApprovalRequiredError,
     BudgetExceededError,
     LLMError,
@@ -36,6 +37,7 @@ from fd_worker.validation import (
 __all__ = [
     "AgenticExecutor",
     "AgenticResult",
+    "AirlockBlockedError",
     "ApprovalRequiredError",
     "BudgetExceededError",
     "LLMError",

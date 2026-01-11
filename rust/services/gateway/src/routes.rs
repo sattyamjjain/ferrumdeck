@@ -127,6 +127,16 @@ pub fn build_router(state: AppState) -> Router {
                     "/workflow-runs/{run_id}/executions/{execution_id}",
                     post(handlers::workflows::submit_step_execution_result),
                 )
+                // Security (Airlock)
+                .route("/security/threats", get(handlers::security::list_threats))
+                .route(
+                    "/security/threats/{threat_id}",
+                    get(handlers::security::get_threat),
+                )
+                .route(
+                    "/security/config",
+                    get(handlers::security::get_config).put(handlers::security::update_config),
+                )
                 // Apply rate limiting after auth (so we can use tenant ID)
                 .layer(middleware::from_fn_with_state(
                     state.clone(),

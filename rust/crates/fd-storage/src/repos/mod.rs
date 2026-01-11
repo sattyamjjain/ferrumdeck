@@ -9,6 +9,7 @@ pub mod policies;
 pub mod quotas;
 pub mod runs;
 pub mod steps;
+pub mod threats;
 pub mod tools;
 pub mod workflows;
 
@@ -18,5 +19,6 @@ pub use audit::AuditRepo;
 pub use policies::PoliciesRepo;
 pub use runs::RunsRepo;
 pub use steps::StepsRepo;
+pub use threats::ThreatsRepo;
 pub use tools::ToolsRepo;
 pub use workflows::WorkflowsRepo;

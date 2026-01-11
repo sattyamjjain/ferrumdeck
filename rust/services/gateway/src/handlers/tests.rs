@@ -115,6 +115,12 @@ mod run_tests {
             requires_approval: false,
             decision_id: "dec_01".to_string(),
             reason: "Tool is in allowlist".to_string(),
+            risk_score: 0,
+            risk_level: "low".to_string(),
+            violation_type: None,
+            violation_details: None,
+            blocked_by_airlock: false,
+            shadow_mode: false,
         };
 
         let json = serde_json::to_string(&response).unwrap();

@@ -7,6 +7,7 @@ pub mod orchestrator;
 pub mod policies;
 pub mod registry;
 pub mod runs;
+pub mod security;
 pub mod workflows;
 
 #[cfg(test)]

@@ -6,6 +6,7 @@ export * from "./approval";
 export * from "./workflow";
 export * from "./audit";
 export * from "./api-key";
+export * from "./security";
 
 // Common types used across the application
 export interface PaginationParams {

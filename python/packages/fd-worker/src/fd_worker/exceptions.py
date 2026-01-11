@@ -43,6 +43,40 @@ class PolicyDeniedError(WorkerError):
         )
 
 
+class AirlockBlockedError(PolicyDeniedError):
+    """Tool call blocked by Airlock security layer.
+
+    This exception is raised when Airlock detects a security violation
+    in the tool call payload (e.g., RCE patterns, velocity breach, exfiltration).
+    """
+
+    def __init__(
+        self,
+        tool_name: str,
+        risk_score: int,
+        risk_level: str,
+        violation_type: str,
+        violation_details: str | None = None,
+    ):
+        self.risk_score = risk_score
+        self.risk_level = risk_level
+        self.violation_type = violation_type
+        self.violation_details = violation_details
+        reason = f"Airlock blocked ({violation_type}, risk={risk_level})"
+        if violation_details:
+            reason += f": {violation_details}"
+        super().__init__(tool_name, reason)
+        # Override details with Airlock-specific information
+        self.details = {
+            "tool_name": tool_name,
+            "risk_score": risk_score,
+            "risk_level": risk_level,
+            "violation_type": violation_type,
+            "violation_details": violation_details,
+            "blocked_by_airlock": True,
+        }
+
+
 class ApprovalRequiredError(WorkerError):
     """Tool call requires human approval before execution."""
 

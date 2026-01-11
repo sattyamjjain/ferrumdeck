@@ -6,6 +6,7 @@ import {
   Database,
   User,
   Shield,
+  ShieldAlert,
   CheckCircle,
   XCircle,
   Clock,
@@ -25,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { JsonViewer } from "@/components/shared/json-viewer";
+import { SecurityDetailSection } from "@/components/security";
 import {
   cn,
   formatDuration,
@@ -121,7 +123,7 @@ interface StepDetailPanelProps {
 }
 
 export function StepDetailPanel({ step, className }: StepDetailPanelProps) {
-  const [activeTab, setActiveTab] = useState<"input" | "output" | "error" | "timing">("input");
+  const [activeTab, setActiveTab] = useState<"input" | "output" | "error" | "security" | "timing">("input");
   const [currentTime, setCurrentTime] = useState(() => Date.now());
 
   const handleCopyId = useCallback(async () => {
@@ -182,10 +184,15 @@ export function StepDetailPanel({ step, className }: StepDetailPanelProps) {
       ? currentTime - new Date(step.started_at).getTime()
       : 0;
 
+  // Check if step has security violation (either from step fields or output.airlock_violation)
+  const hasSecurityViolation = step.airlock_violation_type ||
+    (typeof step.output === "object" && step.output !== null && "airlock_violation" in (step.output as Record<string, unknown>));
+
   const tabs = [
     { id: "input" as const, label: "Input", icon: ChevronRight },
     { id: "output" as const, label: "Output", icon: FileText },
     ...(step.error ? [{ id: "error" as const, label: "Error", icon: AlertTriangle }] : []),
+    ...(hasSecurityViolation ? [{ id: "security" as const, label: "Security", icon: ShieldAlert }] : []),
     { id: "timing" as const, label: "Timing", icon: Timer },
   ];
 
@@ -301,6 +308,7 @@ export function StepDetailPanel({ step, className }: StepDetailPanelProps) {
           {activeTab === "input" && <InputContent step={step} />}
           {activeTab === "output" && <OutputContent step={step} />}
           {activeTab === "error" && <ErrorContent step={step} />}
+          {activeTab === "security" && <SecurityContent step={step} />}
           {activeTab === "timing" && <TimingContent step={step} stepDuration={stepDuration} />}
         </div>
       </ScrollArea>
@@ -538,6 +546,70 @@ function ErrorContent({ step }: { step: Step }) {
         </div>
       )}
     </div>
+  );
+}
+
+// Security content tab
+function SecurityContent({ step }: { step: Step }) {
+  // Import types from security
+  type RiskLevel = "low" | "medium" | "high" | "critical";
+  type ViolationType = "rcepattern" | "velocitybreach" | "loopdetection" | "exfiltrationattempt" | "ipaddressused";
+
+  // Map snake_case violation types to the expected format
+  const normalizeViolationType = (type: string): ViolationType => {
+    const mapping: Record<string, ViolationType> = {
+      "rce_pattern": "rcepattern",
+      "rcepattern": "rcepattern",
+      "velocity_breach": "velocitybreach",
+      "velocitybreach": "velocitybreach",
+      "loop_detection": "loopdetection",
+      "loopdetection": "loopdetection",
+      "exfiltration_attempt": "exfiltrationattempt",
+      "exfiltrationattempt": "exfiltrationattempt",
+      "ip_address_used": "ipaddressused",
+      "ipaddressused": "ipaddressused",
+    };
+    return mapping[type] || "rcepattern";
+  };
+
+  // Extract violation data from step fields or output
+  const outputViolation =
+    typeof step.output === "object" &&
+    step.output !== null &&
+    "airlock_violation" in (step.output as Record<string, unknown>)
+      ? (step.output as Record<string, unknown>).airlock_violation as {
+          risk_score?: number;
+          risk_level?: string;
+          violation_type?: string;
+          violation_details?: string;
+          blocked_payload?: Record<string, unknown>;
+        }
+      : null;
+
+  // Build violation object from step fields or output
+  const violation = step.airlock_violation_type
+    ? {
+        risk_score: step.airlock_risk_score || 0,
+        risk_level: (step.airlock_violation_type === "rcepattern" || step.airlock_violation_type === "rce_pattern" ? "critical" : "high") as RiskLevel,
+        violation_type: normalizeViolationType(step.airlock_violation_type),
+        violation_details: undefined as string | undefined,
+      }
+    : outputViolation
+    ? {
+        risk_score: outputViolation.risk_score || 0,
+        risk_level: (outputViolation.risk_level || "medium") as RiskLevel,
+        violation_type: normalizeViolationType(outputViolation.violation_type || "rcepattern"),
+        violation_details: outputViolation.violation_details,
+      }
+    : null;
+
+  const blockedPayload = outputViolation?.blocked_payload;
+
+  return (
+    <SecurityDetailSection
+      violation={violation || undefined}
+      blockedPayload={blockedPayload}
+    />
   );
 }
 

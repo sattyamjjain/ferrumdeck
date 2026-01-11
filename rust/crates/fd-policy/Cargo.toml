@@ -1,6 +1,6 @@
 [package]
 name = "fd-policy"
-description = "FerrumDeck policy engine: allowlists, budgets, approvals"
+description = "FerrumDeck policy engine: allowlists, budgets, approvals, Airlock security"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -19,5 +19,10 @@ thiserror = { workspace = true }
 # Tracing
 tracing = { workspace = true }
 
+# Airlock dependencies
+regex = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+
 [dev-dependencies]
 tokio-test = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

@@ -750,29 +750,67 @@ pub async fn submit_step_result(
 // Tool Policy Check
 // =============================================================================
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CheckToolRequest {
+    /// Tool name being called
     #[validate(length(min = 1, max = 255, message = "tool_name must be 1-255 characters"))]
     pub tool_name: String,
+
+    /// Tool input payload for Airlock inspection
+    #[serde(default)]
+    pub tool_input: Option<serde_json::Value>,
+
+    /// Estimated cost in cents for this tool call (for velocity tracking)
+    #[serde(default)]
+    pub estimated_cost_cents: Option<u64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct CheckToolResponse {
+    /// Whether the tool call is allowed
     pub allowed: bool,
+    /// Whether approval is required before execution
     pub requires_approval: bool,
+    /// Unique decision ID for audit trail
     pub decision_id: String,
+    /// Human-readable reason for the decision
     pub reason: String,
+
+    // Airlock security fields
+    /// Risk score from Airlock inspection (0-100)
+    #[serde(default)]
+    pub risk_score: u8,
+    /// Risk level: low, medium, high, critical
+    #[serde(default)]
+    pub risk_level: String,
+    /// Type of violation detected (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub violation_type: Option<String>,
+    /// Details about the violation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub violation_details: Option<String>,
+    /// Whether blocked by Airlock (vs policy)
+    #[serde(default)]
+    pub blocked_by_airlock: bool,
+    /// Whether Airlock is in shadow mode (log-only)
+    #[serde(default)]
+    pub shadow_mode: bool,
 }
 
-/// Check if a tool call is allowed by policy
+/// Check if a tool call is allowed by policy and Airlock security inspection
 /// Workers should call this before executing tool steps
-#[instrument(skip(state, _auth), fields(run_id = %run_id, tool_name = %request.tool_name))]
+#[instrument(skip(state, auth), fields(run_id = %run_id, tool_name = %request.tool_name))]
 pub async fn check_tool_policy(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthContext>,
+    Extension(auth): Extension<AuthContext>,
     Path(run_id): Path<String>,
     ValidatedJson(request): ValidatedJson<CheckToolRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    use fd_core::RunId;
+    use fd_policy::InspectionContext;
+    use fd_storage::models::{CreateThreat, CreateVelocityEvent};
+    use sha2::{Digest, Sha256};
+
     let repos = state.repos();
 
     let run = repos
@@ -781,10 +819,108 @@ pub async fn check_tool_policy(
         .await?
         .ok_or_else(|| ApiError::not_found("Run", &run_id))?;
 
-    // Check tool against policy
+    // Step 1: Check tool against policy allowlist
     let decision = state.policy_engine.evaluate_tool_call(&request.tool_name);
 
-    // Audit the policy decision
+    // Step 2: Run Airlock inspection on the tool input payload
+    let tool_input = request.tool_input.clone().unwrap_or(serde_json::json!({}));
+    let parsed_run_id = RunId::parse(&run_id).unwrap_or_else(|_| RunId::new());
+    let inspection_ctx = InspectionContext {
+        run_id: parsed_run_id,
+        tool_name: request.tool_name.clone(),
+        tool_input: tool_input.clone(),
+        estimated_cost_cents: request.estimated_cost_cents,
+    };
+
+    let airlock_result = state.airlock.inspect(&inspection_ctx).await;
+
+    // Step 3: Persist threat if detected
+    if let Some(ref violation) = airlock_result.violation {
+        let threat_id = format!("thr_{}", Ulid::new());
+
+        let create_threat = CreateThreat {
+            id: threat_id.clone(),
+            run_id: run_id.clone(),
+            step_id: None, // We don't have step_id at this point
+            tool_name: request.tool_name.clone(),
+            risk_score: violation.risk_score as i32,
+            risk_level: violation.risk_level.as_str().to_string(),
+            violation_type: format!("{:?}", violation.violation_type).to_lowercase(),
+            violation_details: Some(violation.details.clone()),
+            blocked_payload: Some(tool_input.clone()),
+            trigger_pattern: Some(violation.trigger.clone()),
+            action: if airlock_result.allowed {
+                "logged".to_string()
+            } else {
+                "blocked".to_string()
+            },
+            shadow_mode: airlock_result.shadow_mode,
+            project_id: Some(run.project_id.clone()),
+            tenant_id: Some(auth.tenant_id.clone()),
+        };
+
+        // Spawn threat persistence in background
+        let threats_repo = repos.threats();
+        tokio::spawn(async move {
+            if let Err(e) = threats_repo.create(create_threat).await {
+                tracing::warn!(error = %e, "Failed to persist threat record");
+            }
+        });
+
+        // Audit the Airlock violation
+        let audit_event = AuditEventBuilder::new("airlock.violation_detected", resource::RUN)
+            .actor(actor::SYSTEM, None)
+            .resource_id(&run_id)
+            .run(&run_id)
+            .project(&run.project_id)
+            .tenant(auth.tenant_id.clone())
+            .details(serde_json::json!({
+                "tool_name": request.tool_name,
+                "violation_type": format!("{:?}", violation.violation_type),
+                "risk_score": violation.risk_score,
+                "risk_level": violation.risk_level.as_str(),
+                "trigger": violation.trigger,
+                "shadow_mode": airlock_result.shadow_mode,
+                "blocked": !airlock_result.allowed,
+            }))
+            .build();
+        repos.spawn_audit(audit_event);
+
+        warn!(
+            run_id = %run_id,
+            tool_name = %request.tool_name,
+            violation_type = ?violation.violation_type,
+            risk_score = violation.risk_score,
+            shadow_mode = airlock_result.shadow_mode,
+            "Airlock violation detected"
+        );
+    }
+
+    // Step 4: Record velocity event for successful calls
+    if airlock_result.allowed && airlock_result.violation.is_none() {
+        if let Some(cost) = request.estimated_cost_cents {
+            // Use SHA256 for input hashing
+            let mut hasher = Sha256::new();
+            hasher.update(tool_input.to_string().as_bytes());
+            let input_hash = format!("{:x}", hasher.finalize());
+
+            let velocity_event = CreateVelocityEvent {
+                run_id: run_id.clone(),
+                tool_name: request.tool_name.clone(),
+                tool_input_hash: input_hash,
+                cost_cents: cost as i32,
+            };
+
+            let threats_repo = repos.threats();
+            tokio::spawn(async move {
+                if let Err(e) = threats_repo.create_velocity_event(velocity_event).await {
+                    tracing::warn!(error = %e, "Failed to record velocity event");
+                }
+            });
+        }
+    }
+
+    // Step 5: Audit the policy decision
     let audit_action = if decision.is_allowed() {
         action::POLICY_ALLOWED
     } else if decision.needs_approval() {
@@ -802,17 +938,36 @@ pub async fn check_tool_policy(
             "tool_name": request.tool_name,
             "decision": format!("{:?}", decision.kind),
             "reason": decision.reason,
+            "airlock_risk_score": airlock_result.risk_score,
+            "airlock_blocked": !airlock_result.allowed,
         }))
         .build();
     repos.spawn_audit(audit_event);
 
-    // If denied, update run status to PolicyBlocked
-    if decision.is_denied() {
+    // Step 6: Determine final allowed status
+    // Tool is allowed if: policy allows AND (airlock allows OR airlock is in shadow mode)
+    let policy_allowed = decision.is_allowed();
+    let airlock_blocked = !airlock_result.allowed;
+    let final_allowed = policy_allowed && !airlock_blocked;
+
+    // Step 7: If blocked by either policy or airlock, update run status
+    if !final_allowed {
+        let (status, reason) = if !policy_allowed {
+            (RunStatus::PolicyBlocked, decision.reason.clone())
+        } else {
+            let violation_msg = airlock_result
+                .violation
+                .as_ref()
+                .map(|v| v.details.clone())
+                .unwrap_or_else(|| "Airlock security violation".to_string());
+            (RunStatus::PolicyBlocked, violation_msg)
+        };
+
         warn!(
             run_id = %run_id,
             tool_name = %request.tool_name,
-            reason = %decision.reason,
-            "Tool call blocked by policy"
+            reason = %reason,
+            "Tool call blocked"
         );
 
         repos
@@ -820,8 +975,8 @@ pub async fn check_tool_policy(
             .update(
                 &run_id,
                 UpdateRun {
-                    status: Some(RunStatus::PolicyBlocked),
-                    status_reason: Some(decision.reason.clone()),
+                    status: Some(status),
+                    status_reason: Some(reason.clone()),
                     completed_at: Some(Utc::now()),
                     ..Default::default()
                 },
@@ -829,10 +984,32 @@ pub async fn check_tool_policy(
             .await?;
     }
 
+    // Step 8: Build response with both policy and Airlock information
+    let violation_type = airlock_result
+        .violation
+        .as_ref()
+        .map(|v| format!("{:?}", v.violation_type).to_lowercase());
+
+    let violation_details = airlock_result.violation.as_ref().map(|v| v.details.clone());
+
     Ok(Json(CheckToolResponse {
-        allowed: decision.is_allowed(),
+        allowed: final_allowed,
         requires_approval: decision.needs_approval(),
         decision_id: decision.id.to_string(),
-        reason: decision.reason,
+        reason: if !final_allowed && airlock_blocked {
+            airlock_result
+                .violation
+                .as_ref()
+                .map(|v| v.details.clone())
+                .unwrap_or(decision.reason)
+        } else {
+            decision.reason
+        },
+        risk_score: airlock_result.risk_score,
+        risk_level: airlock_result.risk_level.as_str().to_string(),
+        violation_type,
+        violation_details,
+        blocked_by_airlock: airlock_blocked,
+        shadow_mode: airlock_result.shadow_mode,
     }))
 }

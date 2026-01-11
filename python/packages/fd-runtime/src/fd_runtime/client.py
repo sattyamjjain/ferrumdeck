@@ -4,6 +4,7 @@ from typing import Any
 
 import httpx
 
+from fd_runtime.airlock import AirlockResponse
 from fd_runtime.models import Run, Step, StepStatus
 
 
@@ -95,41 +96,83 @@ class ControlPlaneClient:
         self,
         run_id: str,
         tool_name: str,
-    ) -> dict[str, Any]:
-        """Check if a tool call is allowed by policy.
+        tool_input: dict[str, Any] | None = None,
+        estimated_cost_cents: int | None = None,
+    ) -> AirlockResponse:
+        """Check if a tool call is allowed by policy and Airlock security.
 
         Args:
             run_id: The run ID for context.
             tool_name: The tool name to check.
+            tool_input: Tool input payload for Airlock inspection.
+            estimated_cost_cents: Estimated cost for velocity tracking.
 
         Returns:
-            Dict with keys:
-            - allowed: bool - Whether the tool call is allowed
-            - requires_approval: bool - Whether approval is needed
-            - decision_id: str - Policy decision ID
-            - reason: str - Explanation of the decision
+            AirlockResponse with policy and security decision details.
 
-        Raises:
-            PermissionError: If the tool is explicitly denied.
-            ValueError: If approval is required before execution.
+        Note:
+            This method returns the response even if blocked. Callers should
+            check response.allowed and handle accordingly, or use
+            check_tool_policy_strict() which raises exceptions.
         """
+        payload: dict[str, Any] = {"tool_name": tool_name}
+        if tool_input is not None:
+            payload["tool_input"] = tool_input
+        if estimated_cost_cents is not None:
+            payload["estimated_cost_cents"] = estimated_cost_cents
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
                 f"{self.base_url}/v1/runs/{run_id}/check-tool",
                 headers=self.headers,
-                json={"tool_name": tool_name},
+                json=payload,
             )
             response.raise_for_status()
             result = response.json()
+            return AirlockResponse.from_dict(result)
 
-            # Raise appropriate exceptions based on policy decision
-            if not result.get("allowed", False):
-                if result.get("requires_approval", False):
-                    raise ValueError(
-                        f"Tool '{tool_name}' requires approval: {result.get('reason', 'unknown')}"
-                    )
-                raise PermissionError(
-                    f"Tool '{tool_name}' denied by policy: {result.get('reason', 'unknown')}"
+    async def check_tool_policy_strict(
+        self,
+        run_id: str,
+        tool_name: str,
+        tool_input: dict[str, Any] | None = None,
+        estimated_cost_cents: int | None = None,
+    ) -> AirlockResponse:
+        """Check tool policy and raise exceptions if not allowed.
+
+        This is a convenience wrapper around check_tool_policy that raises
+        appropriate exceptions when the tool call is blocked.
+
+        Args:
+            run_id: The run ID for context.
+            tool_name: The tool name to check.
+            tool_input: Tool input payload for Airlock inspection.
+            estimated_cost_cents: Estimated cost for velocity tracking.
+
+        Returns:
+            AirlockResponse (only if allowed).
+
+        Raises:
+            PermissionError: If the tool is denied by policy or Airlock.
+            ValueError: If approval is required before execution.
+        """
+        result = await self.check_tool_policy(
+            run_id, tool_name, tool_input, estimated_cost_cents
+        )
+
+        if not result.allowed:
+            if result.requires_approval:
+                raise ValueError(
+                    f"Tool '{tool_name}' requires approval: {result.reason}"
                 )
+            if result.blocked_by_airlock:
+                raise PermissionError(
+                    f"Tool '{tool_name}' blocked by Airlock: {result.reason} "
+                    f"(risk_level={result.risk_level.value}, "
+                    f"violation_type={result.violation_type})"
+                )
+            raise PermissionError(
+                f"Tool '{tool_name}' denied by policy: {result.reason}"
+            )
 
-            return result
+        return result

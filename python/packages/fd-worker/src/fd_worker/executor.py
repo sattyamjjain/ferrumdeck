@@ -28,6 +28,7 @@ from fd_runtime import (
     trace_tool_call,
 )
 from fd_worker.agentic import AgenticExecutor
+from fd_worker.exceptions import AirlockBlockedError
 from fd_worker.llm import LLMExecutor
 from fd_worker.validation import OutputValidator
 
@@ -192,6 +193,32 @@ class StepExecutor:
                 )
 
                 span.set_attribute("step.status", "completed")
+
+            except AirlockBlockedError as e:
+                # Tool was blocked by Airlock security layer
+                logger.warning(
+                    f"Step {step_id} blocked by Airlock: "
+                    f"violation={e.violation_type}, risk={e.risk_level}"
+                )
+                await self.client.submit_step_result(
+                    run_id=run_id,
+                    step_id=step_id,
+                    output={
+                        "error": str(e),
+                        "airlock_blocked": True,
+                        "airlock_violation": {
+                            "risk_score": e.risk_score,
+                            "risk_level": e.risk_level,
+                            "violation_type": e.violation_type,
+                            "violation_details": e.violation_details,
+                        },
+                    },
+                    status=StepStatus.FAILED,
+                )
+                span.set_attribute("step.status", "airlock_blocked")
+                span.set_attribute("airlock.risk_score", e.risk_score)
+                span.set_attribute("airlock.risk_level", e.risk_level)
+                span.set_attribute("airlock.violation_type", e.violation_type)
 
             except PermissionError as e:
                 # Tool was denied by policy
@@ -504,9 +531,35 @@ class StepExecutor:
         tool_input = validation_result.sanitized["tool_input"]
 
         # Check tool policy with control plane BEFORE execution
-        # This raises PermissionError if denied, ValueError if requires approval
+        # This also runs Airlock inspection on the tool_input payload
         logger.info(f"Checking policy for tool: {tool_name}")
-        await self.client.check_tool_policy(run_id, tool_name)
+        airlock_response = await self.client.check_tool_policy(
+            run_id, tool_name, tool_input
+        )
+
+        # Handle Airlock violations
+        if airlock_response.is_security_violation:
+            if not airlock_response.allowed and not airlock_response.shadow_mode:
+                # Block execution - raise exception
+                raise AirlockBlockedError(
+                    tool_name=tool_name,
+                    risk_score=airlock_response.risk_score,
+                    risk_level=airlock_response.risk_level.value,
+                    violation_type=(
+                        airlock_response.violation_type.value
+                        if airlock_response.violation_type
+                        else "unknown"
+                    ),
+                    violation_details=airlock_response.violation_details,
+                )
+            else:
+                # Shadow mode - log but continue execution
+                logger.warning(
+                    f"Airlock shadow mode violation for tool '{tool_name}': "
+                    f"type={airlock_response.violation_type}, "
+                    f"risk={airlock_response.risk_level.value}, "
+                    f"score={airlock_response.risk_score}"
+                )
 
         # Ensure MCP router is connected
         await self.connect()

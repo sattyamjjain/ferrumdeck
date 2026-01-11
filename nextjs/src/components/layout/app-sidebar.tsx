@@ -13,6 +13,7 @@ import {
   Zap,
   GitBranch,
   Shield,
+  ShieldAlert,
   LayoutDashboard,
   FlaskConical,
   Terminal,
@@ -48,6 +49,7 @@ const registryNavItems = [
 
 const governanceNavItems = [
   { title: "Policies", href: "/policies", icon: Shield },
+  { title: "Threats", href: "/threats", icon: ShieldAlert },
 ];
 
 const insightsNavItems = [

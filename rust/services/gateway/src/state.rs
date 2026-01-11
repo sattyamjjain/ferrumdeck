@@ -1,9 +1,9 @@
 //! Application state
 
-use fd_policy::PolicyEngine;
+use fd_policy::{AirlockConfig, AirlockInspector, AirlockMode, PolicyEngine};
 use fd_storage::{
     AgentsRepo, ApiKeysRepo, AuditRepo, DbPool, PoliciesRepo, QueueClient, RunsRepo, StepsRepo,
-    ToolsRepo, WorkflowsRepo,
+    ThreatsRepo, ToolsRepo, WorkflowsRepo,
 };
 use std::sync::Arc;
 
@@ -19,6 +19,9 @@ pub struct AppState {
 
     /// Policy engine for authorization
     pub policy_engine: Arc<PolicyEngine>,
+
+    /// Airlock security inspector
+    pub airlock: Arc<AirlockInspector>,
 
     /// Queue client for job publishing (lock-free, uses multiplexed connection)
     pub queue: Arc<QueueClient>,
@@ -90,6 +93,10 @@ impl Repos {
     pub fn workflows(&self) -> WorkflowsRepo {
         WorkflowsRepo::new(self.db.clone())
     }
+
+    pub fn threats(&self) -> ThreatsRepo {
+        ThreatsRepo::new(self.db.clone())
+    }
 }
 
 impl AppState {
@@ -134,6 +141,28 @@ impl AppState {
         // Create policy engine with defaults
         let policy_engine = Arc::new(PolicyEngine::default());
 
+        // Create Airlock security inspector
+        let airlock_mode = match std::env::var("FERRUMDECK_AIRLOCK_MODE")
+            .unwrap_or_else(|_| "shadow".to_string())
+            .to_lowercase()
+            .as_str()
+        {
+            "enforce" => AirlockMode::Enforce,
+            _ => AirlockMode::Shadow, // Default to shadow mode for safety
+        };
+
+        let airlock_config = AirlockConfig {
+            mode: airlock_mode,
+            ..AirlockConfig::default()
+        };
+
+        tracing::info!(
+            mode = ?airlock_mode,
+            "Airlock security inspector initialized"
+        );
+
+        let airlock = Arc::new(AirlockInspector::new(airlock_config));
+
         // Create rate limiter
         let rate_limiter = create_rate_limiter();
 
@@ -143,6 +172,7 @@ impl AppState {
         Ok(Self {
             db: db.clone(),
             policy_engine,
+            airlock,
             queue: Arc::new(queue),
             rate_limiter,
             oauth2_validator,

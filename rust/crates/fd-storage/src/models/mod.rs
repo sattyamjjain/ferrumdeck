@@ -10,6 +10,7 @@ pub mod policies;
 pub mod quotas;
 pub mod runs;
 pub mod steps;
+pub mod threats;
 pub mod tools;
 pub mod workflows;
 
@@ -20,5 +21,6 @@ pub use policies::*;
 pub use quotas::*;
 pub use runs::*;
 pub use steps::*;
+pub use threats::*;
 pub use tools::*;
 pub use workflows::*;

@@ -1,5 +1,10 @@
 """FerrumDeck Runtime - Agent execution primitives."""
 
+from fd_runtime.airlock import (
+    AirlockResponse,
+    RiskLevel,
+    ViolationType,
+)
 from fd_runtime.artifacts import (
     ArtifactMetadata,
     ArtifactStore,
@@ -36,6 +41,7 @@ from fd_runtime.workflow import (
 )
 
 __all__ = [
+    "AirlockResponse",
     "ArtifactMetadata",
     "ArtifactStore",
     "ArtifactType",
@@ -43,11 +49,13 @@ __all__ = [
     "BudgetUsage",
     "ControlPlaneClient",
     "LocalFilesystemStore",
+    "RiskLevel",
     "Run",
     "RunStatus",
     "Step",
     "StepStatus",
     "StepType",
+    "ViolationType",
     "Workflow",
     "WorkflowContext",
     "WorkflowEngine",
