@@ -91,15 +91,6 @@ jobs:
       - name: Build gateway
         run: cargo build --package gateway --release
 
-      - name: Run database migrations
-        env:
-          DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
-        run: |
-          for migration in db/migrations/*.sql; do
-            echo "Applying: $migration"
-            PGPASSWORD=ferrumdeck psql -h localhost -U ferrumdeck -d ferrumdeck -f "$migration" || true
-          done
-
       - name: Start gateway
         env:
           DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
