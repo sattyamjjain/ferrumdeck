@@ -55,13 +55,25 @@ export default function LogsPage() {
   const [selectedContainer, setSelectedContainer] = useState<ContainerInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isDockerUnavailable, setIsDockerUnavailable] = useState(false);
 
   // Fetch containers
   const fetchContainers = async () => {
+    // Don't retry if docker is unavailable
+    if (isDockerUnavailable) return;
+
     try {
       setIsLoading(true);
       setError(null);
       const response = await fetch("/api/v1/docker/containers");
+
+      if (response.status === 503) {
+        // Docker CLI not available - stop polling
+        const data = await response.json();
+        setError(data.error || "Docker is not available");
+        setIsDockerUnavailable(true);
+        return;
+      }
 
       if (!response.ok) {
         const data = await response.json();
@@ -87,11 +99,15 @@ export default function LogsPage() {
 
   useEffect(() => {
     fetchContainers();
-    // Refresh container list every 30 seconds
-    const interval = setInterval(fetchContainers, 30000);
+    // Refresh container list every 30 seconds (unless docker is unavailable)
+    const interval = setInterval(() => {
+      if (!isDockerUnavailable) {
+        fetchContainers();
+      }
+    }, 30000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isDockerUnavailable]);
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">

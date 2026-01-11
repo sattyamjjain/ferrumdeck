@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/components/providers/query-provider";
@@ -25,11 +25,16 @@ export const metadata: Metadata = {
   description: "Mission Control for AI Agent Operations - Monitor, govern, and optimize your agentic workflows",
   keywords: ["AI", "agents", "operations", "control plane", "monitoring", "governance"],
   authors: [{ name: "FerrumDeck Team" }],
-  themeColor: "#06080c",
-  viewport: "width=device-width, initial-scale=1, maximum-scale=1",
   icons: {
     icon: "/favicon.ico",
   },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  themeColor: "#06080c",
 };
 
 export default function RootLayout({

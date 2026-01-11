@@ -220,8 +220,142 @@ define_id!(AgentId, "agt"); // agt_01HGXK...
 <!-- END AUTO-MANAGED -->
 
 <!-- MANUAL -->
-## Project Notes
+## Development Workflows
 
-Add project-specific notes, TODOs, or context here. This section is never auto-modified.
+### First-Time Setup
+```bash
+# 1. Clone and install dependencies
+git clone <repo-url> && cd ferrumdeck
+make install              # Installs Rust + Python + Node deps
+
+# 2. Start infrastructure
+make dev-up               # PostgreSQL, Redis, Jaeger
+
+# 3. Run services (separate terminals)
+make run-gateway          # Terminal 1: Rust gateway
+make run-worker           # Terminal 2: Python worker
+npm run dev --prefix nextjs  # Terminal 3: Dashboard
+```
+
+### Typical Development Cycle
+```bash
+make dev-up               # Start infra (if not running)
+make run-gateway          # Start gateway (auto-runs migrations)
+make run-worker           # Start worker in another terminal
+# Edit code...
+make check                # Format + lint + test before commit
+```
+
+### Running Evaluations
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+make eval-run             # Smoke suite (~2 min)
+make eval-run-full        # Full regression (~10 min)
+make eval-report          # View latest results
+```
+
+### Database Operations
+```bash
+make db-reset             # Drop and recreate (loses data!)
+make db-seed              # Load test data
+make db-migrate           # Apply pending migrations
+```
+
+### Docker Builds
+```bash
+# Build images
+docker build -f deploy/docker/gateway.Dockerfile -t ferrumdeck-gateway .
+docker build -f deploy/docker/worker.Dockerfile -t ferrumdeck-worker .
+docker build -f nextjs/Dockerfile -t ferrumdeck-dashboard nextjs/
+
+# Run with Docker Compose
+docker compose -f deploy/docker/docker-compose.yml up
+```
+
+## Environment Variables
+
+### Required
+```bash
+DATABASE_URL=postgres://ferrumdeck:ferrumdeck@localhost:5433/ferrumdeck
+REDIS_URL=redis://localhost:6379
+ANTHROPIC_API_KEY=sk-ant-...  # For LLM calls
+```
+
+### Optional
+```bash
+RUST_LOG=info,gateway=debug   # Rust logging level
+GATEWAY_PORT=8080             # API server port
+JAEGER_ENDPOINT=http://localhost:4317  # Tracing endpoint
+FD_API_KEY=fd_dev_key_abc123  # Dashboard API key
+```
+
+## Troubleshooting
+
+### Port Conflicts
+```bash
+# Check what's using a port
+lsof -i :8080
+lsof -i :5433
+
+# Kill process on port
+kill -9 $(lsof -t -i :8080)
+```
+
+### Database Issues
+```bash
+# Connection refused
+make dev-up               # Ensure PostgreSQL is running
+
+# Migration errors
+make db-reset             # Nuclear option: drop and recreate
+
+# Check PostgreSQL logs
+docker logs ferrumdeck-postgres-1
+```
+
+### Redis Queue Stuck
+```bash
+# View queue contents
+redis-cli -p 6379 XLEN fd:steps:pending
+
+# Flush stuck jobs (careful!)
+redis-cli -p 6379 DEL fd:steps:pending
+```
+
+### Worker Not Processing
+```bash
+# Check worker is connected
+curl http://localhost:8080/health
+
+# View worker logs
+make run-worker           # Watch for connection messages
+
+# Restart worker
+Ctrl+C && make run-worker
+```
+
+### Gateway Not Starting
+```bash
+# Check if migrations ran
+psql -h localhost -p 5433 -U ferrumdeck -d ferrumdeck -c "\dt"
+
+# View gateway logs with debug
+RUST_LOG=debug make run-gateway
+```
+
+### Dashboard Build Errors
+```bash
+cd nextjs
+rm -rf .next node_modules
+npm install
+npm run build
+```
+
+## CI/CD Notes
+
+- **Eval Gating**: PRs to main require smoke eval suite to pass
+- **Migrations**: Gateway auto-runs on startup; don't run manually in CI
+- **Docker Builds**: Multi-stage builds for minimal image size
+- **Secrets**: ANTHROPIC_API_KEY in GitHub Secrets for evals
 
 <!-- END MANUAL -->

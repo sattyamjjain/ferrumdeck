@@ -134,9 +134,10 @@ services:
       gateway:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/api/health"]
       interval: 10s
       timeout: 5s
+      start_period: 30s
       retries: 5
     networks:
       - ferrumdeck

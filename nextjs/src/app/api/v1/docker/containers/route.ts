@@ -1,7 +1,21 @@
 import { NextResponse } from "next/server";
-import { spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
 
 export const dynamic = "force-dynamic";
+
+// Check if docker CLI is available (cached)
+let dockerAvailable: boolean | null = null;
+function isDockerAvailable(): boolean {
+  if (dockerAvailable === null) {
+    try {
+      const result = spawnSync("docker", ["--version"], { timeout: 5000 });
+      dockerAvailable = result.status === 0;
+    } catch {
+      dockerAvailable = false;
+    }
+  }
+  return dockerAvailable;
+}
 
 interface ContainerInfo {
   id: string;
@@ -73,6 +87,14 @@ export async function GET() {
     return NextResponse.json(
       { error: "Docker logs feature is not enabled" },
       { status: 403 }
+    );
+  }
+
+  // Check if docker CLI is available
+  if (!isDockerAvailable()) {
+    return NextResponse.json(
+      { error: "Docker CLI is not available in this environment" },
+      { status: 503 }
     );
   }
 

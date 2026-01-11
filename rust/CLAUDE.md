@@ -150,6 +150,145 @@ use tower::ServiceBuilder;
 <!-- END AUTO-MANAGED -->
 
 <!-- MANUAL -->
-## Notes
+## Testing Patterns
+
+### Unit Tests
+```rust
+// Place in same file with module
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_id_prefix() {
+        let id = RunId::new();
+        assert!(id.to_string().starts_with("run_"));
+    }
+
+    #[tokio::test]
+    async fn test_async_function() {
+        // Use tokio::test for async tests
+    }
+}
+```
+
+### Integration Tests
+```bash
+# Requires running PostgreSQL and Redis
+make dev-up
+cargo test --workspace --test '*'
+```
+
+### Test Data Generation
+```rust
+use fake::{Fake, Faker};
+
+let name: String = Faker.fake();
+let email: String = fake::faker::internet::en::SafeEmail().fake();
+```
+
+### Test Databases
+- Integration tests use a separate test database
+- Tests should clean up after themselves
+- Use transactions for test isolation when possible
+
+## Database Migrations
+
+### Location
+Migrations are in `db/migrations/` with timestamp prefixes:
+```
+db/migrations/
+├── 20240101000000_init.sql
+├── 20240115000000_add_tenants.sql
+└── 20240201000000_add_audit.sql
+```
+
+### Auto-Run Behavior
+- Gateway automatically runs migrations on startup
+- Uses SQLx migration tracking (`_sqlx_migrations` table)
+- Never run migrations manually in CI (gateway handles it)
+
+### Creating New Migrations
+```bash
+# Create a new migration file
+sqlx migrate add <name>
+
+# Or manually create with timestamp:
+# db/migrations/YYYYMMDDHHMMSS_description.sql
+```
+
+### Migration Best Practices
+- Always use `IF NOT EXISTS` for tables
+- Add `IF NOT EXISTS` for indexes
+- Use transactions for data migrations
+- Test migrations against a copy of prod data
+
+## Adding a New Crate
+
+1. Create the crate directory:
+   ```bash
+   mkdir -p rust/crates/fd-newcrate/src
+   ```
+
+2. Create `Cargo.toml`:
+   ```toml
+   [package]
+   name = "fd-newcrate"
+   version.workspace = true
+   edition.workspace = true
+
+   [dependencies]
+   fd-core = { path = "../fd-core" }
+   ```
+
+3. Create `src/lib.rs`:
+   ```rust
+   //! Brief description of the crate
+   pub mod module;
+   ```
+
+4. Add to workspace in root `Cargo.toml`:
+   ```toml
+   [workspace]
+   members = [
+       "rust/crates/fd-newcrate",
+       # ...
+   ]
+   ```
+
+## Debugging
+
+### Enable Debug Logging
+```bash
+RUST_LOG=debug cargo run -p gateway
+RUST_LOG=gateway=debug,fd_storage=trace cargo run -p gateway
+```
+
+### Database Query Logging
+```bash
+RUST_LOG=sqlx=debug cargo run -p gateway
+```
+
+### OpenTelemetry Traces
+```bash
+# View traces in Jaeger
+open http://localhost:16686
+```
+
+### Common Issues
+
+**SQLx Compile Errors**
+```bash
+# Regenerate query cache
+cargo sqlx prepare --workspace
+
+# Or set offline mode
+SQLX_OFFLINE=true cargo build
+```
+
+**Connection Pool Exhausted**
+- Check max_connections in config
+- Look for queries not releasing connections
+- Use `pool.acquire()` with timeout
 
 <!-- END MANUAL -->
