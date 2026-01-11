@@ -533,9 +533,7 @@ class StepExecutor:
         # Check tool policy with control plane BEFORE execution
         # This also runs Airlock inspection on the tool_input payload
         logger.info(f"Checking policy for tool: {tool_name}")
-        airlock_response = await self.client.check_tool_policy(
-            run_id, tool_name, tool_input
-        )
+        airlock_response = await self.client.check_tool_policy(run_id, tool_name, tool_input)
 
         # Handle Airlock violations
         if airlock_response.is_security_violation:

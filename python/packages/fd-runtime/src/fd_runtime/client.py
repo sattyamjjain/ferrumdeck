@@ -156,23 +156,17 @@ class ControlPlaneClient:
             PermissionError: If the tool is denied by policy or Airlock.
             ValueError: If approval is required before execution.
         """
-        result = await self.check_tool_policy(
-            run_id, tool_name, tool_input, estimated_cost_cents
-        )
+        result = await self.check_tool_policy(run_id, tool_name, tool_input, estimated_cost_cents)
 
         if not result.allowed:
             if result.requires_approval:
-                raise ValueError(
-                    f"Tool '{tool_name}' requires approval: {result.reason}"
-                )
+                raise ValueError(f"Tool '{tool_name}' requires approval: {result.reason}")
             if result.blocked_by_airlock:
                 raise PermissionError(
                     f"Tool '{tool_name}' blocked by Airlock: {result.reason} "
                     f"(risk_level={result.risk_level.value}, "
                     f"violation_type={result.violation_type})"
                 )
-            raise PermissionError(
-                f"Tool '{tool_name}' denied by policy: {result.reason}"
-            )
+            raise PermissionError(f"Tool '{tool_name}' denied by policy: {result.reason}")
 
         return result
