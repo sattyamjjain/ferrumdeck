@@ -175,7 +175,9 @@ pub async fn resolve_approval(
             auth_tenant = %auth.tenant_id,
             "Unauthorized approval resolution attempt from different tenant"
         );
-        return Err(ApiError::forbidden("Access denied to resolve this approval"));
+        return Err(ApiError::forbidden(
+            "Access denied to resolve this approval",
+        ));
     }
 
     // Check if expired

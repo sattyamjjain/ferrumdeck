@@ -187,7 +187,7 @@ pub async fn auth_middleware(
                             "SECURITY: API key using legacy hash REJECTED - migration deadline passed"
                         );
                         return unauthorized(
-                            "API key requires migration. Please regenerate your API key."
+                            "API key requires migration. Please regenerate your API key.",
                         );
                     }
 

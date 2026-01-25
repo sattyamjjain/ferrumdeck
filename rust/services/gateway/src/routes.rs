@@ -48,10 +48,7 @@ pub fn build_router(state: AppState) -> Router {
                             delete(handlers::policies::delete_policy),
                         )
                         // Security config update (admin only)
-                        .route(
-                            "/security/config",
-                            put(handlers::security::update_config),
-                        )
+                        .route("/security/config", put(handlers::security::update_config))
                         .layer(middleware::from_fn(require_admin())),
                 )
                 // ========================================
