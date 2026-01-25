@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useIsMounted } from "@/hooks/use-is-mounted";
 import { Shield, Plus, RefreshCw } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -157,9 +158,7 @@ function SimulatorTab() {
 
 export default function PoliciesPage() {
   // Hydration fix - ensure client-only rendering for Radix components
-  const [mounted, setMounted] = useState(false);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setMounted(true), []);
+  const mounted = useIsMounted();
 
   const [activeTab, setActiveTab] = useState("rules");
 

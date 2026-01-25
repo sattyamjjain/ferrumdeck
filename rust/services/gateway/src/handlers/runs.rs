@@ -378,10 +378,10 @@ pub async fn create_run(
         (status = 404, description = "Run not found"),
     )
 )]
-#[instrument(skip(state, _auth))]
+#[instrument(skip(state, auth))]
 pub async fn get_run(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthContext>,
+    Extension(auth): Extension<AuthContext>,
     Path(run_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let run = state
@@ -390,6 +390,18 @@ pub async fn get_run(
         .get(&run_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Run", &run_id))?;
+
+    // SECURITY: Verify tenant owns this run's project
+    // The run belongs to a project, and the project must belong to the authenticated tenant
+    if !auth.can_access_project(&run.project_id) {
+        warn!(
+            run_id = %run_id,
+            run_project = %run.project_id,
+            auth_tenant = %auth.tenant_id,
+            "Unauthorized access attempt to run from different tenant"
+        );
+        return Err(ApiError::forbidden("Access denied to this run"));
+    }
 
     Ok(Json(run_to_response(run)))
 }
@@ -454,6 +466,17 @@ pub async fn cancel_run(
         .await?
         .ok_or_else(|| ApiError::not_found("Run", &run_id))?;
 
+    // SECURITY: Verify tenant owns this run's project
+    if !auth.can_access_project(&run.project_id) {
+        warn!(
+            run_id = %run_id,
+            run_project = %run.project_id,
+            auth_tenant = %auth.tenant_id,
+            "Unauthorized cancel attempt for run from different tenant"
+        );
+        return Err(ApiError::forbidden("Access denied to cancel this run"));
+    }
+
     if run.status.is_terminal() {
         return Err(ApiError::bad_request(format!(
             "Run is already in terminal state: {:?}",
@@ -506,18 +529,29 @@ pub async fn cancel_run(
         (status = 404, description = "Run not found")
     )
 )]
-#[instrument(skip(state, _auth))]
+#[instrument(skip(state, auth))]
 pub async fn list_steps(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthContext>,
+    Extension(auth): Extension<AuthContext>,
     Path(run_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
+    let run = state
         .repos()
         .runs()
         .get(&run_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Run", &run_id))?;
+
+    // SECURITY: Verify tenant owns this run's project
+    if !auth.can_access_project(&run.project_id) {
+        warn!(
+            run_id = %run_id,
+            run_project = %run.project_id,
+            auth_tenant = %auth.tenant_id,
+            "Unauthorized access attempt to run steps from different tenant"
+        );
+        return Err(ApiError::forbidden("Access denied to this run"));
+    }
 
     let steps = state.repos().steps().list_by_run(&run_id).await?;
 

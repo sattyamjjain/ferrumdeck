@@ -25,11 +25,17 @@ rust/
 │   │   ├── queue.rs          # Redis queue client
 │   │   ├── models/           # Database models
 │   │   └── repos/            # Repository pattern
-│   ├── fd-policy/            # Policy engine
+│   ├── fd-policy/            # Policy engine + Airlock RASP
 │   │   ├── engine.rs         # Policy evaluation
 │   │   ├── rules.rs          # Rule definitions
 │   │   ├── budget.rs         # Budget tracking
-│   │   └── decision.rs       # Decision types
+│   │   ├── decision.rs       # Decision types
+│   │   └── airlock/          # Runtime security (RASP)
+│   │       ├── config.rs     # Airlock configuration
+│   │       ├── inspector.rs  # Main inspection logic
+│   │       ├── patterns.rs   # Anti-RCE pattern matching
+│   │       ├── velocity.rs   # Financial circuit breaker
+│   │       └── exfiltration.rs  # Data exfil prevention
 │   ├── fd-registry/          # Version control
 │   │   ├── agent.rs          # Agent versioning
 │   │   ├── tool.rs           # Tool versioning
@@ -53,6 +59,7 @@ rust/
         │   ├── registry.rs   # Agent/tool registry
         │   ├── workflows.rs  # Workflow operations
         │   ├── approvals.rs  # Approval handling
+        │   ├── security.rs   # Airlock config & threats
         │   └── health.rs     # Health checks
         └── middleware/       # Tower middleware
             ├── auth.rs       # API key authentication

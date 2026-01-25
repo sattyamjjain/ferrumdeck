@@ -190,7 +190,84 @@ pub fn create_rate_limiter() -> RateLimiter {
     Arc::new(RwLock::new(RateLimiterStore::new()))
 }
 
-/// Rate limiting middleware
+/// Pre-auth rate limiting middleware (IP-based)
+///
+/// SECURITY: This runs BEFORE authentication to prevent brute-force attacks
+/// on API keys and tokens. Uses a lower limit than the post-auth limiter.
+pub async fn pre_auth_rate_limit_middleware(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    // Use stricter limit for unauthenticated requests
+    let rate_limit = std::env::var("PRE_AUTH_RATE_LIMIT_PER_MINUTE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20); // 20 requests per minute per IP by default
+    let config = RateLimitConfig::per_minute(rate_limit).by_ip();
+    let limiter = state.rate_limiter.clone();
+
+    // Extract client IP from headers or connection
+    let key = extract_client_ip(&request);
+
+    // Check rate limit
+    let (allowed, remaining, reset_after) = {
+        let mut store = limiter.write().await;
+        store.try_request(&key, &config)
+    };
+
+    if !allowed {
+        warn!(
+            ip = %key,
+            "Pre-auth rate limit exceeded - potential brute force attack"
+        );
+
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [
+                ("X-RateLimit-Limit", config.max_requests.to_string()),
+                ("X-RateLimit-Remaining", "0".to_string()),
+                ("X-RateLimit-Reset", reset_after.to_string()),
+                ("Retry-After", reset_after.to_string()),
+            ],
+            Json(json!({
+                "error": {
+                    "code": "RATE_LIMIT_EXCEEDED",
+                    "message": "Too many requests. Please retry later.",
+                    "retry_after": reset_after
+                }
+            })),
+        )
+            .into_response();
+    }
+
+    next.run(request).await
+}
+
+/// Extract client IP from request headers or connection
+fn extract_client_ip(request: &Request) -> String {
+    // Try X-Forwarded-For header first (for proxied requests)
+    if let Some(xff) = request.headers().get("x-forwarded-for") {
+        if let Ok(xff_str) = xff.to_str() {
+            // Take the first IP (original client)
+            if let Some(ip) = xff_str.split(',').next() {
+                return format!("ip:{}", ip.trim());
+            }
+        }
+    }
+
+    // Try X-Real-IP header
+    if let Some(xri) = request.headers().get("x-real-ip") {
+        if let Ok(ip) = xri.to_str() {
+            return format!("ip:{}", ip);
+        }
+    }
+
+    // Fallback to a default (in production, should get from connection)
+    "ip:unknown".to_string()
+}
+
+/// Rate limiting middleware (tenant-based, post-auth)
 pub async fn rate_limit_middleware(
     State(state): State<AppState>,
     request: Request,

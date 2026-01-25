@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useIsMounted } from "@/hooks/use-is-mounted";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Loader2, Play, Sparkles, Bot } from "lucide-react";
 import {
@@ -28,10 +29,7 @@ import { useAgents } from "@/hooks/use-agents";
 
 export function CreateRunDialog() {
   // Hydration fix - ensure client-only rendering for Radix components
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    queueMicrotask(() => setMounted(true));
-  }, []);
+  const mounted = useIsMounted();
 
   const [open, setOpen] = useState(false);
   const [selectedAgentVersionId, setSelectedAgentVersionId] = useState("");

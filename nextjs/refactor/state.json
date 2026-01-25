@@ -1,0 +1,21 @@
+{
+  "session_id": "refactor_2026_01_26_mounted_hook",
+  "created_at": "2026-01-26T00:00:00Z",
+  "status": "completed",
+  "current_task": 12,
+  "completed_tasks": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+  "files_modified": [
+    "src/hooks/use-is-mounted.ts",
+    "src/components/runs/runs-console.tsx",
+    "src/components/tools/tool-filters.tsx",
+    "src/components/tools/create-tool-dialog.tsx",
+    "src/components/agents/create-agent-dialog.tsx",
+    "src/components/runs/create-run-dialog.tsx",
+    "src/app/(dashboard)/policies/page.tsx",
+    "src/app/(dashboard)/audit/page.tsx",
+    "src/app/(dashboard)/threats/page.tsx",
+    "src/app/(dashboard)/settings/api-keys/page.tsx",
+    "src/app/(dashboard)/evals/page.tsx"
+  ],
+  "git_checkpoint": null
+}

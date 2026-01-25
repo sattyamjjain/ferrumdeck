@@ -19,10 +19,30 @@ export async function GET(
   }
 
   const { container } = await params;
+
+  // SECURITY: Validate container name to prevent command injection
+  // Container names must match our naming convention: fd-<service>-<id>
+  // or standard Docker names (alphanumeric, hyphens, underscores)
+  const CONTAINER_NAME_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+  if (!CONTAINER_NAME_REGEX.test(container) || container.length > 128) {
+    return new Response(
+      JSON.stringify({ error: "Invalid container name format" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
   const searchParams = request.nextUrl.searchParams;
   const tail = searchParams.get("tail") || "0";
   const since = searchParams.get("since") || "";
   const timestamps = searchParams.get("timestamps") === "true";
+
+  // SECURITY: Validate tail parameter is a number
+  if (!/^\d+$/.test(tail)) {
+    return new Response(
+      JSON.stringify({ error: "Invalid tail parameter" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
 
   // Build docker logs command args
   const args = ["logs", "-f", "--tail", tail];

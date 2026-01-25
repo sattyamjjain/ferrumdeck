@@ -4,7 +4,14 @@ export function getGatewayUrl(): string {
 }
 
 export function getApiKey(): string {
-  return process.env.FD_API_KEY || "fd_dev_key_abc123";
+  const apiKey = process.env.FD_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "FD_API_KEY environment variable is required. " +
+      "Set it in your .env.local or environment."
+    );
+  }
+  return apiKey;
 }
 
 export function getDefaultProjectId(): string {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useIsMounted } from "@/hooks/use-is-mounted";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,9 +42,7 @@ interface CreateAgentDialogProps {
 
 export function CreateAgentDialog({ trigger }: CreateAgentDialogProps) {
   // Hydration fix - ensure client-only rendering for Radix components
-  const [mounted, setMounted] = useState(false);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setMounted(true), []);
+  const mounted = useIsMounted();
 
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);

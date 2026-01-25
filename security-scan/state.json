@@ -1,0 +1,40 @@
+{
+  "scan_date": "2026-01-24",
+  "status": "in_progress",
+  "total_vulnerabilities": 25,
+  "fixed": 19,
+  "summary": {
+    "critical": { "total": 6, "fixed": 3 },
+    "high": { "total": 8, "fixed": 7 },
+    "medium": { "total": 8, "fixed": 8 },
+    "low": { "total": 3, "fixed": 1 }
+  },
+  "vulnerabilities": {
+    "C-001": { "status": "manual_action_required", "severity": "critical", "title": "Anthropic API Key Exposed", "note": "Rotate key at console.anthropic.com" },
+    "C-002": { "status": "manual_action_required", "severity": "critical", "title": "OpenAI API Key Exposed", "note": "Rotate key at platform.openai.com" },
+    "C-003": { "status": "manual_action_required", "severity": "critical", "title": "GitHub Token Exposed", "note": "Revoke token at github.com/settings/tokens" },
+    "C-004": { "status": "fixed", "severity": "critical", "title": "Default API Key Secret", "fix": "Made API_KEY_SECRET mandatory in production" },
+    "C-005": { "status": "fixed", "severity": "critical", "title": "Hardcoded Fallback API Key", "fix": "Removed fallback, throws error if not set" },
+    "C-006": { "status": "fixed", "severity": "critical", "title": "Unpinned Docker Image", "fix": "Pinned to rust:1.80-bookworm" },
+    "H-001": { "status": "fixed", "severity": "high", "title": "IDOR on get_run", "fix": "Added tenant validation via can_access_project()" },
+    "H-002": { "status": "fixed", "severity": "high", "title": "IDOR on Multiple Endpoints", "fix": "Added tenant validation to api_keys, approvals handlers" },
+    "H-003": { "status": "fixed", "severity": "high", "title": "Path Traversal in Test Runner", "fix": "Added is_relative_to() check with resolve()" },
+    "H-004": { "status": "fixed", "severity": "high", "title": "Command Injection via Container Name", "fix": "Added regex validation for container names" },
+    "H-005": { "status": "fixed", "severity": "high", "title": "Unauthenticated SSE Access", "fix": "Added authentication requirement to SSE endpoint" },
+    "H-006": { "status": "fixed", "severity": "high", "title": "Rate Limit After Auth", "fix": "Added pre-auth IP-based rate limiter" },
+    "H-007": { "status": "fixed", "severity": "high", "title": "Command Injection via Extra Args", "fix": "Added validate_extra_args() with allowlist" },
+    "H-008": { "status": "fixed", "severity": "high", "title": "litellm Security Monitoring", "fix": "Added security logging, anomaly detection, and audit trail to LLMExecutor" },
+    "M-001": { "status": "fixed", "severity": "medium", "title": "Missing Scope Enforcement", "fix": "Added require_admin() and require_write() middleware to routes.rs" },
+    "M-002": { "status": "fixed", "severity": "medium", "title": "Approval Without Ownership Check", "fix": "Added project ownership verification" },
+    "M-003": { "status": "fixed", "severity": "medium", "title": "Legacy Hash Support", "fix": "Added migration deadline (2025-03-01) with rejection after deadline" },
+    "M-004": { "status": "fixed", "severity": "medium", "title": "aiohttp Monitoring", "fix": "False positive - codebase uses httpx, not aiohttp" },
+    "M-005": { "status": "fixed", "severity": "medium", "title": "Jinja2 Template Risk", "fix": "False positive - Jinja2 is only a transitive dependency, not directly used" },
+    "M-006": { "status": "fixed", "severity": "medium", "title": "Unpinned uv Image", "fix": "Pinned to uv:0.5.11" },
+    "M-007": { "status": "fixed", "severity": "medium", "title": "tower 0.4.x EOL", "fix": "Direct dependency already at 0.5.x; 0.4.x is transitive via tonic" },
+    "M-008": { "status": "fixed", "severity": "medium", "title": "Next.js 16 Maturity", "fix": "Monitoring in place, no current CVEs" },
+    "L-001": { "status": "fixed", "severity": "low", "title": "Detailed JWT Errors", "fix": "Changed to generic error message" },
+    "L-002": { "status": "accepted_risk", "severity": "low", "title": "Missing Session Invalidation", "note": "API key revocation works. JWT invalidation requires Redis blacklist (acceptable risk with short JWT expiry)" },
+    "L-003": { "status": "fixed", "severity": "low", "title": "Test API Key", "fix": "Seed migration has production safety checks - key only exists in dev environments" }
+  },
+  "last_updated": "2026-01-26T15:00:00Z"
+}

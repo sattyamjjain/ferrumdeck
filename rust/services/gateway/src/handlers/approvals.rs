@@ -160,6 +160,24 @@ pub async fn resolve_approval(
         .await?
         .ok_or_else(|| ApiError::not_found("Approval", &approval_id))?;
 
+    // SECURITY: Verify tenant owns the run associated with this approval
+    let run = repos
+        .runs()
+        .get(&approval.run_id)
+        .await?
+        .ok_or_else(|| ApiError::internal("Run not found for approval"))?;
+
+    if !auth.can_access_project(&run.project_id) {
+        tracing::warn!(
+            approval_id = %approval_id,
+            run_id = %approval.run_id,
+            run_project = %run.project_id,
+            auth_tenant = %auth.tenant_id,
+            "Unauthorized approval resolution attempt from different tenant"
+        );
+        return Err(ApiError::forbidden("Access denied to resolve this approval"));
+    }
+
     // Check if expired
     if let Some(expires_at) = approval.expires_at {
         if Utc::now() > expires_at {

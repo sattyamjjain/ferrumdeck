@@ -414,6 +414,7 @@ pub async fn oauth2_auth_middleware(
                             api_key_id: format!("jwt:{}", claims.sub),
                             tenant_id,
                             scopes,
+                            allowed_project_ids: Vec::new(),
                         };
                         request.extensions_mut().insert(auth_context);
 

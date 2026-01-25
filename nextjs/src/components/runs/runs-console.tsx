@@ -26,6 +26,7 @@ import { toast } from "sonner";
 
 import { useRuns } from "@/hooks/use-runs";
 import { useAgents } from "@/hooks/use-agents";
+import { useIsMounted } from "@/hooks/use-is-mounted";
 import { cancelRun } from "@/lib/api/runs";
 import { RunStatusBadge } from "./run-status-badge";
 import { CreateRunDialog } from "./create-run-dialog";
@@ -116,11 +117,7 @@ export function RunsConsole() {
   const tableRef = useRef<HTMLDivElement>(null);
 
   // Hydration fix - ensure client-only rendering for Radix components
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setMounted(true);
-  }, []);
+  const mounted = useIsMounted();
 
   // Filter state
   const [search, setSearch] = useState("");
@@ -704,9 +701,11 @@ function RunTableRow({
   return (
     <TableRow
       className={cn(
-        "group transition-colors cursor-pointer",
-        isSelected && "bg-accent-blue/5",
-        isFocused && "bg-accent-blue/10 ring-1 ring-accent-blue/30"
+        "group transition-all duration-200 cursor-pointer border-border/30",
+        "hover:bg-gradient-to-r hover:from-accent-primary/5 hover:to-transparent",
+        "hover:border-l-2 hover:border-l-accent-primary/50",
+        isSelected && "bg-accent-blue/8 border-l-2 border-l-accent-blue",
+        isFocused && "bg-accent-blue/10 ring-1 ring-accent-blue/30 ring-inset"
       )}
       data-state={isSelected ? "selected" : undefined}
     >

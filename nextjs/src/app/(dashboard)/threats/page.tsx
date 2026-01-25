@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect, Suspense } from "react";
+import { useState, useMemo, useCallback, Suspense } from "react";
+import { useIsMounted } from "@/hooks/use-is-mounted";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -86,10 +87,8 @@ function ThreatsPageSkeleton() {
 }
 
 function ThreatsPageContent() {
-  // Hydration fix
-  const [mounted, setMounted] = useState(false);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setMounted(true), []);
+  // Hydration fix - ensure client-only rendering for Radix components
+  const mounted = useIsMounted();
 
   // URL params for filtering
   const searchParams = useSearchParams();

@@ -1,10 +1,22 @@
-"""LLM execution via litellm with tool support."""
+"""LLM execution via litellm with tool support.
+
+Security Monitoring (H-008):
+- All LLM calls are logged with metadata for audit trail
+- Token usage is tracked per call for cost monitoring
+- Anomaly detection hooks for unusual patterns
+"""
 
 import json
+import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import litellm
+
+# Security logger for LLM operations
+security_logger = logging.getLogger("fd_worker.llm.security")
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -90,12 +102,41 @@ def convert_mcp_tools_to_llm_format(mcp_tools: list[dict[str, Any]]) -> list[dic
 
 
 class LLMExecutor:
-    """Execute LLM completions via litellm with tool support."""
+    """Execute LLM completions via litellm with tool support.
+
+    Security Features (H-008):
+    - All API calls are logged with timing and token usage
+    - Anomaly detection for unusual token consumption
+    - Audit trail for compliance requirements
+    """
+
+    # Security thresholds for anomaly detection
+    MAX_EXPECTED_INPUT_TOKENS = 100_000  # Flag calls exceeding this
+    MAX_EXPECTED_OUTPUT_TOKENS = 50_000  # Flag responses exceeding this
 
     def __init__(self):
         # litellm reads API keys from environment
         # ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
-        pass
+        self._call_count = 0
+        self._total_input_tokens = 0
+        self._total_output_tokens = 0
+
+    def _log_security_event(
+        self,
+        event_type: str,
+        model: str,
+        details: dict[str, Any],
+        level: str = "info",
+    ) -> None:
+        """Log a security event for audit trail."""
+        log_data = {
+            "event_type": event_type,
+            "model": model,
+            "timestamp": time.time(),
+            **details,
+        }
+        log_func = getattr(security_logger, level, security_logger.info)
+        log_func(f"LLM_SECURITY_EVENT: {json.dumps(log_data)}")
 
     async def complete(
         self,
@@ -117,6 +158,23 @@ class LLMExecutor:
         Returns:
             LLMResponse with content and optional tool_calls
         """
+        start_time = time.time()
+        self._call_count += 1
+        call_id = f"llm_call_{self._call_count}_{int(start_time)}"
+
+        # Log call initiation for audit trail
+        self._log_security_event(
+            event_type="llm_call_start",
+            model=model,
+            details={
+                "call_id": call_id,
+                "message_count": len(messages),
+                "tools_count": len(tools) if tools else 0,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+            },
+        )
+
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -127,7 +185,21 @@ class LLMExecutor:
         if tools:
             kwargs["tools"] = tools
 
-        response = await litellm.acompletion(**kwargs)
+        try:
+            response = await litellm.acompletion(**kwargs)
+        except Exception as e:
+            # Log security event for failed calls
+            self._log_security_event(
+                event_type="llm_call_error",
+                model=model,
+                details={
+                    "call_id": call_id,
+                    "error_type": type(e).__name__,
+                    "duration_ms": int((time.time() - start_time) * 1000),
+                },
+                level="warning",
+            )
+            raise
 
         # Extract content and tool calls
         choice = response.choices[0]
@@ -150,11 +222,59 @@ class LLMExecutor:
                     )
                 )
 
+        # Extract token usage
+        input_tokens = response.usage.prompt_tokens  # type: ignore[union-attr]
+        output_tokens = response.usage.completion_tokens  # type: ignore[union-attr]
+
+        # Update cumulative totals
+        self._total_input_tokens += input_tokens
+        self._total_output_tokens += output_tokens
+
+        # Security: Log successful call with metrics
+        duration_ms = int((time.time() - start_time) * 1000)
+        self._log_security_event(
+            event_type="llm_call_complete",
+            model=model,
+            details={
+                "call_id": call_id,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "duration_ms": duration_ms,
+                "tool_calls_count": len(tool_calls),
+                "finish_reason": choice.finish_reason or "unknown",
+            },
+        )
+
+        # Security: Anomaly detection for unusually high token usage
+        if input_tokens > self.MAX_EXPECTED_INPUT_TOKENS:
+            self._log_security_event(
+                event_type="anomaly_high_input_tokens",
+                model=model,
+                details={
+                    "call_id": call_id,
+                    "input_tokens": input_tokens,
+                    "threshold": self.MAX_EXPECTED_INPUT_TOKENS,
+                },
+                level="warning",
+            )
+
+        if output_tokens > self.MAX_EXPECTED_OUTPUT_TOKENS:
+            self._log_security_event(
+                event_type="anomaly_high_output_tokens",
+                model=model,
+                details={
+                    "call_id": call_id,
+                    "output_tokens": output_tokens,
+                    "threshold": self.MAX_EXPECTED_OUTPUT_TOKENS,
+                },
+                level="warning",
+            )
+
         return LLMResponse(
             content=content,
             usage=LLMUsage(
-                input_tokens=response.usage.prompt_tokens,  # type: ignore[union-attr]
-                output_tokens=response.usage.completion_tokens,  # type: ignore[union-attr]
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
             ),
             model=response.model or model,
             finish_reason=choice.finish_reason or "unknown",

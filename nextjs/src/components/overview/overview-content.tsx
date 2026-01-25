@@ -70,21 +70,28 @@ export function OverviewContent() {
   };
 
   return (
-    <div className="p-6 space-y-6 animate-fade-in">
+    <div className="p-6 space-y-6">
       {/* ARIA live region for screen reader announcements */}
       <LiveRegion message={statusAnnouncement} politeness="polite" />
 
-      {/* Page header */}
-      <div className="relative">
-        <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-transparent to-transparent rounded-xl -z-10" />
-        <div className="flex items-center justify-between pb-2">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-primary/10 border border-primary/20">
-              <LayoutDashboard className="h-5 w-5 text-primary" />
+      {/* Page header with gradient mesh background */}
+      <div className="relative reveal-up" style={{ animationDelay: '0ms' }}>
+        <div className="absolute inset-0 bg-gradient-mesh-subtle rounded-2xl -z-10" />
+        <div className="absolute inset-0 bg-gradient-to-r from-primary/8 via-transparent to-transparent rounded-2xl -z-10" />
+        <div className="flex items-center justify-between py-4 px-1">
+          <div className="flex items-center gap-4">
+            {/* Enhanced icon with glow */}
+            <div className="relative group">
+              <div className="absolute inset-0 rounded-2xl bg-primary/20 blur-xl opacity-50 group-hover:opacity-80 transition-opacity" />
+              <div className="relative p-3 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20 backdrop-blur-sm">
+                <LayoutDashboard className="h-6 w-6 text-primary drop-shadow-[0_0_4px_rgba(0,212,255,0.5)]" />
+              </div>
             </div>
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
-              <p className="text-sm text-muted-foreground">
+              <h1 className="text-3xl font-bold tracking-tight font-display bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
+                Overview
+              </h1>
+              <p className="text-sm text-muted-foreground mt-0.5">
                 Monitor your AgentOps control plane at a glance
               </p>
             </div>
@@ -97,11 +104,11 @@ export function OverviewContent() {
               size="sm"
               onClick={handleRefresh}
               disabled={isFetching}
-              className="gap-2"
+              className="gap-2 magnetic-hover bg-background-secondary/50 backdrop-blur-sm border-border/50 hover:border-primary/30 hover:bg-background-secondary"
             >
               <RefreshCw
                 className={cn(
-                  "h-4 w-4",
+                  "h-4 w-4 transition-transform",
                   isFetching && "animate-spin"
                 )}
               />
@@ -111,27 +118,39 @@ export function OverviewContent() {
         </div>
       </div>
 
-      {/* Row 1: KPI Stats */}
-      {isLoading ? (
-        <StatsGridSkeleton />
-      ) : (
-        <StatsGrid runs={runs} approvals={approvals} />
-      )}
+      {/* Row 1: KPI Stats with staggered reveal */}
+      <div className="reveal-up" style={{ animationDelay: '100ms' }}>
+        {isLoading ? (
+          <StatsGridSkeleton />
+        ) : (
+          <StatsGrid runs={runs} approvals={approvals} />
+        )}
+      </div>
 
-      {/* Row 2: Charts */}
+      {/* Row 2: Charts with staggered reveal */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <RunVolumeChart runs={runs} isLoading={isLoading} />
-        <StatusDistributionChart runs={runs} isLoading={isLoading} />
+        <div className="reveal-up" style={{ animationDelay: '200ms' }}>
+          <RunVolumeChart runs={runs} isLoading={isLoading} />
+        </div>
+        <div className="reveal-up" style={{ animationDelay: '250ms' }}>
+          <StatusDistributionChart runs={runs} isLoading={isLoading} />
+        </div>
       </div>
 
       {/* Row 3: Recent Runs & Pending Approvals */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <RecentRuns runs={runs} isLoading={isLoading} limit={8} />
-        <PendingApprovals approvals={approvals} isLoading={isLoading} limit={5} />
+        <div className="reveal-up" style={{ animationDelay: '300ms' }}>
+          <RecentRuns runs={runs} isLoading={isLoading} limit={8} />
+        </div>
+        <div className="reveal-up" style={{ animationDelay: '350ms' }}>
+          <PendingApprovals approvals={approvals} isLoading={isLoading} limit={5} />
+        </div>
       </div>
 
       {/* Row 4: Activity Feed */}
-      <ActivityFeed runs={runs} approvals={approvals} isLoading={isLoading} limit={15} />
+      <div className="reveal-up" style={{ animationDelay: '400ms' }}>
+        <ActivityFeed runs={runs} approvals={approvals} isLoading={isLoading} limit={15} />
+      </div>
     </div>
   );
 }

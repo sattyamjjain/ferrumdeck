@@ -81,7 +81,7 @@ ferrumdeck/
 │   ├── crates/               # Shared libraries
 │   │   ├── fd-core/          # IDs, config, errors
 │   │   ├── fd-storage/       # PostgreSQL repos + Redis queue
-│   │   ├── fd-policy/        # Policy engine, budgets, rules
+│   │   ├── fd-policy/        # Policy engine, budgets, rules, Airlock RASP
 │   │   ├── fd-registry/      # Agent/tool versioning
 │   │   ├── fd-audit/         # Audit logging, redaction
 │   │   ├── fd-dag/           # DAG scheduler
@@ -190,6 +190,18 @@ API Clients┘                                    │
 - **LLM02 Mitigation**: Output validation in fd-worker
 - **Budget enforcement**: Runs killed when limits exceeded
 - **Approval gates**: Sensitive actions require human approval
+- **Airlock RASP**: Runtime security inspection for tool calls
+
+### Airlock Security System
+Runtime Application Self-Protection (RASP) with three inspection layers:
+
+1. **Anti-RCE Pattern Matcher** - Detects dangerous code patterns (eval, exec, shell injection)
+2. **Financial Circuit Breaker** - Spending velocity limits, loop detection
+3. **Data Exfiltration Shield** - Domain whitelist, blocks raw IPs, prevents C2 connections
+
+Operating modes:
+- `shadow`: Log violations but don't block (safe for rollout)
+- `enforce`: Block violations (production mode)
 
 ### ID System
 ```rust
@@ -201,6 +213,7 @@ define_id!(AgentId, "agt"); // agt_01HGXK...
 ### Step Execution
 - LLM calls via litellm (Claude/GPT support)
 - Tool calls via MCP router with policy checks
+- Airlock inspection on tool arguments before execution
 - Retry with exponential backoff for transient failures
 - OpenTelemetry tracing for all operations
 

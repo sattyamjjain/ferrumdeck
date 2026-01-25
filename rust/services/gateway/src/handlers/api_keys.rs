@@ -81,10 +81,10 @@ pub async fn list_api_keys(
 }
 
 /// Get a single API key
-#[instrument(skip(state, _auth))]
+#[instrument(skip(state, auth))]
 pub async fn get_api_key(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthContext>,
+    Extension(auth): Extension<AuthContext>,
     Path(key_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let key = state
@@ -93,6 +93,17 @@ pub async fn get_api_key(
         .get(&key_id)
         .await?
         .ok_or_else(|| ApiError::not_found("ApiKey", &key_id))?;
+
+    // SECURITY: Verify API key belongs to authenticated tenant
+    if key.tenant_id != auth.tenant_id {
+        tracing::warn!(
+            key_id = %key_id,
+            key_tenant = %key.tenant_id,
+            auth_tenant = %auth.tenant_id,
+            "Unauthorized access attempt to API key from different tenant"
+        );
+        return Err(ApiError::forbidden("Access denied to this API key"));
+    }
 
     let response = ApiKeyResponse {
         id: key.id,
@@ -109,12 +120,31 @@ pub async fn get_api_key(
 }
 
 /// Revoke an API key
-#[instrument(skip(state, _auth))]
+#[instrument(skip(state, auth))]
 pub async fn revoke_api_key(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthContext>,
+    Extension(auth): Extension<AuthContext>,
     Path(key_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // SECURITY: First fetch the key to verify ownership before revoking
+    let existing_key = state
+        .repos()
+        .api_keys()
+        .get(&key_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("ApiKey", &key_id))?;
+
+    // SECURITY: Verify API key belongs to authenticated tenant
+    if existing_key.tenant_id != auth.tenant_id {
+        tracing::warn!(
+            key_id = %key_id,
+            key_tenant = %existing_key.tenant_id,
+            auth_tenant = %auth.tenant_id,
+            "Unauthorized revoke attempt for API key from different tenant"
+        );
+        return Err(ApiError::forbidden("Access denied to revoke this API key"));
+    }
+
     let key = state
         .repos()
         .api_keys()

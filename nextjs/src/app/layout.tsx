@@ -1,14 +1,22 @@
 import type { Metadata, Viewport } from "next";
-import { JetBrains_Mono, IBM_Plex_Sans } from "next/font/google";
+import { JetBrains_Mono, Plus_Jakarta_Sans, Sora } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { Toaster } from "@/components/ui/sonner";
 
-// Primary sans-serif - IBM Plex Sans for clean, technical readability
-const ibmPlexSans = IBM_Plex_Sans({
+// Display font - Sora for bold headings with geometric, futuristic character
+const sora = Sora({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  display: "swap",
+});
+
+// Primary sans-serif - Plus Jakarta Sans for body text with distinctive warmth
+const plusJakarta = Plus_Jakarta_Sans({
   variable: "--font-sans",
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["300", "400", "500", "600", "700", "800"],
   display: "swap",
 });
 
@@ -45,7 +53,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${ibmPlexSans.variable} ${jetbrainsMono.variable} font-sans antialiased`}
+        className={`${sora.variable} ${plusJakarta.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
         <QueryProvider>
           <div className="relative min-h-screen bg-background">

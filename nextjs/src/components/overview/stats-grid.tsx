@@ -2,18 +2,18 @@
 
 import Link from "next/link";
 import {
-  Play,
-  CheckCircle,
-  AlertTriangle,
-  DollarSign,
-  TrendingUp,
-  TrendingDown,
-  LucideIcon,
   Activity,
+  AlertTriangle,
+  CheckCircle,
+  DollarSign,
+  Play,
+  TrendingDown,
+  TrendingUp,
+  type LucideIcon,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { formatCost } from "@/lib/utils";
+import { AnimatedCounter, CostCounter, PercentageCounter } from "@/components/shared/animated-counter";
 import type { Run } from "@/types/run";
 import type { ApprovalRequest } from "@/types/approval";
 
@@ -23,21 +23,34 @@ interface StatsGridProps {
   isLoading?: boolean;
 }
 
-interface StatCardProps {
-  title: string;
-  value: string | number;
-  icon: LucideIcon;
-  href: string;
-  trend?: {
-    value: number;
-    isPositive: boolean;
-  };
-  accentColor: "cyan" | "green" | "yellow" | "red" | "purple" | "orange";
-  isLoading?: boolean;
-  isPulsing?: boolean;
+type AccentColor = "cyan" | "green" | "yellow" | "red" | "purple" | "orange";
+
+interface TrendData {
+  value: number;
+  isPositive: boolean;
 }
 
-const accentStyles = {
+interface AccentStyle {
+  iconBg: string;
+  iconColor: string;
+  glow: string;
+  border: string;
+  gradient: string;
+}
+
+interface StatCardProps {
+  title: string;
+  value: number;
+  icon: LucideIcon;
+  href: string;
+  accentColor: AccentColor;
+  trend?: TrendData;
+  isLoading?: boolean;
+  isPulsing?: boolean;
+  isCost?: boolean;
+}
+
+const accentStyles: Record<AccentColor, AccentStyle> = {
   cyan: {
     iconBg: "bg-accent-primary/10",
     iconColor: "text-accent-primary",
@@ -87,10 +100,11 @@ function StatCard({
   value,
   icon: Icon,
   href,
-  trend,
   accentColor,
+  trend,
   isLoading,
   isPulsing,
+  isCost,
 }: StatCardProps) {
   const styles = accentStyles[accentColor];
 
@@ -147,8 +161,12 @@ function StatCard({
               {title}
             </p>
             <div className="flex items-baseline gap-2 mt-2">
-              <p className="text-3xl font-bold tracking-tight text-foreground">
-                {value}
+              <p className="text-3xl font-bold tracking-tight text-foreground font-display">
+                {isCost ? (
+                  <CostCounter value={value} duration={600} />
+                ) : (
+                  <AnimatedCounter value={value} duration={600} />
+                )}
               </p>
               {isPulsing && (
                 <Activity className={cn("h-4 w-4 animate-pulse", styles.iconColor)} />
@@ -166,9 +184,12 @@ function StatCard({
                 ) : (
                   <TrendingDown className="h-3.5 w-3.5" />
                 )}
-                <span>
-                  {Math.abs(trend.value)}% vs yesterday
-                </span>
+                <PercentageCounter
+                  value={Math.abs(trend.value)}
+                  duration={400}
+                  decimals={0}
+                />
+                <span className="ml-0.5">vs yesterday</span>
               </div>
             )}
           </div>
@@ -187,77 +208,75 @@ function StatCard({
   );
 }
 
-export function StatsGrid({ runs, approvals, isLoading }: StatsGridProps) {
-  // Calculate stats from runs
-  const now = new Date();
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const twoDaysAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+// Time constants
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const TWO_DAYS_MS = 48 * 60 * 60 * 1000;
 
-  // Active runs (running or waiting_approval)
-  const activeRuns = runs.filter(
-    (r) => r.status === "running" || r.status === "waiting_approval"
+// Status categories
+const ACTIVE_STATUSES = ["running", "waiting_approval"] as const;
+const FAILED_STATUSES = ["failed", "timeout", "budget_killed"] as const;
+
+/** Calculate percentage change between two values */
+function calculateTrendPercent(current: number, previous: number): number {
+  if (previous > 0) {
+    return Math.round(((current - previous) / previous) * 100);
+  }
+  return current > 0 ? 100 : 0;
+}
+
+/** Convert trend value to TrendData or undefined if no change */
+function toTrendData(trendPercent: number): TrendData | undefined {
+  if (trendPercent === 0) return undefined;
+  return {
+    value: Math.abs(trendPercent),
+    isPositive: trendPercent < 0, // For failures/costs, negative change is "positive"
+  };
+}
+
+export function StatsGrid({ runs, approvals, isLoading }: StatsGridProps) {
+  const now = new Date();
+  const yesterday = new Date(now.getTime() - ONE_DAY_MS);
+  const twoDaysAgo = new Date(now.getTime() - TWO_DAYS_MS);
+
+  // Active runs
+  const activeRuns = runs.filter((r) =>
+    ACTIVE_STATUSES.includes(r.status as typeof ACTIVE_STATUSES[number])
   ).length;
 
   // Pending approvals
-  const pendingApprovals = approvals.filter(
-    (a) => a.status === "pending"
+  const pendingApprovals = approvals.filter((a) => a.status === "pending").length;
+
+  // Helper to check if run is in a time range
+  const isInRange = (run: Run, start: Date, end?: Date) => {
+    const createdAt = new Date(run.created_at);
+    return createdAt >= start && (!end || createdAt < end);
+  };
+
+  // Helper to check if run has failed status
+  const isFailed = (run: Run) =>
+    FAILED_STATUSES.includes(run.status as typeof FAILED_STATUSES[number]);
+
+  // Failed runs (24h periods)
+  const failedLast24h = runs.filter((r) => isInRange(r, yesterday) && isFailed(r)).length;
+  const failedPrevious24h = runs.filter(
+    (r) => isInRange(r, twoDaysAgo, yesterday) && isFailed(r)
   ).length;
 
-  // Failed runs in last 24h
-  const failedLast24h = runs.filter((r) => {
-    const createdAt = new Date(r.created_at);
-    return (
-      createdAt >= yesterday &&
-      (r.status === "failed" ||
-        r.status === "timeout" ||
-        r.status === "budget_killed")
-    );
-  }).length;
-
-  // Failed runs in previous 24h (for trend)
-  const failedPrevious24h = runs.filter((r) => {
-    const createdAt = new Date(r.created_at);
-    return (
-      createdAt >= twoDaysAgo &&
-      createdAt < yesterday &&
-      (r.status === "failed" ||
-        r.status === "timeout" ||
-        r.status === "budget_killed")
-    );
-  }).length;
-
-  // Cost in last 24h
+  // Cost (24h periods)
   const costLast24h = runs
-    .filter((r) => new Date(r.created_at) >= yesterday)
+    .filter((r) => isInRange(r, yesterday))
     .reduce((sum, r) => sum + (r.cost_cents || 0), 0);
 
-  // Cost in previous 24h (for trend)
   const costPrevious24h = runs
-    .filter((r) => {
-      const createdAt = new Date(r.created_at);
-      return createdAt >= twoDaysAgo && createdAt < yesterday;
-    })
+    .filter((r) => isInRange(r, twoDaysAgo, yesterday))
     .reduce((sum, r) => sum + (r.cost_cents || 0), 0);
 
   // Calculate trends
-  const failedTrend =
-    failedPrevious24h > 0
-      ? Math.round(
-          ((failedLast24h - failedPrevious24h) / failedPrevious24h) * 100
-        )
-      : failedLast24h > 0
-      ? 100
-      : 0;
-
-  const costTrend =
-    costPrevious24h > 0
-      ? Math.round(((costLast24h - costPrevious24h) / costPrevious24h) * 100)
-      : costLast24h > 0
-      ? 100
-      : 0;
+  const failedTrend = calculateTrendPercent(failedLast24h, failedPrevious24h);
+  const costTrend = calculateTrendPercent(costLast24h, costPrevious24h);
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 stagger-reveal">
       <StatCard
         title="Active Runs"
         value={activeRuns}
@@ -281,24 +300,17 @@ export function StatsGrid({ runs, approvals, isLoading }: StatsGridProps) {
         value={failedLast24h}
         icon={AlertTriangle}
         href="/runs?status=failed"
-        trend={
-          failedTrend !== 0
-            ? { value: Math.abs(failedTrend), isPositive: failedTrend < 0 }
-            : undefined
-        }
+        trend={toTrendData(failedTrend)}
         accentColor="red"
         isLoading={isLoading}
       />
       <StatCard
         title="Cost (24h)"
-        value={formatCost(costLast24h)}
+        value={costLast24h}
+        isCost
         icon={DollarSign}
         href="/analytics"
-        trend={
-          costTrend !== 0
-            ? { value: Math.abs(costTrend), isPositive: costTrend < 0 }
-            : undefined
-        }
+        trend={toTrendData(costTrend)}
         accentColor="green"
         isLoading={isLoading}
       />

@@ -11,6 +11,7 @@ Tools provided:
 import asyncio
 import logging
 import os
+import re
 import shlex
 import subprocess
 from pathlib import Path
@@ -21,6 +22,70 @@ from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
 logger = logging.getLogger(__name__)
+
+# SECURITY: Allowlist of safe argument patterns for test runners
+# These patterns match common pytest/jest flags that don't execute arbitrary code
+SAFE_ARG_PATTERNS = [
+    r"^-[vqxs]+$",  # Short flags like -v, -vv, -q, -x, -s
+    r"^--[a-z][a-z0-9-]*$",  # Long flags like --verbose, --no-header
+    r"^--[a-z][a-z0-9-]*=[a-zA-Z0-9_./-]+$",  # Flags with safe values
+    r"^-[a-zA-Z]$",  # Single letter flags
+    r"^[a-zA-Z0-9_./-]+$",  # Simple file paths/test names (no special chars)
+]
+
+# SECURITY: Blocklist of dangerous argument patterns
+DANGEROUS_PATTERNS = [
+    r"--exec",
+    r"--command",
+    r"--shell",
+    r"-c\s",  # -c followed by space (shell command)
+    r"\$\(",  # Command substitution
+    r"`",  # Backtick command substitution
+    r";",  # Command chaining
+    r"\|",  # Pipe
+    r"&&",  # Command chaining
+    r"\|\|",  # Command chaining
+    r">",  # Redirection
+    r"<",  # Redirection
+]
+
+
+def validate_extra_args(extra_args: list[str]) -> list[str]:
+    """Validate extra arguments to prevent command injection.
+
+    SECURITY: Only allows safe argument patterns that match common test runner flags.
+    Rejects any arguments that could be used for command injection.
+
+    Args:
+        extra_args: List of extra arguments to validate
+
+    Returns:
+        Validated list of arguments
+
+    Raises:
+        ValueError: If any argument fails validation
+    """
+    validated = []
+    for arg in extra_args:
+        # Check against dangerous patterns
+        for pattern in DANGEROUS_PATTERNS:
+            if re.search(pattern, arg):
+                raise ValueError(
+                    f"Potentially dangerous argument rejected: '{arg}' "
+                    f"(matches dangerous pattern)"
+                )
+
+        # Check if argument matches any safe pattern
+        is_safe = any(re.match(pattern, arg) for pattern in SAFE_ARG_PATTERNS)
+        if not is_safe:
+            raise ValueError(
+                f"Argument '{arg}' does not match allowed patterns. "
+                f"Only standard test runner flags and simple paths are allowed."
+            )
+
+        validated.append(arg)
+
+    return validated
 
 # Base directory for test operations
 WORKSPACE_DIR = Path(os.getenv("FD_WORKSPACE_DIR", "/tmp/fd-workspace"))
@@ -64,9 +129,26 @@ def run_command(
 
 
 def get_repo_path(repo_name: str) -> Path:
-    """Get the local path for a repository."""
-    safe_name = repo_name.replace("/", "_").replace("..", "").replace("\\", "")
-    return WORKSPACE_DIR / safe_name
+    """Get the local path for a repository.
+
+    SECURITY: Validates that the resolved path is within WORKSPACE_DIR
+    to prevent path traversal attacks.
+    """
+    # Basic sanitization
+    safe_name = repo_name.replace("/", "_").replace("\\", "_")
+
+    # Construct the path and resolve any symlinks or relative components
+    candidate = (WORKSPACE_DIR / safe_name).resolve()
+
+    # SECURITY: Verify the resolved path is within the workspace directory
+    workspace_resolved = WORKSPACE_DIR.resolve()
+    if not candidate.is_relative_to(workspace_resolved):
+        raise ValueError(
+            f"Invalid repository name: path traversal detected. "
+            f"'{repo_name}' resolves outside workspace."
+        )
+
+    return candidate
 
 
 # Tool definitions
@@ -287,7 +369,11 @@ async def handle_tool_call(name: str, arguments: dict[str, Any]) -> list[TextCon
         if arguments.get("coverage"):
             args.append("--cov")
         if arguments.get("extra_args"):
-            args.extend(arguments["extra_args"])
+            try:
+                validated_args = validate_extra_args(arguments["extra_args"])
+                args.extend(validated_args)
+            except ValueError as e:
+                return [TextContent(type="text", text=f"SECURITY ERROR: {e}")]
 
         args.extend(["--tb=short", "-q"])
 
@@ -313,7 +399,11 @@ async def handle_tool_call(name: str, arguments: dict[str, Any]) -> list[TextCon
             args.append("--watch")
         args.append("--ci")
         if arguments.get("extra_args"):
-            args.extend(arguments["extra_args"])
+            try:
+                validated_args = validate_extra_args(arguments["extra_args"])
+                args.extend(validated_args)
+            except ValueError as e:
+                return [TextContent(type="text", text=f"SECURITY ERROR: {e}")]
 
         success, stdout, stderr = run_command(args, cwd=repo_path)
 

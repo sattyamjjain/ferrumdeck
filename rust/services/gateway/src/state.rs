@@ -114,13 +114,33 @@ impl AppState {
 
         // SECURITY: Load API key secret for HMAC hashing
         // In production, this MUST be set to a secure random value (at least 32 bytes)
-        let api_key_secret = std::env::var("API_KEY_SECRET").unwrap_or_else(|_| {
-            tracing::warn!(
-                "API_KEY_SECRET not set, using default development secret. \
-                 DO NOT USE IN PRODUCTION!"
-            );
-            "ferrumdeck-dev-secret-do-not-use-in-production".to_string()
-        });
+        let is_production = std::env::var("FERRUMDECK_ENV")
+            .map(|v| v.to_lowercase() == "production")
+            .unwrap_or(false);
+
+        let api_key_secret = match std::env::var("API_KEY_SECRET") {
+            Ok(secret) => {
+                if secret.len() < 32 {
+                    tracing::warn!(
+                        "API_KEY_SECRET is less than 32 bytes, consider using a longer secret"
+                    );
+                }
+                secret
+            }
+            Err(_) => {
+                if is_production {
+                    return Err(anyhow::anyhow!(
+                        "API_KEY_SECRET must be set in production. \
+                         Generate a secure random value with: openssl rand -base64 32"
+                    ));
+                }
+                tracing::warn!(
+                    "API_KEY_SECRET not set, using default development secret. \
+                     DO NOT USE IN PRODUCTION!"
+                );
+                "ferrumdeck-dev-secret-do-not-use-in-production".to_string()
+            }
+        };
 
         // Create database pool
         let db = fd_storage::pool::create_pool(&database_url, 20, 5).await?;

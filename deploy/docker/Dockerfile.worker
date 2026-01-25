@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y \
     && adduser --disabled-password --gecos "" --uid 1000 ferrumdeck
 
 # Install uv for fast package management
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /uvx /bin/
 
 WORKDIR /app
 

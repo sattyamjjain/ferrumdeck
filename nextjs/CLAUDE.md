@@ -9,6 +9,7 @@ Next.js 16+ admin dashboard for the FerrumDeck AgentOps Control Plane. Provides 
 - Real-time run monitoring with step timeline visualization
 - Approval queue with approve/reject actions
 - Agent and tool registry management
+- Airlock security settings and threat monitoring
 - Analytics dashboard with charts
 - Container logs and workflow detail pages
 - GitHub-like dark theme
@@ -30,7 +31,8 @@ nextjs/
 │   │   │   ├── analytics/      # Usage charts
 │   │   │   ├── workflows/      # Workflow detail pages
 │   │   │   ├── containers/     # Container logs
-│   │   │   └── settings/       # Configuration
+│   │   │   ├── threats/        # Airlock threat monitoring
+│   │   │   └── settings/       # Configuration (incl. Airlock)
 │   │   ├── api/v1/             # BFF API proxy routes
 │   │   ├── layout.tsx          # Root layout with providers
 │   │   └── page.tsx            # Redirect to /runs
@@ -42,6 +44,7 @@ nextjs/
 │   │   ├── approvals/          # Approval cards
 │   │   ├── agents/             # Agent cards
 │   │   ├── tools/              # Tool cards
+│   │   ├── security/           # Airlock settings, threat table
 │   │   ├── charts/             # Analytics charts
 │   │   └── shared/             # JSON viewer, loaders
 │   │
@@ -49,7 +52,8 @@ nextjs/
 │   │   ├── use-runs.ts         # useRuns, useRun, useSteps
 │   │   ├── use-approvals.ts    # useApprovals, useApprove
 │   │   ├── use-agents.ts       # useAgents, useAgent
-│   │   └── use-tools.ts        # useTools
+│   │   ├── use-tools.ts        # useTools
+│   │   └── use-security.ts     # useAirlockConfig, useThreats
 │   │
 │   ├── lib/
 │   │   ├── api/                # API client functions
@@ -59,7 +63,8 @@ nextjs/
 │       ├── run.ts              # Run, Step, Budget
 │       ├── approval.ts         # ApprovalRequest
 │       ├── agent.ts            # Agent, AgentVersion
-│       └── tool.ts             # Tool
+│       ├── tool.ts             # Tool
+│       └── security.ts         # AirlockConfig, Threat
 │
 ├── Dockerfile                  # Multi-stage production build
 ├── next.config.ts              # Standalone output config

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useIsMounted } from "@/hooks/use-is-mounted";
 import { Search, X, Filter } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -44,9 +44,7 @@ export function ToolFilters({
   onClearFilters,
 }: ToolFiltersProps) {
   // Hydration fix - ensure client-only rendering for Radix components
-  const [mounted, setMounted] = useState(false);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setMounted(true), []);
+  const mounted = useIsMounted();
 
   const hasFilters = !!riskLevel || !!mcpServer || !!status || !!healthStatus;
   const activeFilterCount = [riskLevel, mcpServer, status, healthStatus].filter(Boolean).length;

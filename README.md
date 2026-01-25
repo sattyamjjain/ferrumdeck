@@ -104,7 +104,7 @@ FerrumDeck provides a **dual-plane architecture**:
 │ • Evals UI      │    │  │ • SSE     │  │ • Rules  │  │ • Tools      │   │
 │                 │    │  │ • Auth    │  │ • Gates  │  │ • Versions   │   │
 └─────────────────┘    │  └───────────┘  └──────────┘  └──────────────┘   │
-   :3000/:3001         │                                                   │
+   :3001/:8000         │                                                   │
                        │  ┌───────────┐  ┌──────────┐  ┌──────────────┐   │
                        │  │   Audit   │  │   DAG    │  │    OTEL      │   │
                        │  │    Log    │  │Scheduler │  │    Setup     │   │
@@ -153,7 +153,7 @@ FerrumDeck provides a **dual-plane architecture**:
 | Service | Port | Description |
 |---------|------|-------------|
 | Gateway | `8080` | REST API (Rust control plane) |
-| Dashboard | `3000` / `3001` | Next.js UI (dev / Docker) |
+| Dashboard | `3001` / `8000` | Next.js UI (dev) / Static server |
 | PostgreSQL | `5433` | Database (pgvector enabled) |
 | Redis | `6379` | Queue and cache |
 | Jaeger UI | `16686` | Distributed tracing |
@@ -165,7 +165,7 @@ FerrumDeck provides a **dual-plane architecture**:
 
 ### Prerequisites
 
-- **Rust** 1.83+ ([rustup.rs](https://rustup.rs))
+- **Rust** 1.80+ ([rustup.rs](https://rustup.rs))
 - **Python** 3.12+
 - **Docker** & Docker Compose
 - **uv** ([docs.astral.sh/uv](https://docs.astral.sh/uv)) - Fast Python package manager
@@ -228,8 +228,13 @@ curl http://localhost:8080/v1/runs/{run_id} \
 ### 4. Open the Dashboard
 
 ```bash
-# Open the dashboard UI
-open http://localhost:3001
+# Start the dashboard (static server)
+make run-dashboard
+# Open http://localhost:8000
+
+# Or run the Next.js development server
+cd nextjs && npm run dev
+# Open http://localhost:3001
 ```
 
 The dashboard provides a complete UI for:
@@ -602,12 +607,13 @@ from fd_mcp_tools import TestRunnerMCPServer
 
 ### Dashboard (Next.js)
 
-A professional admin UI built with Next.js 16.1, React 19, and Tailwind CSS 4.
+A professional admin UI built with Next.js 16.1.1, React 19.2, and Tailwind CSS 4.
 
 #### Key Pages
 
 | Page | Description |
 |------|-------------|
+| `/overview` | Dashboard home with key metrics and recent activity |
 | `/runs` | Real-time run monitoring with step timeline visualization |
 | `/runs/{runId}` | Detailed run view with step-by-step execution trace |
 | `/approvals` | Approval queue with approve/reject actions |
@@ -618,21 +624,23 @@ A professional admin UI built with Next.js 16.1, React 19, and Tailwind CSS 4.
 | `/audit` | Immutable audit trail viewer with filtering |
 | `/evals` | Evaluation suite results and comparisons |
 | `/policies` | Policy configuration and management |
+| `/threats` | Security threat detection and monitoring |
+| `/logs` | Container and service logs viewer |
 | `/settings` | API key management and configuration |
 
 #### Technology Stack
 
 ```
-Next.js 16.1        # App Router with standalone output
-React 19.2          # Concurrent features, Server Components
+Next.js 16.1.1      # App Router with standalone output
+React 19.2.3        # Concurrent features, Server Components
 Tailwind CSS 4      # Utility-first styling with dark theme
-TanStack Query      # Server state with polling (2-3s intervals)
-TanStack Table      # Data tables with sorting/filtering
+TanStack Query 5    # Server state with polling (2-3s intervals)
+TanStack Table 8    # Data tables with sorting/filtering
 Radix UI            # Accessible component primitives
 shadcn/ui           # Pre-built component library
-Recharts            # Analytics visualizations
-nuqs                # URL state management
-sonner              # Toast notifications
+Recharts 3          # Analytics visualizations
+nuqs 2              # URL state management
+sonner 2            # Toast notifications
 ```
 
 #### Running the Dashboard
@@ -640,15 +648,19 @@ sonner              # Toast notifications
 ```bash
 # Development (hot reload)
 cd nextjs && npm install && npm run dev
-# Open http://localhost:3000
+# Open http://localhost:3001
 
 # Production build
 npm run build
-npm start
+npm start  # Runs on port 3001
+
+# Static dashboard (simple HTTP server)
+make run-dashboard
+# Open http://localhost:8000
 
 # Docker
 docker build -t ferrumdeck-dashboard nextjs/
-docker run -p 3000:3000 \
+docker run -p 3001:3001 \
   -e GATEWAY_URL=http://gateway:8080 \
   -e FD_API_KEY=fd_dev_key_abc123 \
   ferrumdeck-dashboard
@@ -1251,9 +1263,12 @@ Helm charts coming soon. For now, use the Docker images with your preferred orch
 
 ### Code Style
 
-- **Rust**: Follow `rustfmt` defaults
-- **Python**: Follow `ruff` rules (see `pyproject.toml`)
+- **Rust**: Follow `rustfmt` defaults, clippy warnings as errors
+- **Python**: Follow `ruff` rules (see `pyproject.toml`), pyright type checking
+- **TypeScript**: ESLint with Next.js config
 - **Commits**: Use conventional commits (`feat:`, `fix:`, `docs:`, etc.)
+
+See [AGENTS.md](AGENTS.md) for detailed coding guidelines and single-test commands.
 
 ---
 

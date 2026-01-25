@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useIsMounted } from "@/hooks/use-is-mounted";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -67,11 +68,7 @@ interface CreateToolDialogProps {
 
 export function CreateToolDialog({ trigger }: CreateToolDialogProps) {
   // Hydration fix - ensure client-only rendering for Radix components
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setMounted(true);
-  }, []);
+  const mounted = useIsMounted();
 
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState("");

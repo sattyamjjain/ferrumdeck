@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
+import { useIsMounted } from "@/hooks/use-is-mounted";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -394,9 +395,7 @@ function ExportDropdown({ onExport, isExporting, disabled }: ExportDropdownProps
 
 export default function AuditPage() {
   // Hydration fix - ensure client-only rendering for Radix components
-  const [mounted, setMounted] = useState(false);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setMounted(true), []);
+  const mounted = useIsMounted();
 
   // Filter state
   const [search, setSearch] = useState("");

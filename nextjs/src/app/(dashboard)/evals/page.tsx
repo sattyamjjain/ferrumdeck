@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useIsMounted } from "@/hooks/use-is-mounted";
 import Link from "next/link";
 import {
   FlaskConical,
@@ -93,10 +94,7 @@ const gateStatusConfig: Record<
 
 export default function EvalsPage() {
   // Hydration fix - ensure client-only rendering for Radix components
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useIsMounted();
 
   const [selectedTab, setSelectedTab] = useState("suites");
   const [runSuiteDialogOpen, setRunSuiteDialogOpen] = useState(false);

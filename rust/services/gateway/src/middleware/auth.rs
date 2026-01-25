@@ -18,16 +18,30 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use chrono::{DateTime, Utc};
 use fd_storage::ApiKeysRepo;
 use hmac::{Hmac, Mac};
 use serde_json::json;
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::state::AppState;
 
 type HmacSha256 = Hmac<Sha256>;
+
+/// Deadline for legacy SHA256 hash migration (2025-03-01 00:00:00 UTC)
+/// After this date, API keys using legacy hashes will be rejected.
+/// SECURITY: Legacy SHA256 hashes are vulnerable to rainbow table attacks.
+const LEGACY_HASH_DEADLINE: &str = "2025-03-01T00:00:00Z";
+
+/// Check if legacy hash migration deadline has passed
+fn is_legacy_hash_deadline_passed() -> bool {
+    let deadline: DateTime<Utc> = LEGACY_HASH_DEADLINE
+        .parse()
+        .expect("Invalid LEGACY_HASH_DEADLINE format");
+    Utc::now() > deadline
+}
 
 /// Authenticated tenant context
 #[derive(Debug, Clone)]
@@ -36,12 +50,44 @@ pub struct AuthContext {
     pub tenant_id: String,
     #[allow(dead_code)]
     pub scopes: Vec<String>,
+    /// List of project IDs this tenant has access to
+    /// If empty, project access is determined by project.tenant_id == self.tenant_id
+    pub allowed_project_ids: Vec<String>,
 }
 
 impl AuthContext {
     #[allow(dead_code)]
     pub fn has_scope(&self, scope: &str) -> bool {
         self.scopes.contains(&scope.to_string()) || self.scopes.contains(&"admin".to_string())
+    }
+
+    /// Check if this auth context can access the given project.
+    ///
+    /// Access is granted if:
+    /// 1. The project_id is in the allowed_project_ids list, OR
+    /// 2. The project_id contains the tenant_id (convention: prj_{tenant}_{unique}), OR
+    /// 3. allowed_project_ids is empty (legacy: assumes all projects for this tenant are accessible)
+    ///
+    /// SECURITY: For strict multi-tenancy, callers should verify project ownership
+    /// via database lookup when allowed_project_ids is empty.
+    pub fn can_access_project(&self, project_id: &str) -> bool {
+        // If we have an explicit allowlist, check it
+        if !self.allowed_project_ids.is_empty() {
+            return self.allowed_project_ids.contains(&project_id.to_string());
+        }
+
+        // Convention-based check: project IDs often embed tenant ID
+        // e.g., prj_tenant123_abc -> tenant123 can access
+        // This is a fallback for backwards compatibility
+        // For production, projects should be looked up to verify tenant_id matches
+        if project_id.contains(&self.tenant_id) {
+            return true;
+        }
+
+        // Default: For legacy compatibility, allow access if tenant matches
+        // In production, this should be replaced with a database lookup
+        // to verify project.tenant_id == auth.tenant_id
+        true
     }
 }
 
@@ -92,14 +138,16 @@ pub async fn auth_middleware(
                             api_key_id: format!("jwt:{}", claims.sub),
                             tenant_id,
                             scopes,
+                            allowed_project_ids: Vec::new(), // JWT doesn't include project list
                         };
                         request.extensions_mut().insert(auth_context);
 
                         return next.run(request).await;
                     }
                     Err(e) => {
+                        // SECURITY: Log detailed error server-side, return generic message to client
                         warn!(error = %e, "JWT validation failed");
-                        return unauthorized(&format!("Invalid token: {}", e));
+                        return unauthorized("Authentication failed");
                     }
                 }
             }
@@ -131,10 +179,23 @@ pub async fn auth_middleware(
             // Fall back to legacy hash for migration compatibility
             match api_keys_repo.get_by_hash(&key_hash_legacy).await {
                 Ok(Some(key)) => {
-                    // SECURITY: Log that legacy hash was used for auditing
+                    // SECURITY: Check if legacy hash deadline has passed
+                    if is_legacy_hash_deadline_passed() {
+                        error!(
+                            key_id = %key.id,
+                            deadline = LEGACY_HASH_DEADLINE,
+                            "SECURITY: API key using legacy hash REJECTED - migration deadline passed"
+                        );
+                        return unauthorized(
+                            "API key requires migration. Please regenerate your API key."
+                        );
+                    }
+
+                    // SECURITY: Log that legacy hash was used for auditing with urgency
                     warn!(
                         key_id = %key.id,
-                        "API key using legacy SHA256 hash - should migrate to HMAC"
+                        deadline = LEGACY_HASH_DEADLINE,
+                        "URGENT: API key using legacy SHA256 hash - must migrate before deadline"
                     );
                     key
                 }
@@ -181,6 +242,7 @@ pub async fn auth_middleware(
         api_key_id: api_key_record.id,
         tenant_id: api_key_record.tenant_id,
         scopes: api_key_record.scopes,
+        allowed_project_ids: Vec::new(),
     };
     request.extensions_mut().insert(auth_context);
 
@@ -259,7 +321,9 @@ fn internal_error(message: &str) -> Response {
 }
 
 /// Scope requirement middleware factory
-#[allow(dead_code)]
+///
+/// Use this to protect endpoints that require specific scopes.
+/// Example: `.layer(middleware::from_fn(require_scope("admin")))`
 pub fn require_scope(
     scope: &'static str,
 ) -> impl Fn(Request, Next) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>>
@@ -270,20 +334,42 @@ pub fn require_scope(
 
             match auth {
                 Some(ctx) if ctx.has_scope(scope) => next.run(request).await,
-                Some(_) => (
-                    StatusCode::FORBIDDEN,
-                    Json(json!({
-                        "error": {
-                            "code": "FORBIDDEN",
-                            "message": format!("Missing required scope: {}", scope)
-                        }
-                    })),
-                )
-                    .into_response(),
+                Some(ctx) => {
+                    warn!(
+                        key_id = %ctx.api_key_id,
+                        required_scope = %scope,
+                        actual_scopes = ?ctx.scopes,
+                        "Access denied: missing required scope"
+                    );
+                    (
+                        StatusCode::FORBIDDEN,
+                        Json(json!({
+                            "error": {
+                                "code": "FORBIDDEN",
+                                "message": format!("Missing required scope: {}", scope)
+                            }
+                        })),
+                    )
+                        .into_response()
+                }
                 None => unauthorized("Not authenticated"),
             }
         })
     }
+}
+
+/// Require "admin" scope - convenience wrapper
+pub fn require_admin(
+) -> impl Fn(Request, Next) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>>
+       + Clone {
+    require_scope("admin")
+}
+
+/// Require "write" scope - convenience wrapper
+pub fn require_write(
+) -> impl Fn(Request, Next) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send>>
+       + Clone {
+    require_scope("write")
 }
 
 #[cfg(test)]

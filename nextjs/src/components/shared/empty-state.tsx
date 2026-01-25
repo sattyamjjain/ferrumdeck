@@ -147,11 +147,11 @@ export function EmptyState({
       </div>
 
       {/* Text Content */}
-      <div className={cn("relative space-y-2", isHero ? "max-w-lg" : "max-w-md")}>
+      <div className={cn("relative space-y-3", isHero ? "max-w-lg" : "max-w-md", "reveal-up")} style={{ animationDelay: '150ms' }}>
         <h3
           className={cn(
-            "font-semibold tracking-tight text-foreground",
-            isCompact ? "text-base" : isHero ? "text-xl" : "text-lg"
+            "font-semibold tracking-tight text-foreground font-display",
+            isCompact ? "text-base" : isHero ? "text-2xl" : "text-lg"
           )}
         >
           {title}
