@@ -211,7 +211,7 @@ pub async fn pre_auth_rate_limit_middleware(
     let key = extract_client_ip(&request);
 
     // Check rate limit
-    let (allowed, remaining, reset_after) = {
+    let (allowed, _remaining, reset_after) = {
         let mut store = limiter.write().await;
         store.try_request(&key, &config)
     };
