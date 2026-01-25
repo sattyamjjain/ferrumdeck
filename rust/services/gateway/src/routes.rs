@@ -29,8 +29,7 @@ pub fn build_router(state: AppState) -> Router {
                 // ========================================
                 // ADMIN-ONLY routes (require "admin" scope)
                 // ========================================
-                .nest(
-                    "",
+                .merge(
                     Router::new()
                         // API Key management (admin only)
                         .route(
@@ -54,8 +53,7 @@ pub fn build_router(state: AppState) -> Router {
                 // ========================================
                 // WRITE routes (require "write" scope)
                 // ========================================
-                .nest(
-                    "",
+                .merge(
                     Router::new()
                         // Registry writes
                         .route("/registry/agents", post(handlers::registry::create_agent))
