@@ -71,8 +71,7 @@ def validate_extra_args(extra_args: list[str]) -> list[str]:
         for pattern in DANGEROUS_PATTERNS:
             if re.search(pattern, arg):
                 raise ValueError(
-                    f"Potentially dangerous argument rejected: '{arg}' "
-                    f"(matches dangerous pattern)"
+                    f"Potentially dangerous argument rejected: '{arg}' (matches dangerous pattern)"
                 )
 
         # Check if argument matches any safe pattern
@@ -86,6 +85,7 @@ def validate_extra_args(extra_args: list[str]) -> list[str]:
         validated.append(arg)
 
     return validated
+
 
 # Base directory for test operations
 WORKSPACE_DIR = Path(os.getenv("FD_WORKSPACE_DIR", "/tmp/fd-workspace"))
