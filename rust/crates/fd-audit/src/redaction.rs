@@ -244,4 +244,234 @@ mod tests {
         assert_eq!(result.redacted, input);
         assert_eq!(result.redaction_count, 0);
     }
+
+    // ==========================================================================
+    // AUD-RED-001: Credit card redaction
+    // ==========================================================================
+    #[test]
+    fn test_redact_credit_card_visa() {
+        let input = "Payment card: 4111111111111111";
+        let result = redact_string(input);
+        assert!(result.redacted.contains(REDACTED_PLACEHOLDER));
+        assert!(!result.redacted.contains("4111111111111111"));
+    }
+
+    #[test]
+    fn test_redact_credit_card_mastercard() {
+        let input = "Card number: 5500000000000004";
+        let result = redact_string(input);
+        assert!(result.redacted.contains(REDACTED_PLACEHOLDER));
+        assert!(!result.redacted.contains("5500000000000004"));
+    }
+
+    #[test]
+    fn test_redact_credit_card_amex() {
+        let input = "AMEX: 378282246310005";
+        let result = redact_string(input);
+        assert!(result.redacted.contains(REDACTED_PLACEHOLDER));
+        assert!(!result.redacted.contains("378282246310005"));
+    }
+
+    // ==========================================================================
+    // AUD-RED-002: SSN redaction
+    // ==========================================================================
+    #[test]
+    fn test_redact_ssn() {
+        let input = "SSN: 123-45-6789";
+        let result = redact_string(input);
+        assert!(result.redacted.contains(REDACTED_PLACEHOLDER));
+        assert!(!result.redacted.contains("123-45-6789"));
+    }
+
+    #[test]
+    fn test_redact_ssn_in_text() {
+        let input = "The customer's social security number is 987-65-4321 on file.";
+        let result = redact_string(input);
+        assert!(result.redacted.contains(REDACTED_PLACEHOLDER));
+        assert!(!result.redacted.contains("987-65-4321"));
+    }
+
+    // ==========================================================================
+    // AUD-RED-003: Array value redaction
+    // ==========================================================================
+    #[test]
+    fn test_redact_json_array() {
+        let input = json!({
+            "users": [
+                {"name": "Alice", "email": "alice@example.com"},
+                {"name": "Bob", "email": "bob@example.com"}
+            ]
+        });
+        let result = redact_json(&input);
+
+        // Check that emails in array elements are redacted
+        let users = result["users"].as_array().unwrap();
+        for user in users {
+            assert!(user["email"].as_str().unwrap().contains(REDACTED_PLACEHOLDER));
+        }
+        // Names should not be redacted
+        assert_eq!(users[0]["name"], "Alice");
+        assert_eq!(users[1]["name"], "Bob");
+    }
+
+    #[test]
+    fn test_redact_json_array_with_sensitive_fields() {
+        let input = json!({
+            "configs": [
+                {"api_key": "secret_key_1", "service": "aws"},
+                {"api_key": "secret_key_2", "service": "gcp"}
+            ]
+        });
+        let result = redact_json(&input);
+
+        let configs = result["configs"].as_array().unwrap();
+        for config in configs {
+            assert_eq!(config["api_key"].as_str().unwrap(), REDACTED_PLACEHOLDER);
+        }
+        // Service names should not be redacted
+        assert_eq!(configs[0]["service"], "aws");
+        assert_eq!(configs[1]["service"], "gcp");
+    }
+
+    #[test]
+    fn test_redact_json_mixed_array() {
+        let input = json!([
+            "normal string",
+            "email: user@test.com",
+            {"password": "secret123"},
+            42
+        ]);
+        let result = redact_json(&input);
+
+        let arr = result.as_array().unwrap();
+        assert_eq!(arr[0], "normal string");
+        assert!(arr[1].as_str().unwrap().contains(REDACTED_PLACEHOLDER));
+        assert_eq!(arr[2]["password"].as_str().unwrap(), REDACTED_PLACEHOLDER);
+        assert_eq!(arr[3], 42);
+    }
+
+    // ==========================================================================
+    // AUD-RED-004: Connection string redaction
+    // ==========================================================================
+    #[test]
+    fn test_redact_postgres_connection_string() {
+        let input = "DATABASE_URL=postgres://user:password@localhost:5432/db";
+        let result = redact_string(input);
+        assert!(result.redacted.contains(REDACTED_PLACEHOLDER));
+        assert!(!result.redacted.contains("password@"));
+    }
+
+    #[test]
+    fn test_redact_redis_connection_string() {
+        let input = "REDIS_URL=redis://admin:secretpass@redis.example.com:6379";
+        let result = redact_string(input);
+        assert!(result.redacted.contains(REDACTED_PLACEHOLDER));
+    }
+
+    // ==========================================================================
+    // AUD-RED-005: Private key redaction
+    // ==========================================================================
+    #[test]
+    fn test_redact_private_key() {
+        let input = "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhk...\n-----END PRIVATE KEY-----";
+        let result = redact_string(input);
+        assert!(result.redacted.contains(REDACTED_PLACEHOLDER));
+        assert!(!result.redacted.contains("BEGIN PRIVATE KEY"));
+    }
+
+    #[test]
+    fn test_redact_rsa_private_key() {
+        let input = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----";
+        let result = redact_string(input);
+        assert!(result.redacted.contains(REDACTED_PLACEHOLDER));
+    }
+
+    // ==========================================================================
+    // AUD-RED-006: JWT token redaction
+    // ==========================================================================
+    #[test]
+    fn test_redact_jwt_token() {
+        let input = "token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+        let result = redact_string(input);
+        assert!(result.redacted.contains(REDACTED_PLACEHOLDER));
+        assert!(!result.redacted.contains("eyJhbGci"));
+    }
+
+    // ==========================================================================
+    // AUD-RED-007: Multiple redactions
+    // ==========================================================================
+    #[test]
+    fn test_multiple_redactions_same_type() {
+        let input = "Emails: user1@example.com, user2@example.com, admin@test.org";
+        let result = redact_string(input);
+        assert!(!result.redacted.contains("@example.com"));
+        assert!(!result.redacted.contains("@test.org"));
+    }
+
+    #[test]
+    fn test_multiple_redactions_different_types() {
+        let input = "API: api_key = sk_live_abc123def456ghi789jkl012mno, Email: admin@example.com";
+        let result = redact_string(input);
+        assert!(!result.redacted.contains("sk_live"));
+        assert!(!result.redacted.contains("admin@example.com"));
+        assert!(result.redaction_count >= 2);
+    }
+
+    // ==========================================================================
+    // AUD-RED-008: RedactionResult structure
+    // ==========================================================================
+    #[test]
+    fn test_redaction_result_count() {
+        let input = "Contact: user@example.com";
+        let result = redact_string(input);
+        assert!(result.redaction_count > 0);
+        assert!(!result.redacted_types.is_empty());
+    }
+
+    #[test]
+    fn test_redaction_result_types() {
+        // Use pattern that looks like API key but won't trigger secret scanners
+        let input = "api_key = test_key_abc123xyz789_dummy_value";
+        let result = redact_string(input);
+        assert!(result.redacted_types.contains(&"api_key".to_string()));
+    }
+
+    // ==========================================================================
+    // AUD-RED-009: JSON primitives
+    // ==========================================================================
+    #[test]
+    fn test_redact_json_number() {
+        let input = json!(42);
+        let result = redact_json(&input);
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_redact_json_boolean() {
+        let input = json!(true);
+        let result = redact_json(&input);
+        assert_eq!(result, true);
+    }
+
+    #[test]
+    fn test_redact_json_null() {
+        let input = json!(null);
+        let result = redact_json(&input);
+        assert!(result.is_null());
+    }
+
+    // ==========================================================================
+    // AUD-RED-010: Metadata redaction wrapper
+    // ==========================================================================
+    #[test]
+    fn test_redact_metadata() {
+        let metadata = json!({
+            "user_info": {
+                "email": "secret@example.com",
+                "password": "verysecret"
+            }
+        });
+        let result = redact_metadata(&metadata);
+        assert_eq!(result["user_info"]["password"].as_str().unwrap(), REDACTED_PLACEHOLDER);
+    }
 }

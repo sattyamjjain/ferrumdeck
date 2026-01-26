@@ -378,3 +378,265 @@ pub mod queues {
     pub const STEPS: &str = "steps";
     pub const DLQ: &str = "dlq";
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==========================================================================
+    // STO-QUE-001: QueueMessage creation
+    // ==========================================================================
+    #[test]
+    fn test_queue_message_new() {
+        let msg: QueueMessage<String> = QueueMessage::new("msg_123", "test payload".to_string());
+        assert_eq!(msg.id, "msg_123");
+        assert_eq!(msg.payload, "test payload");
+        assert_eq!(msg.attempts, 0);
+        assert!(msg.created_at > 0);
+    }
+
+    #[test]
+    fn test_queue_message_new_with_string_id() {
+        let id = String::from("msg_string_id");
+        let msg: QueueMessage<i32> = QueueMessage::new(id, 42);
+        assert_eq!(msg.id, "msg_string_id");
+        assert_eq!(msg.payload, 42);
+    }
+
+    #[test]
+    fn test_queue_message_timestamp_is_recent() {
+        let before = chrono::Utc::now().timestamp_millis();
+        let msg: QueueMessage<()> = QueueMessage::new("test", ());
+        let after = chrono::Utc::now().timestamp_millis();
+
+        assert!(msg.created_at >= before);
+        assert!(msg.created_at <= after);
+    }
+
+    // ==========================================================================
+    // STO-QUE-002: QueueMessage serialization
+    // ==========================================================================
+    #[test]
+    fn test_queue_message_serialization() {
+        let msg = QueueMessage::new("msg_ser", "hello world".to_string());
+        let json = serde_json::to_string(&msg).unwrap();
+
+        assert!(json.contains("msg_ser"));
+        assert!(json.contains("hello world"));
+        assert!(json.contains("attempts"));
+    }
+
+    #[test]
+    fn test_queue_message_deserialization() {
+        let json = r#"{"id":"msg_de","payload":"test","created_at":1234567890,"attempts":3}"#;
+        let msg: QueueMessage<String> = serde_json::from_str(json).unwrap();
+
+        assert_eq!(msg.id, "msg_de");
+        assert_eq!(msg.payload, "test");
+        assert_eq!(msg.created_at, 1234567890);
+        assert_eq!(msg.attempts, 3);
+    }
+
+    #[test]
+    fn test_queue_message_roundtrip() {
+        let original = QueueMessage::new("roundtrip", vec![1, 2, 3]);
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: QueueMessage<Vec<i32>> = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(original.id, parsed.id);
+        assert_eq!(original.payload, parsed.payload);
+        assert_eq!(original.attempts, parsed.attempts);
+    }
+
+    // ==========================================================================
+    // STO-QUE-003: StepJob creation and serialization
+    // ==========================================================================
+    #[test]
+    fn test_step_job_serialization() {
+        let job = StepJob {
+            run_id: "run_123".to_string(),
+            step_id: "stp_456".to_string(),
+            step_type: "llm".to_string(),
+            input: serde_json::json!({"prompt": "hello"}),
+            context: JobContext {
+                tenant_id: "ten_1".to_string(),
+                project_id: "prj_1".to_string(),
+                trace_id: Some("trace_abc".to_string()),
+                span_id: None,
+            },
+        };
+
+        let json = serde_json::to_string(&job).unwrap();
+        assert!(json.contains("run_123"));
+        assert!(json.contains("stp_456"));
+        assert!(json.contains("llm"));
+        assert!(json.contains("ten_1"));
+    }
+
+    #[test]
+    fn test_step_job_deserialization() {
+        let json = r#"{
+            "run_id": "run_test",
+            "step_id": "stp_test",
+            "step_type": "tool",
+            "input": {"name": "read_file"},
+            "context": {
+                "tenant_id": "ten_x",
+                "project_id": "prj_x",
+                "trace_id": null,
+                "span_id": null
+            }
+        }"#;
+
+        let job: StepJob = serde_json::from_str(json).unwrap();
+        assert_eq!(job.run_id, "run_test");
+        assert_eq!(job.step_type, "tool");
+        assert!(job.context.trace_id.is_none());
+    }
+
+    #[test]
+    fn test_step_job_roundtrip() {
+        let original = StepJob {
+            run_id: "run_rt".to_string(),
+            step_id: "stp_rt".to_string(),
+            step_type: "retrieval".to_string(),
+            input: serde_json::json!({"query": "test"}),
+            context: JobContext {
+                tenant_id: "ten_rt".to_string(),
+                project_id: "prj_rt".to_string(),
+                trace_id: Some("trace_rt".to_string()),
+                span_id: Some("span_rt".to_string()),
+            },
+        };
+
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: StepJob = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(original.run_id, parsed.run_id);
+        assert_eq!(original.context.trace_id, parsed.context.trace_id);
+    }
+
+    // ==========================================================================
+    // STO-QUE-004: JobContext
+    // ==========================================================================
+    #[test]
+    fn test_job_context_with_all_fields() {
+        let ctx = JobContext {
+            tenant_id: "ten_full".to_string(),
+            project_id: "prj_full".to_string(),
+            trace_id: Some("trace_full".to_string()),
+            span_id: Some("span_full".to_string()),
+        };
+
+        let json = serde_json::to_string(&ctx).unwrap();
+        assert!(json.contains("ten_full"));
+        assert!(json.contains("trace_full"));
+        assert!(json.contains("span_full"));
+    }
+
+    #[test]
+    fn test_job_context_with_optional_none() {
+        let ctx = JobContext {
+            tenant_id: "ten_min".to_string(),
+            project_id: "prj_min".to_string(),
+            trace_id: None,
+            span_id: None,
+        };
+
+        let json = serde_json::to_string(&ctx).unwrap();
+        let parsed: JobContext = serde_json::from_str(&json).unwrap();
+        assert!(parsed.trace_id.is_none());
+        assert!(parsed.span_id.is_none());
+    }
+
+    // ==========================================================================
+    // STO-QUE-005: Queue names constants
+    // ==========================================================================
+    #[test]
+    fn test_queue_names_steps() {
+        assert_eq!(queues::STEPS, "steps");
+    }
+
+    #[test]
+    fn test_queue_names_dlq() {
+        assert_eq!(queues::DLQ, "dlq");
+    }
+
+    // ==========================================================================
+    // STO-QUE-006: QueueMessage with complex payload
+    // ==========================================================================
+    #[test]
+    fn test_queue_message_with_step_job_payload() {
+        let job = StepJob {
+            run_id: "run_complex".to_string(),
+            step_id: "stp_complex".to_string(),
+            step_type: "llm".to_string(),
+            input: serde_json::json!({
+                "model": "claude-3-opus",
+                "messages": [{"role": "user", "content": "test"}]
+            }),
+            context: JobContext {
+                tenant_id: "ten_c".to_string(),
+                project_id: "prj_c".to_string(),
+                trace_id: None,
+                span_id: None,
+            },
+        };
+
+        let msg = QueueMessage::new("msg_complex", job);
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: QueueMessage<StepJob> = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.payload.run_id, "run_complex");
+        assert_eq!(parsed.payload.context.tenant_id, "ten_c");
+    }
+
+    // ==========================================================================
+    // STO-QUE-007: Clone and Debug
+    // ==========================================================================
+    #[test]
+    fn test_queue_message_clone() {
+        let msg = QueueMessage::new("msg_clone", 42i32);
+        let cloned = msg.clone();
+        assert_eq!(msg.id, cloned.id);
+        assert_eq!(msg.payload, cloned.payload);
+    }
+
+    #[test]
+    fn test_queue_message_debug() {
+        let msg = QueueMessage::new("msg_debug", "payload");
+        let debug = format!("{:?}", msg);
+        assert!(debug.contains("msg_debug"));
+        assert!(debug.contains("payload"));
+    }
+
+    #[test]
+    fn test_step_job_clone() {
+        let job = StepJob {
+            run_id: "run_c".to_string(),
+            step_id: "stp_c".to_string(),
+            step_type: "tool".to_string(),
+            input: serde_json::json!({}),
+            context: JobContext {
+                tenant_id: "t".to_string(),
+                project_id: "p".to_string(),
+                trace_id: None,
+                span_id: None,
+            },
+        };
+        let cloned = job.clone();
+        assert_eq!(job.run_id, cloned.run_id);
+    }
+
+    #[test]
+    fn test_job_context_debug() {
+        let ctx = JobContext {
+            tenant_id: "ten_dbg".to_string(),
+            project_id: "prj_dbg".to_string(),
+            trace_id: Some("trace".to_string()),
+            span_id: None,
+        };
+        let debug = format!("{:?}", ctx);
+        assert!(debug.contains("ten_dbg"));
+    }
+}

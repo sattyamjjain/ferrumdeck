@@ -185,3 +185,297 @@ impl Config {
         builder.build()?.try_deserialize()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ============================================================
+    // CORE-CFG-001: Config struct definitions
+    // ============================================================
+
+    #[test]
+    fn test_config_struct_has_required_fields() {
+        // Verify Config struct has all expected fields by construction
+        let config = Config {
+            env: "test".to_string(),
+            log: LogConfig::default(),
+            gateway: GatewayConfig::default(),
+            database: DatabaseConfig {
+                url: "postgres://test".to_string(),
+                max_connections: 10,
+                min_connections: 2,
+            },
+            redis: RedisConfig {
+                url: "redis://test".to_string(),
+                queue_prefix: "test:".to_string(),
+                cache_prefix: "cache:".to_string(),
+            },
+            otel: OtelConfig::default(),
+        };
+        assert_eq!(config.env, "test");
+    }
+
+    #[test]
+    fn test_config_is_cloneable() {
+        let config = Config {
+            env: "test".to_string(),
+            log: LogConfig::default(),
+            gateway: GatewayConfig::default(),
+            database: DatabaseConfig {
+                url: "postgres://test".to_string(),
+                max_connections: 10,
+                min_connections: 2,
+            },
+            redis: RedisConfig {
+                url: "redis://test".to_string(),
+                queue_prefix: "test:".to_string(),
+                cache_prefix: "cache:".to_string(),
+            },
+            otel: OtelConfig::default(),
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.env, config.env);
+    }
+
+    #[test]
+    fn test_config_is_debuggable() {
+        let config = LogConfig::default();
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("LogConfig"));
+    }
+
+    // ============================================================
+    // CORE-CFG-002: Default values
+    // ============================================================
+
+    #[test]
+    fn test_log_config_default_level() {
+        let config = LogConfig::default();
+        assert_eq!(config.level, "debug");
+    }
+
+    #[test]
+    fn test_log_config_default_format() {
+        let config = LogConfig::default();
+        assert_eq!(config.format, "pretty");
+    }
+
+    #[test]
+    fn test_gateway_config_default_host() {
+        let config = GatewayConfig::default();
+        assert_eq!(config.host, "0.0.0.0");
+    }
+
+    #[test]
+    fn test_gateway_config_default_port() {
+        let config = GatewayConfig::default();
+        assert_eq!(config.port, 8080);
+    }
+
+    #[test]
+    fn test_gateway_config_default_workers() {
+        let config = GatewayConfig::default();
+        assert_eq!(config.workers, 4);
+    }
+
+    #[test]
+    fn test_otel_config_default_disabled() {
+        let config = OtelConfig::default();
+        assert!(!config.enabled);
+    }
+
+    #[test]
+    fn test_otel_config_default_endpoint_none() {
+        let config = OtelConfig::default();
+        assert!(config.endpoint.is_none());
+    }
+
+    #[test]
+    fn test_otel_config_default_service_name() {
+        let config = OtelConfig::default();
+        assert_eq!(config.service_name, "ferrumdeck");
+    }
+
+    #[test]
+    fn test_default_env_is_development() {
+        assert_eq!(default_env(), "development");
+    }
+
+    #[test]
+    fn test_default_max_connections() {
+        assert_eq!(default_max_connections(), 20);
+    }
+
+    #[test]
+    fn test_default_min_connections() {
+        assert_eq!(default_min_connections(), 5);
+    }
+
+    #[test]
+    fn test_default_queue_prefix() {
+        assert_eq!(default_queue_prefix(), "fd:queue:");
+    }
+
+    #[test]
+    fn test_default_cache_prefix() {
+        assert_eq!(default_cache_prefix(), "fd:cache:");
+    }
+
+    // ============================================================
+    // CORE-CFG-003: Serde deserialization
+    // ============================================================
+
+    #[test]
+    fn test_log_config_deserialize_from_json() {
+        let json = r#"{"level": "info", "format": "json"}"#;
+        let config: LogConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.level, "info");
+        assert_eq!(config.format, "json");
+    }
+
+    #[test]
+    fn test_log_config_deserialize_with_defaults() {
+        let json = r#"{}"#;
+        let config: LogConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.level, "debug");
+        assert_eq!(config.format, "pretty");
+    }
+
+    #[test]
+    fn test_gateway_config_deserialize_from_json() {
+        let json = r#"{"host": "127.0.0.1", "port": 9000, "workers": 8}"#;
+        let config: GatewayConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.host, "127.0.0.1");
+        assert_eq!(config.port, 9000);
+        assert_eq!(config.workers, 8);
+    }
+
+    #[test]
+    fn test_gateway_config_deserialize_with_defaults() {
+        let json = r#"{}"#;
+        let config: GatewayConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.port, 8080);
+        assert_eq!(config.workers, 4);
+    }
+
+    #[test]
+    fn test_database_config_deserialize_from_json() {
+        let json = r#"{"url": "postgres://user:pass@host/db", "max_connections": 50, "min_connections": 10}"#;
+        let config: DatabaseConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.url, "postgres://user:pass@host/db");
+        assert_eq!(config.max_connections, 50);
+        assert_eq!(config.min_connections, 10);
+    }
+
+    #[test]
+    fn test_database_config_requires_url() {
+        let json = r#"{"max_connections": 50}"#;
+        let result: Result<DatabaseConfig, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_redis_config_deserialize_from_json() {
+        let json = r#"{"url": "redis://localhost:6379", "queue_prefix": "myapp:", "cache_prefix": "mycache:"}"#;
+        let config: RedisConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.url, "redis://localhost:6379");
+        assert_eq!(config.queue_prefix, "myapp:");
+        assert_eq!(config.cache_prefix, "mycache:");
+    }
+
+    #[test]
+    fn test_redis_config_requires_url() {
+        let json = r#"{"queue_prefix": "test:"}"#;
+        let result: Result<RedisConfig, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_otel_config_deserialize_from_json() {
+        let json = r#"{"enabled": true, "endpoint": "http://jaeger:4317", "service_name": "my-service"}"#;
+        let config: OtelConfig = serde_json::from_str(json).unwrap();
+        assert!(config.enabled);
+        assert_eq!(config.endpoint, Some("http://jaeger:4317".to_string()));
+        assert_eq!(config.service_name, "my-service");
+    }
+
+    #[test]
+    fn test_otel_config_deserialize_with_defaults() {
+        let json = r#"{}"#;
+        let config: OtelConfig = serde_json::from_str(json).unwrap();
+        assert!(!config.enabled);
+        assert!(config.endpoint.is_none());
+        assert_eq!(config.service_name, "ferrumdeck");
+    }
+
+    // ============================================================
+    // CORE-CFG-004: Full config deserialization
+    // ============================================================
+
+    #[test]
+    fn test_full_config_deserialize() {
+        let json = r#"{
+            "env": "production",
+            "log": {"level": "warn", "format": "json"},
+            "gateway": {"host": "0.0.0.0", "port": 80, "workers": 16},
+            "database": {"url": "postgres://prod/db"},
+            "redis": {"url": "redis://prod:6379"},
+            "otel": {"enabled": true, "endpoint": "http://otel:4317"}
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.env, "production");
+        assert_eq!(config.log.level, "warn");
+        assert_eq!(config.gateway.port, 80);
+        assert!(config.otel.enabled);
+    }
+
+    // ============================================================
+    // CORE-CFG-005: Config value validation
+    // ============================================================
+
+    #[test]
+    fn test_gateway_port_accepts_valid_range() {
+        let config = GatewayConfig {
+            host: "localhost".to_string(),
+            port: 1,
+            workers: 1,
+        };
+        assert_eq!(config.port, 1);
+
+        let config = GatewayConfig {
+            host: "localhost".to_string(),
+            port: 65535,
+            workers: 1,
+        };
+        assert_eq!(config.port, 65535);
+    }
+
+    #[test]
+    fn test_workers_accepts_positive_values() {
+        let config = GatewayConfig {
+            host: "localhost".to_string(),
+            port: 8080,
+            workers: 1,
+        };
+        assert_eq!(config.workers, 1);
+
+        let config = GatewayConfig {
+            host: "localhost".to_string(),
+            port: 8080,
+            workers: 128,
+        };
+        assert_eq!(config.workers, 128);
+    }
+
+    #[test]
+    fn test_connection_pool_values() {
+        let config = DatabaseConfig {
+            url: "postgres://test".to_string(),
+            max_connections: 100,
+            min_connections: 5,
+        };
+        assert!(config.max_connections >= config.min_connections);
+    }
+}
