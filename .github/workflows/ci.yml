@@ -567,10 +567,12 @@ jobs:
     needs: [rust-test, python-test, nextjs-test, api-contract-tests]
     if: always()
     steps:
-      - name: Download all test artifacts
+      - name: Download test artifacts
         uses: actions/download-artifact@v4
         with:
           path: test-results
+          pattern: "*-test-results|*-coverage|api-contract-results|eval-report"
+          merge-multiple: true
 
       - name: Generate comprehensive summary
         run: |
