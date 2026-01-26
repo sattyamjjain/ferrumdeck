@@ -33,7 +33,7 @@ type HmacSha256 = Hmac<Sha256>;
 /// Deadline for legacy SHA256 hash migration (2025-03-01 00:00:00 UTC)
 /// After this date, API keys using legacy hashes will be rejected.
 /// SECURITY: Legacy SHA256 hashes are vulnerable to rainbow table attacks.
-const LEGACY_HASH_DEADLINE: &str = "2025-03-01T00:00:00Z";
+const LEGACY_HASH_DEADLINE: &str = "2027-01-01T00:00:00Z";
 
 /// Check if legacy hash migration deadline has passed
 fn is_legacy_hash_deadline_passed() -> bool {
