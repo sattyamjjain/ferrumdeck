@@ -239,15 +239,15 @@ describe("UI-RSP-002: Sidebar Responsiveness", () => {
       ).toBeInTheDocument();
     });
 
-    it("navigation links are accessible", () => {
+    it("navigation buttons are accessible", () => {
       setViewport(viewports.desktop.width, viewports.desktop.height);
       render(<ResponsiveSidebar />);
 
-      expect(screen.getByRole("link", { name: /runs/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /runs/i })).toBeInTheDocument();
       expect(
-        screen.getByRole("link", { name: /approvals/i })
+        screen.getByRole("button", { name: /approvals/i })
       ).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /agents/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /agents/i })).toBeInTheDocument();
     });
   });
 
