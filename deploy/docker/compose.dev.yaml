@@ -93,8 +93,9 @@ services:
       GATEWAY_PORT: "8080"
       RUST_LOG: info,tower_http=debug,gateway=debug
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      # Higher rate limit for dev (1000/min vs 100/min production)
+      # Higher rate limits for dev (vs production defaults)
       RATE_LIMIT_PER_MINUTE: "1000"
+      PRE_AUTH_RATE_LIMIT_PER_MINUTE: "500"
     depends_on:
       postgres:
         condition: service_healthy

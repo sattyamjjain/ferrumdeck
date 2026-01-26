@@ -268,12 +268,12 @@ export function PolicySimulator() {
             {/* Agent selector */}
             <div className="space-y-2">
               <Label htmlFor="agent">Agent (optional)</Label>
-              <Select value={agentId} onValueChange={setAgentId}>
+              <Select value={agentId || "__any__"} onValueChange={(val) => setAgentId(val === "__any__" ? "" : val)}>
                 <SelectTrigger id="agent">
                   <SelectValue placeholder={agentsLoading ? "Loading..." : "Select an agent"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Any agent</SelectItem>
+                  <SelectItem value="__any__">Any agent</SelectItem>
                   {agents?.map((agent) => (
                     <SelectItem key={agent.id} value={agent.id}>
                       {agent.name}
@@ -289,12 +289,12 @@ export function PolicySimulator() {
             {/* Tool selector */}
             <div className="space-y-2">
               <Label htmlFor="tool">Tool (optional)</Label>
-              <Select value={toolName} onValueChange={setToolName}>
+              <Select value={toolName || "__any__"} onValueChange={(val) => setToolName(val === "__any__" ? "" : val)}>
                 <SelectTrigger id="tool">
                   <SelectValue placeholder={toolsLoading ? "Loading..." : "Select a tool"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Any tool</SelectItem>
+                  <SelectItem value="__any__">Any tool</SelectItem>
                   {tools?.map((tool) => (
                     <SelectItem key={tool.id} value={tool.slug}>
                       {tool.name}

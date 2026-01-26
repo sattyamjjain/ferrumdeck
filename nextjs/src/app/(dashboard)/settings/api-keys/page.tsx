@@ -171,7 +171,8 @@ export default function ApiKeysPage() {
     setShowKey(false);
   };
 
-  const keys = data?.keys || [];
+  // Defensive coding: ensure keys is always an array even if API returns unexpected format
+  const keys = Array.isArray(data?.keys) ? data.keys : [];
   const activeKeys = keys.filter((k) => k.status === "active");
 
   return (
@@ -241,7 +242,7 @@ export default function ApiKeysPage() {
                     {/* Expiration */}
                     <div className="space-y-2">
                       <Label>Expiration</Label>
-                      <Select value={expiresInDays} onValueChange={setExpiresInDays}>
+                      <Select value={expiresInDays || "__never__"} onValueChange={(val) => setExpiresInDays(val === "__never__" ? "" : val)}>
                         <SelectTrigger className="bg-slate-900/50 border-slate-700">
                           <SelectValue placeholder="Select expiration" />
                         </SelectTrigger>
@@ -251,7 +252,7 @@ export default function ApiKeysPage() {
                           <SelectItem value="90">90 days</SelectItem>
                           <SelectItem value="180">180 days</SelectItem>
                           <SelectItem value="365">1 year</SelectItem>
-                          <SelectItem value="">Never expires</SelectItem>
+                          <SelectItem value="__never__">Never expires</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

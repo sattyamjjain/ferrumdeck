@@ -322,7 +322,7 @@ export default function AgentDetailPage() {
             <KpiCard
               icon={CheckCircle}
               label="Success Rate"
-              value={`${Math.round(displayStats.success_rate * 100)}%`}
+              value={`${Math.round(displayStats.success_rate <= 1 ? displayStats.success_rate * 100 : displayStats.success_rate)}%`}
               subtitle="Last 7 days"
               trend={{ value: 3, isPositive: true }}
             />
