@@ -394,7 +394,8 @@ mod tests {
 
     #[test]
     fn test_otel_config_deserialize_from_json() {
-        let json = r#"{"enabled": true, "endpoint": "http://jaeger:4317", "service_name": "my-service"}"#;
+        let json =
+            r#"{"enabled": true, "endpoint": "http://jaeger:4317", "service_name": "my-service"}"#;
         let config: OtelConfig = serde_json::from_str(json).unwrap();
         assert!(config.enabled);
         assert_eq!(config.endpoint, Some("http://jaeger:4317".to_string()));

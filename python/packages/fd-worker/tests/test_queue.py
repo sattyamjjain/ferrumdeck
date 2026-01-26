@@ -74,9 +74,11 @@ class TestRedisQueueConsumer:
                 side_effect=ResponseError("Some other error")
             )
 
-            with patch("redis.asyncio.from_url", return_value=mock_client):
-                with pytest.raises(ResponseError, match="Some other error"):
-                    await consumer.connect()
+            with (
+                patch("redis.asyncio.from_url", return_value=mock_client),
+                pytest.raises(ResponseError, match="Some other error"),
+            ):
+                await consumer.connect()
 
     # PY-QUE-002: Poll returns job when available
     @pytest.mark.asyncio

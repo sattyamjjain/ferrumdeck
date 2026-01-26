@@ -149,7 +149,12 @@ mod tests {
 
     #[test]
     fn test_step_type_roundtrip() {
-        let types = vec![StepType::Llm, StepType::Tool, StepType::Retrieval, StepType::Human];
+        let types = vec![
+            StepType::Llm,
+            StepType::Tool,
+            StepType::Retrieval,
+            StepType::Human,
+        ];
         for st in types {
             let json = serde_json::to_string(&st).unwrap();
             let parsed: StepType = serde_json::from_str(&json).unwrap();

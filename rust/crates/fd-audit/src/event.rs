@@ -472,7 +472,11 @@ mod tests {
 
     #[test]
     fn test_outcome_roundtrip() {
-        for outcome in [AuditOutcome::Success, AuditOutcome::Failure, AuditOutcome::Pending] {
+        for outcome in [
+            AuditOutcome::Success,
+            AuditOutcome::Failure,
+            AuditOutcome::Pending,
+        ] {
             let json = serde_json::to_string(&outcome).unwrap();
             let parsed: AuditOutcome = serde_json::from_str(&json).unwrap();
             assert_eq!(outcome, parsed);

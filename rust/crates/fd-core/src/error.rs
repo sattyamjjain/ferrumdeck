@@ -308,7 +308,9 @@ mod tests {
 
     #[test]
     fn test_error_code_rate_limited() {
-        let err = Error::RateLimited { retry_after_secs: 30 };
+        let err = Error::RateLimited {
+            retry_after_secs: 30,
+        };
         assert_eq!(err.error_code(), "RATE_LIMITED");
     }
 
@@ -377,7 +379,9 @@ mod tests {
     // ==========================================================================
     #[test]
     fn test_rate_limited_is_retryable() {
-        let err = Error::RateLimited { retry_after_secs: 60 };
+        let err = Error::RateLimited {
+            retry_after_secs: 60,
+        };
         assert!(err.is_retryable());
     }
 
@@ -494,7 +498,9 @@ mod tests {
 
     #[test]
     fn test_rate_limited_display() {
-        let err = Error::RateLimited { retry_after_secs: 120 };
+        let err = Error::RateLimited {
+            retry_after_secs: 120,
+        };
         let msg = err.to_string();
         assert!(msg.contains("rate limited"));
         assert!(msg.contains("120"));

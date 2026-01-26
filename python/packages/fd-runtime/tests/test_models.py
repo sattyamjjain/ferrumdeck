@@ -2,8 +2,6 @@
 
 from datetime import UTC, datetime
 
-import pytest
-
 from fd_runtime.models import (
     Budget,
     BudgetUsage,

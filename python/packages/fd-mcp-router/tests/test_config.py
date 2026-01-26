@@ -1,6 +1,5 @@
 """Tests for MCP router configuration."""
 
-import pytest
 
 from fd_mcp_router.config import MCPServerConfig, ToolAllowlist
 

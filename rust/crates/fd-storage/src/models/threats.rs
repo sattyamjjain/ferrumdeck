@@ -168,7 +168,12 @@ mod tests {
 
     #[test]
     fn test_risk_level_roundtrip() {
-        let levels = vec![RiskLevel::Low, RiskLevel::Medium, RiskLevel::High, RiskLevel::Critical];
+        let levels = vec![
+            RiskLevel::Low,
+            RiskLevel::Medium,
+            RiskLevel::High,
+            RiskLevel::Critical,
+        ];
         for level in levels {
             let json = serde_json::to_string(&level).unwrap();
             let parsed: RiskLevel = serde_json::from_str(&json).unwrap();

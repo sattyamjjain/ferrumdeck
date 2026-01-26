@@ -307,7 +307,10 @@ mod tests {
         // Check that emails in array elements are redacted
         let users = result["users"].as_array().unwrap();
         for user in users {
-            assert!(user["email"].as_str().unwrap().contains(REDACTED_PLACEHOLDER));
+            assert!(user["email"]
+                .as_str()
+                .unwrap()
+                .contains(REDACTED_PLACEHOLDER));
         }
         // Names should not be redacted
         assert_eq!(users[0]["name"], "Alice");
@@ -381,7 +384,8 @@ mod tests {
 
     #[test]
     fn test_redact_rsa_private_key() {
-        let input = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----";
+        let input =
+            "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----";
         let result = redact_string(input);
         assert!(result.redacted.contains(REDACTED_PLACEHOLDER));
     }
@@ -472,6 +476,9 @@ mod tests {
             }
         });
         let result = redact_metadata(&metadata);
-        assert_eq!(result["user_info"]["password"].as_str().unwrap(), REDACTED_PLACEHOLDER);
+        assert_eq!(
+            result["user_info"]["password"].as_str().unwrap(),
+            REDACTED_PLACEHOLDER
+        );
     }
 }

@@ -280,8 +280,8 @@ mod tests {
 
     #[test]
     fn test_id_hash_consistency() {
-        use std::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
 
         let id1 = RunId::new();
         let id2 = RunId::parse(&id1.to_string()).unwrap();
