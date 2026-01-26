@@ -389,9 +389,7 @@ class TestMCPRouterPolicyEnforcement:
     @pytest.mark.asyncio
     async def test_call_tool_not_in_allowlist(self) -> None:
         """Test that tools not in allowlist are denied by default."""
-        router = MCPRouter(
-            allowlist=ToolAllowlist(allowed_tools=["tool1"])
-        )
+        router = MCPRouter(allowlist=ToolAllowlist(allowed_tools=["tool1"]))
 
         with pytest.raises(PermissionError):
             await router.call_tool("unknown_tool", {})
@@ -399,9 +397,7 @@ class TestMCPRouterPolicyEnforcement:
     @pytest.mark.asyncio
     async def test_call_tool_requires_approval(self) -> None:
         """Test that tools requiring approval raise ValueError."""
-        router = MCPRouter(
-            allowlist=ToolAllowlist(approval_required=["sensitive_tool"])
-        )
+        router = MCPRouter(allowlist=ToolAllowlist(approval_required=["sensitive_tool"]))
 
         with pytest.raises(ValueError) as exc_info:
             await router.call_tool("sensitive_tool", {})
@@ -411,9 +407,7 @@ class TestMCPRouterPolicyEnforcement:
     @pytest.mark.asyncio
     async def test_call_tool_no_server(self) -> None:
         """Test calling tool when no server provides it."""
-        router = MCPRouter(
-            allowlist=ToolAllowlist(allowed_tools=["orphan_tool"])
-        )
+        router = MCPRouter(allowlist=ToolAllowlist(allowed_tools=["orphan_tool"]))
 
         result = await router.call_tool("orphan_tool", {})
         assert result.success is False

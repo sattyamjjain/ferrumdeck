@@ -33,9 +33,9 @@ function ResponsivePageLayout() {
           <h1 data-testid="logo">FerrumDeck</h1>
           {!isMobile && (
             <nav data-testid="desktop-nav">
-              <a href="/runs">Runs</a>
-              <a href="/approvals">Approvals</a>
-              <a href="/settings">Settings</a>
+              <button>Runs</button>
+              <button>Approvals</button>
+              <button>Settings</button>
             </nav>
           )}
           {isMobile && (
@@ -55,8 +55,8 @@ function ResponsivePageLayout() {
         {!isMobile && (
           <aside data-testid="sidebar" className="w-64 shrink-0">
             <nav>
-              <a href="/runs">Runs</a>
-              <a href="/approvals">Approvals</a>
+              <button>Runs</button>
+              <button>Approvals</button>
             </nav>
           </aside>
         )}

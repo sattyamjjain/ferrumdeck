@@ -13,7 +13,6 @@ import {
   DialogContent,
   DialogTitle,
   DialogDescription,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -113,7 +112,7 @@ describe("UI-A11Y-001: ARIA Labels and Attributes", () => {
 
   describe("Dialog accessibility", () => {
     it("dialog has correct role", async () => {
-      const { getByRole, getByText } = render(
+      const { getByRole } = render(
         <Dialog open>
           <DialogContent>
             <DialogTitle>Dialog Title</DialogTitle>

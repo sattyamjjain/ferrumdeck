@@ -317,6 +317,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::clone_on_copy)]
     fn test_threat_action_clone() {
         let action = ThreatAction::Logged;
         let cloned = action.clone();

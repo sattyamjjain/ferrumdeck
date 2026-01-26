@@ -172,7 +172,7 @@ describe("Status color consistency", () => {
 
   it.each(Object.entries(statusColorMap))(
     "status %s has expected color theme",
-    (status, colorTheme) => {
+    (status, _colorTheme) => {
       const { container } = render(
         <RunStatusBadge status={status as RunStatus} />
       );

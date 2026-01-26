@@ -4,7 +4,7 @@
  * UI-INT-001: Button click events work correctly
  */
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";

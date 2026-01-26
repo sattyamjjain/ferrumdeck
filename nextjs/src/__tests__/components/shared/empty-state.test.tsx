@@ -10,7 +10,7 @@ import {
   ConnectingState,
   SyncingState,
 } from "@/components/shared/empty-state";
-import { Search, FileText, AlertCircle } from "lucide-react";
+import { Search, AlertCircle } from "lucide-react";
 
 describe("EmptyState", () => {
   // UI-EMPTY-001: Renders title correctly

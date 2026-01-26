@@ -30,18 +30,14 @@ class TestOutputValidator:
     # PY-VAL-001: Detect script tags
     def test_detect_script_tag(self, validator):
         """Test detection of script tags in output."""
-        result = validator.validate_structured_output(
-            {"content": '<script>alert("xss")</script>'}
-        )
+        result = validator.validate_structured_output({"content": '<script>alert("xss")</script>'})
         assert len(result.warnings) > 0
         assert any("script" in w.lower() for w in result.warnings)
 
     # PY-VAL-002: Detect template injection
     def test_detect_template_injection_jinja(self, validator):
         """Test detection of Jinja-style template injection."""
-        result = validator.validate_structured_output(
-            {"content": "{{ config.SECRET_KEY }}"}
-        )
+        result = validator.validate_structured_output({"content": "{{ config.SECRET_KEY }}"})
         assert len(result.warnings) > 0
         # The warning contains the pattern, not necessarily the literal {{
         assert any("pattern" in w.lower() or "suspicious" in w.lower() for w in result.warnings)
@@ -229,9 +225,7 @@ class TestValidateLLMOutputForToolUse:
 
     def test_validate_function_call_format(self):
         """Test validation of function_call format (single call)."""
-        output = {
-            "function_call": {"name": "read_file", "arguments": '{"path": "/test.txt"}'}
-        }
+        output = {"function_call": {"name": "read_file", "arguments": '{"path": "/test.txt"}'}}
         result = validate_llm_output_for_tool_use(output, allowed_tools={"read_file"})
         assert result.valid is True
 

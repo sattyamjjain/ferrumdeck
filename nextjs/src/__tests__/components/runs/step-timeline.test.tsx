@@ -2,7 +2,7 @@
  * Tests for StepTimeline component
  * Test IDs: UI-STEP-001 to UI-STEP-020
  */
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { StepTimeline } from "@/components/runs/step-timeline";
 import {
   mockStepLLMCompleted,

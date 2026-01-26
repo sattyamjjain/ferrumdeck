@@ -282,6 +282,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::clone_on_copy)]
     fn test_run_status_clone() {
         let status = RunStatus::WaitingApproval;
         let cloned = status.clone();

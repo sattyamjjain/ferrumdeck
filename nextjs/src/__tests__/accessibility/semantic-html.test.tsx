@@ -55,7 +55,7 @@ describe("UI-A11Y-003: Semantic HTML", () => {
 
   describe("Card semantics", () => {
     it("renders with correct structure", () => {
-      const { container } = render(
+      render(
         <Card data-testid="card">
           <CardHeader>
             <CardTitle>Title</CardTitle>
@@ -285,8 +285,8 @@ describe("UI-A11Y-003: Semantic HTML", () => {
     it("navigation uses nav landmark", () => {
       render(
         <nav aria-label="Main navigation">
-          <a href="/">Home</a>
-          <a href="/about">About</a>
+          <button>Home</button>
+          <button>About</button>
         </nav>
       );
 

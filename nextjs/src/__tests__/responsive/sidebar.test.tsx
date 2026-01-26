@@ -47,9 +47,9 @@ function ResponsiveSidebar() {
           </SheetTrigger>
           <SheetContent side="left" data-testid="mobile-sidebar">
             <nav>
-              <a href="/runs">Runs</a>
-              <a href="/approvals">Approvals</a>
-              <a href="/agents">Agents</a>
+              <button>Runs</button>
+              <button>Approvals</button>
+              <button>Agents</button>
             </nav>
           </SheetContent>
         </Sheet>
@@ -73,15 +73,15 @@ function ResponsiveSidebar() {
           <Menu className="h-5 w-5" />
         </Button>
         <nav>
-          <a href="/runs" data-testid="nav-runs">
+          <button data-testid="nav-runs">
             {!isCollapsed && "Runs"}
-          </a>
-          <a href="/approvals" data-testid="nav-approvals">
+          </button>
+          <button data-testid="nav-approvals">
             {!isCollapsed && "Approvals"}
-          </a>
-          <a href="/agents" data-testid="nav-agents">
+          </button>
+          <button data-testid="nav-agents">
             {!isCollapsed && "Agents"}
-          </a>
+          </button>
         </nav>
       </aside>
       <main data-testid="main-content">Content</main>

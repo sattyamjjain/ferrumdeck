@@ -12,7 +12,6 @@ import {
   Dialog,
   DialogContent,
   DialogTitle,
-  DialogTrigger,
   DialogClose,
 } from "@/components/ui/dialog";
 import {
@@ -21,7 +20,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { useState, useRef } from "react";
+import { useState } from "react";
 
 // Modal with focus trap
 function FocusTrapModal() {
@@ -43,26 +42,6 @@ function FocusTrapModal() {
           </div>
         </DialogContent>
       </Dialog>
-    </>
-  );
-}
-
-// Component for testing focus return
-function FocusReturnTest() {
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const [showContent, setShowContent] = useState(false);
-
-  return (
-    <>
-      <Button ref={triggerRef} onClick={() => setShowContent(true)}>
-        Show Content
-      </Button>
-      {showContent && (
-        <div>
-          <p>Additional content</p>
-          <Button onClick={() => setShowContent(false)}>Close</Button>
-        </div>
-      )}
     </>
   );
 }

@@ -70,9 +70,7 @@ class TestRedisQueueConsumer:
             pass
 
         with patch("redis.asyncio.ResponseError", ResponseError):
-            mock_client.xgroup_create = AsyncMock(
-                side_effect=ResponseError("Some other error")
-            )
+            mock_client.xgroup_create = AsyncMock(side_effect=ResponseError("Some other error"))
 
             with (
                 patch("redis.asyncio.from_url", return_value=mock_client),

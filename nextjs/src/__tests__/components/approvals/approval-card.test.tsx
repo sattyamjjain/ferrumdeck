@@ -2,7 +2,7 @@
  * Tests for ApprovalCard component
  * Test IDs: UI-APR-001 to UI-APR-015
  */
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApprovalCard } from "@/components/approvals/approval-card";
 import { renderWithProviders } from "@/__tests__/utils/test-utils";

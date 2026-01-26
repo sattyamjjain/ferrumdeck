@@ -5,7 +5,7 @@
  */
 
 import { render, screen } from "@testing-library/react";
-import { FileX, Search, Inbox } from "lucide-react";
+import { Inbox } from "lucide-react";
 import { EmptyState, NoResultsState, ConnectingState, SyncingState } from "@/components/shared/empty-state";
 
 describe("UI-RND-003: Empty State Component Rendering", () => {

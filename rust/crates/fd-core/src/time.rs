@@ -202,6 +202,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::clone_on_copy)]
     fn test_timestamp_is_cloneable() {
         let ts = Timestamp::now();
         let cloned = ts.clone();
@@ -320,6 +321,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::clone_on_copy)]
     fn test_duration_ms_is_cloneable() {
         let d = DurationMs::new(1000);
         let cloned = d.clone();

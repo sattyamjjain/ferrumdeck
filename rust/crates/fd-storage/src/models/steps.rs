@@ -350,6 +350,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::clone_on_copy)]
     fn test_step_status_clone() {
         let status = StepStatus::WaitingApproval;
         let cloned = status.clone();
