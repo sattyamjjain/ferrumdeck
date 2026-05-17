@@ -1,0 +1,42 @@
+Thanks for installing {{ .Chart.Name }} v{{ .Chart.Version }}.
+
+Gateway service: {{ include "ferrumdeck.fullname" . }}-gateway.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.gateway.service.port }}
+{{- if .Values.dashboard.enabled }}
+Dashboard service: {{ include "ferrumdeck.fullname" . }}-dashboard.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.dashboard.service.port }}
+{{- end }}
+
+1. Port-forward the gateway:
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "ferrumdeck.fullname" . }}-gateway {{ .Values.gateway.service.port }}:{{ .Values.gateway.service.port }}
+
+   Then visit http://localhost:{{ .Values.gateway.service.port }}/health
+
+{{- if .Values.dashboard.enabled }}
+2. Port-forward the dashboard:
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "ferrumdeck.fullname" . }}-dashboard {{ .Values.dashboard.service.port }}:{{ .Values.dashboard.service.port }}
+
+   Then visit http://localhost:{{ .Values.dashboard.service.port }}
+{{- end }}
+
+{{- if .Values.ingress.enabled }}
+
+Ingress hosts:
+{{- range .Values.ingress.hosts }}
+  - https://{{ .host }}
+{{- end }}
+{{- end }}
+
+{{- if .Values.postgresql.enabled }}
+
+⚠ Bundled Postgres is enabled — fine for demos, not production. For production,
+  set postgresql.enabled=false and provide gateway.env.DATABASE_URL.
+{{- end }}
+
+{{- if .Values.redis.enabled }}
+{{- if not .Values.redis.auth.enabled }}
+
+⚠ Bundled Redis is running without auth — fine for demos, not production.
+{{- end }}
+{{- end }}
+
+Run release tests:
+  helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}

@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ferrumdeck.fullname" . }}-worker
+  labels:
+    {{- include "ferrumdeck.componentLabels" (dict "component" "worker" "Chart" .Chart "Release" .Release "Values" .Values) | nindent 4 }}
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "ferrumdeck.componentSelectorLabels" (dict "root" . "component" "worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ferrumdeck.componentSelectorLabels" (dict "root" . "component" "worker") | nindent 8 }}
+      {{- with .Values.worker.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "ferrumdeck.fullname" . }}-worker
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: worker
+          image: {{ include "ferrumdeck.image" (dict "repository" .Values.worker.image.repository "tag" .Values.worker.image.tag "root" .) }}
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          env:
+            {{- range $k, $v := .Values.worker.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            - name: FD_CONTROL_PLANE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "ferrumdeck.configMapName" . }}
+                  key: control-plane-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ferrumdeck.secretName" . }}
+                  key: redis-url
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ferrumdeck.secretName" . }}
+                  key: anthropic-api-key
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ferrumdeck.secretName" . }}
+                  key: openai-api-key
+                  optional: true
+            - name: LITELLM_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "ferrumdeck.configMapName" . }}
+                  key: default-model
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "ferrumdeck.configMapName" . }}
+                  key: otel-endpoint
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import sys; sys.exit(0)"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - python -c "import redis; import os; redis.from_url(os.environ['REDIS_URL']).ping()"
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /home/appuser/.cache
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "ferrumdeck.componentSelectorLabels" (dict "root" . "component" "worker") | nindent 20 }}
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 2
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "ferrumdeck.componentSelectorLabels" (dict "root" . "component" "worker") | nindent 14 }}

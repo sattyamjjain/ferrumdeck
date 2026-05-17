@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ferrumdeck.configMapName" . }}
+  labels:
+    {{- include "ferrumdeck.labels" . | nindent 4 }}
+data:
+  redis-queue-prefix: {{ .Values.config.redisQueuePrefix | quote }}
+  control-plane-url: {{ include "ferrumdeck.gatewayUrl" . | quote }}
+  otel-endpoint: {{ .Values.config.otelEndpoint | quote }}
+  default-model: {{ .Values.config.defaultModel | quote }}
+  environment: {{ .Values.config.environment | quote }}

@@ -1,0 +1,61 @@
+{{- if .Values.dashboard.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ferrumdeck.fullname" . }}-dashboard
+  labels:
+    {{- include "ferrumdeck.componentLabels" (dict "component" "dashboard" "Chart" .Chart "Release" .Release "Values" .Values) | nindent 4 }}
+spec:
+  replicas: {{ .Values.dashboard.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "ferrumdeck.componentSelectorLabels" (dict "root" . "component" "dashboard") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ferrumdeck.componentSelectorLabels" (dict "root" . "component" "dashboard") | nindent 8 }}
+    spec:
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ include "ferrumdeck.fullname" . }}-dashboard
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: dashboard
+          image: {{ include "ferrumdeck.image" (dict "repository" .Values.dashboard.image.repository "tag" .Values.dashboard.image.tag "root" .) }}
+          imagePullPolicy: {{ .Values.dashboard.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.dashboard.service.port }}
+              protocol: TCP
+          env:
+            - name: NEXT_PUBLIC_GATEWAY_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "ferrumdeck.configMapName" . }}
+                  key: control-plane-url
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: {{ .Values.dashboard.service.port | quote }}
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+{{- end -}}

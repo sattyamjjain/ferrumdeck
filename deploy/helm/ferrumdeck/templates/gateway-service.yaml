@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ferrumdeck.fullname" . }}-gateway
+  labels:
+    {{- include "ferrumdeck.componentLabels" (dict "component" "gateway" "Chart" .Chart "Release" .Release "Values" .Values) | nindent 4 }}
+spec:
+  type: {{ .Values.gateway.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.gateway.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "ferrumdeck.componentSelectorLabels" (dict "root" . "component" "gateway") | nindent 4 }}

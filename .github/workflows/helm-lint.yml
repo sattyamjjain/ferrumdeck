@@ -1,0 +1,50 @@
+name: helm-lint
+
+on:
+  pull_request:
+    paths:
+      - "deploy/helm/**"
+      - ".github/workflows/helm-lint.yml"
+  push:
+    branches: [main]
+    paths:
+      - "deploy/helm/**"
+      - ".github/workflows/helm-lint.yml"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Helm dependency update
+        run: helm dependency update deploy/helm/ferrumdeck
+
+      - name: Helm lint
+        run: helm lint deploy/helm/ferrumdeck
+
+      - name: Helm template
+        run: |
+          helm template ferrumdeck deploy/helm/ferrumdeck \
+            --namespace ferrumdeck \
+            --set secrets.data.anthropicApiKey=sk-ant-fake-for-lint \
+            > /tmp/rendered.yaml
+          echo "Rendered $(grep -c '^kind:' /tmp/rendered.yaml) resources."
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar -xz -C /usr/local/bin kubeconform
+
+      - name: kubeconform
+        run: |
+          kubeconform \
+            --strict \
+            --ignore-missing-schemas \
+            --schema-location default \
+            --schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            /tmp/rendered.yaml

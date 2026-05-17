@@ -1,0 +1,21 @@
+apiVersion: v2
+name: ferrumdeck
+description: AgentOps Control Plane — governance, audit, and secure execution for AI agents
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/sattyamjjain/ferrumdeck
+sources:
+  - https://github.com/sattyamjjain/ferrumdeck
+maintainers:
+  - name: FerrumDeck Team
+kubeVersion: ">=1.27.0-0"
+dependencies:
+  - name: postgresql
+    version: "16.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: "20.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled

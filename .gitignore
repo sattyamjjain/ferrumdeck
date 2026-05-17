@@ -130,3 +130,8 @@ Thumbs.db
 # Playwright MCP (test screenshots)
 # =============================================================================
 .playwright-mcp/
+
+# =============================================================================
+# Helm — vendored dependency tarballs (re-pulled via `helm dependency update`)
+# =============================================================================
+deploy/helm/*/charts/

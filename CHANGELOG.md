@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Deployment
+- `deploy/helm/ferrumdeck` Helm chart packaging the gateway, worker, dashboard, and optional bundled Postgres (pgvector) + Redis. Mirrors the existing Kustomize manifests at `deploy/k8s/` (both are retained). CI runs `helm lint` + `kubeconform` on any change under `deploy/helm/`.
+
 #### Airlock RASP Security System
 - **Anti-RCE Pattern Matcher**: Detects dangerous code patterns in tool inputs (eval, exec, shell injection)
 - **Financial Circuit Breaker**: Spending velocity limits and loop detection to prevent runaway costs

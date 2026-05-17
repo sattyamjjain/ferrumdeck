@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "ferrumdeck.fullname" . }}-connection-test
+  labels:
+    {{- include "ferrumdeck.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+    - name: curl
+      image: curlimages/curl:8.10.1
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          curl --fail --silent --show-error \
+            http://{{ include "ferrumdeck.fullname" . }}-gateway:{{ .Values.gateway.service.port }}/health
