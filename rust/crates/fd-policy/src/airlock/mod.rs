@@ -60,11 +60,15 @@ pub mod config;
 pub mod exfiltration;
 pub mod inspector;
 pub mod patterns;
+pub mod schema_drift;
 pub mod velocity;
 
 // Re-export main types for convenience
-pub use config::{AirlockConfig, AirlockMode, ExfiltrationConfig, RceConfig, VelocityConfig};
+pub use config::{
+    AirlockConfig, AirlockMode, ExfiltrationConfig, RceConfig, SchemaDriftConfig, VelocityConfig,
+};
 pub use inspector::{
     AirlockInspector, AirlockResult, AirlockViolation, InspectionContext, RiskLevel, ViolationType,
 };
+pub use schema_drift::{DriftDelta, DriftKind, SchemaDriftDetails, SchemaDriftGuard};
 pub use velocity::VelocityStats;

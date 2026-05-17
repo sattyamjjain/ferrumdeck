@@ -10,8 +10,9 @@
 use super::config::{AirlockConfig, AirlockMode};
 use super::exfiltration::ExfiltrationShield;
 use super::patterns::RcePatternMatcher;
+use super::schema_drift::SchemaDriftGuard;
 use super::velocity::VelocityTracker;
-use fd_core::RunId;
+use fd_core::{RunId, ToolVersionId};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -30,6 +31,8 @@ pub enum ViolationType {
     ExfiltrationAttempt,
     /// Raw IP address used instead of domain
     IpAddressUsed,
+    /// Tool-call payload drifted from the registered input schema
+    SchemaDrift,
 }
 
 /// Risk level for violations
@@ -94,6 +97,10 @@ pub struct InspectionContext {
     pub tool_input: serde_json::Value,
     /// Estimated cost for this tool call (in cents)
     pub estimated_cost_cents: Option<u64>,
+    /// Optional tool version id. When set and a [`SchemaDriftGuard`] is
+    /// configured, `tool_input` is validated against the registered input
+    /// schema for this version before the other layers run.
+    pub tool_version_id: Option<ToolVersionId>,
 }
 
 /// Result of Airlock inspection
@@ -136,10 +143,14 @@ pub struct AirlockInspector {
     velocity_tracker: Arc<VelocityTracker>,
     /// Data exfiltration shield
     exfiltration_shield: ExfiltrationShield,
+    /// Schema-drift guard (None == disabled or no schemas registered)
+    schema_drift_guard: Option<Arc<SchemaDriftGuard>>,
 }
 
 impl AirlockInspector {
-    /// Create a new Airlock inspector from configuration
+    /// Create a new Airlock inspector from configuration. The schema-drift
+    /// guard starts empty — use [`Self::with_schema_drift_guard`] after
+    /// loading tool versions from the registry.
     pub fn new(config: AirlockConfig) -> Self {
         let rce_matcher = RcePatternMatcher::new(&config.rce);
         let velocity_tracker = Arc::new(VelocityTracker::new(config.velocity.clone()));
@@ -150,6 +161,7 @@ impl AirlockInspector {
             rce_enabled = config.rce.enabled,
             velocity_enabled = config.velocity.enabled,
             exfil_enabled = config.exfiltration.enabled,
+            schema_drift_enabled = config.schema_drift.enabled,
             "Airlock inspector initialized"
         );
 
@@ -158,7 +170,19 @@ impl AirlockInspector {
             rce_matcher,
             velocity_tracker,
             exfiltration_shield,
+            schema_drift_guard: None,
         }
+    }
+
+    /// Builder-style: attach a [`SchemaDriftGuard`] populated from the
+    /// tool registry. Call at gateway boot once tool versions are loaded.
+    pub fn with_schema_drift_guard(mut self, guard: Arc<SchemaDriftGuard>) -> Self {
+        info!(
+            schema_count = guard.len(),
+            "schema-drift guard attached to Airlock inspector"
+        );
+        self.schema_drift_guard = Some(guard);
+        self
     }
 
     /// Check if Airlock is in shadow mode (log-only, don't block)
@@ -189,6 +213,33 @@ impl AirlockInspector {
             shadow_mode = shadow_mode,
             "Inspecting tool call"
         );
+
+        // Layer 0: Schema-drift — cheapest signal when we have a tool_version_id
+        if let (Some(guard), Some(tv_id)) = (
+            self.schema_drift_guard.as_ref(),
+            ctx.tool_version_id.as_ref(),
+        ) {
+            if let Some(violation) = guard.check(tv_id, &ctx.tool_input, &self.config.schema_drift)
+            {
+                warn!(
+                    run_id = %ctx.run_id,
+                    tool = %ctx.tool_name,
+                    tool_version_id = %tv_id,
+                    violation_type = ?violation.violation_type,
+                    risk_score = violation.risk_score,
+                    shadow_mode = shadow_mode,
+                    "Schema drift detected"
+                );
+
+                return AirlockResult {
+                    allowed: shadow_mode,
+                    violation: Some(violation.clone()),
+                    shadow_mode,
+                    risk_score: violation.risk_score,
+                    risk_level: violation.risk_level,
+                };
+            }
+        }
 
         // Layer 1: Anti-RCE pattern detection
         if self.config.rce.enabled {
@@ -304,6 +355,7 @@ mod tests {
             rce: RceConfig::default(),
             velocity: VelocityConfig::default(),
             exfiltration: ExfiltrationConfig::default(),
+            schema_drift: crate::airlock::config::SchemaDriftConfig::default(),
         }
     }
 
@@ -320,6 +372,7 @@ mod tests {
             tool_name: tool.to_string(),
             tool_input: input,
             estimated_cost_cents: Some(10),
+            tool_version_id: None,
         }
     }
 
@@ -389,6 +442,7 @@ mod tests {
                 allowed_domains: vec!["allowed.com".to_string()],
                 block_ip_addresses: true,
             },
+            schema_drift: crate::airlock::config::SchemaDriftConfig::default(),
         };
 
         let inspector = AirlockInspector::new(config);
@@ -421,6 +475,7 @@ mod tests {
                 allowed_domains: vec![], // No whitelist
                 block_ip_addresses: true,
             },
+            schema_drift: crate::airlock::config::SchemaDriftConfig::default(),
         };
 
         let inspector = AirlockInspector::new(config);
@@ -453,6 +508,7 @@ mod tests {
                 loop_threshold: 3,
             },
             exfiltration: ExfiltrationConfig::default(),
+            schema_drift: crate::airlock::config::SchemaDriftConfig::default(),
         };
 
         let inspector = AirlockInspector::new(config);
@@ -501,6 +557,7 @@ mod tests {
             tool_name: "tool".to_string(),
             tool_input: serde_json::json!({}),
             estimated_cost_cents: Some(10),
+            tool_version_id: None,
         };
 
         // Record some calls

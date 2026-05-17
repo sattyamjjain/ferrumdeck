@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `deploy/helm/ferrumdeck` Helm chart packaging the gateway, worker, dashboard, and optional bundled Postgres (pgvector) + Redis. Mirrors the existing Kustomize manifests at `deploy/k8s/` (both are retained). CI runs `helm lint` + `kubeconform` on any change under `deploy/helm/`.
 
 #### Airlock RASP Security System
+- **Schema-Drift Guard**: Validates MCP tool-call payloads against the registered JSON Schema on each `ToolVersion`. Drifted fields surface as structured deltas (missing-required, type-mismatch, constraint-violation) inside the `AirlockViolation.details` field. New `SchemaDriftGuard` is attached at gateway boot once tool versions load; activation is gated on `InspectionContext.tool_version_id` being populated by the caller. Gateway/worker/dashboard wiring is intentionally deferred to a follow-up PR.
 - **Anti-RCE Pattern Matcher**: Detects dangerous code patterns in tool inputs (eval, exec, shell injection)
 - **Financial Circuit Breaker**: Spending velocity limits and loop detection to prevent runaway costs
 - **Data Exfiltration Shield**: Domain whitelist enforcement, blocks raw IPs, prevents C2 connections

@@ -221,6 +221,7 @@ mod tests {
             tool_name: tool.to_string(),
             tool_input: serde_json::json!({"test": "data"}),
             estimated_cost_cents: cost,
+            tool_version_id: None,
         }
     }
 
@@ -275,6 +276,7 @@ mod tests {
             tool_name: "looping_tool".to_string(),
             tool_input: serde_json::json!({"same": "input"}),
             estimated_cost_cents: Some(1),
+            tool_version_id: None,
         };
 
         // Record 3 identical calls (at threshold)
@@ -302,6 +304,7 @@ mod tests {
                 tool_name: "tool".to_string(),
                 tool_input: serde_json::json!({"iteration": i}),
                 estimated_cost_cents: Some(1),
+                tool_version_id: None,
             };
             tracker.record(&ctx).await;
 

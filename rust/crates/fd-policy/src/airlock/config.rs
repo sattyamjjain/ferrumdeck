@@ -31,6 +31,10 @@ pub struct AirlockConfig {
     /// Data exfiltration shield configuration
     #[serde(default)]
     pub exfiltration: ExfiltrationConfig,
+
+    /// Schema-drift validation configuration
+    #[serde(default)]
+    pub schema_drift: SchemaDriftConfig,
 }
 
 impl Default for AirlockConfig {
@@ -40,6 +44,7 @@ impl Default for AirlockConfig {
             rce: RceConfig::default(),
             velocity: VelocityConfig::default(),
             exfiltration: ExfiltrationConfig::default(),
+            schema_drift: SchemaDriftConfig::default(),
         }
     }
 }
@@ -130,6 +135,31 @@ impl Default for ExfiltrationConfig {
             block_ip_addresses: true,
         }
     }
+}
+
+/// Schema-drift validation configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchemaDriftConfig {
+    /// Enable schema-drift checking
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Risk score (0-100) assigned to drift violations. Clamped to 100.
+    #[serde(default = "default_schema_drift_risk_score")]
+    pub risk_score: u8,
+}
+
+impl Default for SchemaDriftConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            risk_score: default_schema_drift_risk_score(),
+        }
+    }
+}
+
+fn default_schema_drift_risk_score() -> u8 {
+    70
 }
 
 // =============================================================================
