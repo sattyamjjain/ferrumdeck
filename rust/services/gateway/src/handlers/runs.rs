@@ -1090,6 +1090,9 @@ pub async fn check_tool_policy(
         // Schema-drift inspection is opt-in once the registry lookup is wired
         // up — gateway currently dispatches by tool_name only.
         tool_version_id: None,
+        // Behavioral-drift inspection is opt-in once agent_id is plumbed
+        // through from the run record.
+        agent_id: None,
     };
 
     let airlock_result = state.airlock.inspect(&inspection_ctx).await;

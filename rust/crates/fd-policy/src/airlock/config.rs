@@ -35,6 +35,10 @@ pub struct AirlockConfig {
     /// Schema-drift validation configuration
     #[serde(default)]
     pub schema_drift: SchemaDriftConfig,
+
+    /// Behavioral-drift (per-agent rolling z-score) configuration
+    #[serde(default)]
+    pub behavioral_drift: BehavioralDriftConfig,
 }
 
 impl Default for AirlockConfig {
@@ -45,6 +49,7 @@ impl Default for AirlockConfig {
             velocity: VelocityConfig::default(),
             exfiltration: ExfiltrationConfig::default(),
             schema_drift: SchemaDriftConfig::default(),
+            behavioral_drift: BehavioralDriftConfig::default(),
         }
     }
 }
@@ -173,6 +178,61 @@ impl Default for SchemaDriftConfig {
 
 fn default_schema_drift_risk_score() -> u8 {
     70
+}
+
+/// Behavioral-drift (per-agent rolling z-score) configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BehavioralDriftConfig {
+    /// Enable behavioral-drift checking
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Max observations retained per agent per dimension.
+    #[serde(default = "default_behavioral_window")]
+    pub window_size: usize,
+
+    /// Minimum observations required before drift checks fire. z-score on a
+    /// small sample is meaningless — keep this honest.
+    #[serde(default = "default_behavioral_min_observations")]
+    pub min_observations: usize,
+
+    /// Number of standard deviations from the rolling mean that triggers a
+    /// violation. 3.0σ is roughly the 99.7th percentile under a normal
+    /// distribution.
+    #[serde(default = "default_behavioral_z_threshold")]
+    pub z_threshold: f32,
+
+    /// Risk score (0-100) assigned to behavioral-drift violations.
+    #[serde(default = "default_behavioral_risk_score")]
+    pub risk_score: u8,
+}
+
+impl Default for BehavioralDriftConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            window_size: default_behavioral_window(),
+            min_observations: default_behavioral_min_observations(),
+            z_threshold: default_behavioral_z_threshold(),
+            risk_score: default_behavioral_risk_score(),
+        }
+    }
+}
+
+fn default_behavioral_window() -> usize {
+    100
+}
+
+fn default_behavioral_min_observations() -> usize {
+    20
+}
+
+fn default_behavioral_z_threshold() -> f32 {
+    3.0
+}
+
+fn default_behavioral_risk_score() -> u8 {
+    65
 }
 
 // =============================================================================

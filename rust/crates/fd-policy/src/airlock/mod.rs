@@ -56,6 +56,7 @@
 //! inspector.clear_run(&run_id.to_string()).await;
 //! ```
 
+pub mod behavioral_drift;
 pub mod config;
 pub mod credential_dlp;
 pub mod exfiltration;
@@ -65,8 +66,10 @@ pub mod schema_drift;
 pub mod velocity;
 
 // Re-export main types for convenience
+pub use behavioral_drift::{BehavioralDriftDetails, BehavioralDriftMonitor, Observation};
 pub use config::{
-    AirlockConfig, AirlockMode, ExfiltrationConfig, RceConfig, SchemaDriftConfig, VelocityConfig,
+    AirlockConfig, AirlockMode, BehavioralDriftConfig, ExfiltrationConfig, RceConfig,
+    SchemaDriftConfig, VelocityConfig,
 };
 pub use credential_dlp::{CredentialKind, CredentialMatch};
 pub use inspector::{

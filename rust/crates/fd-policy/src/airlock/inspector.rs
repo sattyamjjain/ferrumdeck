@@ -7,12 +7,13 @@
 //!
 //! Returns combined result with risk scoring
 
+use super::behavioral_drift::{BehavioralDriftMonitor, Observation};
 use super::config::{AirlockConfig, AirlockMode};
 use super::exfiltration::ExfiltrationShield;
 use super::patterns::RcePatternMatcher;
 use super::schema_drift::SchemaDriftGuard;
 use super::velocity::VelocityTracker;
-use fd_core::{RunId, ToolVersionId};
+use fd_core::{AgentId, RunId, ToolVersionId};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -39,6 +40,8 @@ pub enum ViolationType {
     /// Cumulative bytes sent to a single domain within a run exceeded
     /// the configured per-domain data budget
     DataExfiltrationBudget,
+    /// Per-agent rolling-window z-score exceeded for some scalar dimension
+    BehavioralDrift,
 }
 
 /// Risk level for violations
@@ -107,6 +110,10 @@ pub struct InspectionContext {
     /// configured, `tool_input` is validated against the registered input
     /// schema for this version before the other layers run.
     pub tool_version_id: Option<ToolVersionId>,
+    /// Optional agent id. When set and a [`BehavioralDriftMonitor`] is
+    /// configured, this call's `estimated_cost_cents` is fed into the
+    /// agent's rolling z-score check.
+    pub agent_id: Option<AgentId>,
 }
 
 /// Result of Airlock inspection
@@ -151,6 +158,8 @@ pub struct AirlockInspector {
     exfiltration_shield: ExfiltrationShield,
     /// Schema-drift guard (None == disabled or no schemas registered)
     schema_drift_guard: Option<Arc<SchemaDriftGuard>>,
+    /// Behavioral-drift monitor (None == disabled or not attached)
+    behavioral_drift_monitor: Option<Arc<BehavioralDriftMonitor>>,
 }
 
 impl AirlockInspector {
@@ -177,6 +186,7 @@ impl AirlockInspector {
             velocity_tracker,
             exfiltration_shield,
             schema_drift_guard: None,
+            behavioral_drift_monitor: None,
         }
     }
 
@@ -188,6 +198,16 @@ impl AirlockInspector {
             "schema-drift guard attached to Airlock inspector"
         );
         self.schema_drift_guard = Some(guard);
+        self
+    }
+
+    /// Builder-style: attach a [`BehavioralDriftMonitor`]. Call at gateway
+    /// boot. The monitor is shared (Arc) so other paths — e.g. a future
+    /// worker-side `record_post_call` — can push latency / refusal /
+    /// schema-violation observations using the same per-agent state.
+    pub fn with_behavioral_drift_monitor(mut self, monitor: Arc<BehavioralDriftMonitor>) -> Self {
+        info!("behavioral-drift monitor attached to Airlock inspector");
+        self.behavioral_drift_monitor = Some(monitor);
         self
     }
 
@@ -219,6 +239,41 @@ impl AirlockInspector {
             shadow_mode = shadow_mode,
             "Inspecting tool call"
         );
+
+        // Layer -1: Behavioral drift — per-agent rolling z-score on
+        // cost_cents. Cheap pre-call signal when agent_id is known.
+        if let (Some(monitor), Some(agent_id), Some(cost_cents)) = (
+            self.behavioral_drift_monitor.as_ref(),
+            ctx.agent_id,
+            ctx.estimated_cost_cents,
+        ) {
+            if let Some(violation) = monitor
+                .observe(
+                    agent_id,
+                    Observation::with_cost(cost_cents),
+                    &self.config.behavioral_drift,
+                )
+                .await
+            {
+                warn!(
+                    run_id = %ctx.run_id,
+                    agent_id = %agent_id,
+                    tool = %ctx.tool_name,
+                    violation_type = ?violation.violation_type,
+                    risk_score = violation.risk_score,
+                    shadow_mode = shadow_mode,
+                    "Behavioral drift detected"
+                );
+
+                return AirlockResult {
+                    allowed: shadow_mode,
+                    violation: Some(violation.clone()),
+                    shadow_mode,
+                    risk_score: violation.risk_score,
+                    risk_level: violation.risk_level,
+                };
+            }
+        }
 
         // Layer 0: Schema-drift — cheapest signal when we have a tool_version_id
         if let (Some(guard), Some(tv_id)) = (
@@ -405,6 +460,7 @@ mod tests {
             velocity: VelocityConfig::default(),
             exfiltration: ExfiltrationConfig::default(),
             schema_drift: crate::airlock::config::SchemaDriftConfig::default(),
+            behavioral_drift: crate::airlock::config::BehavioralDriftConfig::default(),
         }
     }
 
@@ -422,6 +478,7 @@ mod tests {
             tool_input: input,
             estimated_cost_cents: Some(10),
             tool_version_id: None,
+            agent_id: None,
         }
     }
 
@@ -494,6 +551,7 @@ mod tests {
                 data_budget_per_domain_bytes: None,
             },
             schema_drift: crate::airlock::config::SchemaDriftConfig::default(),
+            behavioral_drift: crate::airlock::config::BehavioralDriftConfig::default(),
         };
 
         let inspector = AirlockInspector::new(config);
@@ -529,6 +587,7 @@ mod tests {
                 data_budget_per_domain_bytes: None,
             },
             schema_drift: crate::airlock::config::SchemaDriftConfig::default(),
+            behavioral_drift: crate::airlock::config::BehavioralDriftConfig::default(),
         };
 
         let inspector = AirlockInspector::new(config);
@@ -562,6 +621,7 @@ mod tests {
             },
             exfiltration: ExfiltrationConfig::default(),
             schema_drift: crate::airlock::config::SchemaDriftConfig::default(),
+            behavioral_drift: crate::airlock::config::BehavioralDriftConfig::default(),
         };
 
         let inspector = AirlockInspector::new(config);
@@ -611,6 +671,7 @@ mod tests {
             tool_input: serde_json::json!({}),
             estimated_cost_cents: Some(10),
             tool_version_id: None,
+            agent_id: None,
         };
 
         // Record some calls
