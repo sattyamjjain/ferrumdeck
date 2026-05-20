@@ -1,0 +1,6 @@
+{
+  "name": "deny exec_shell — explicit deny takes precedence",
+  "tool_name": "exec_shell",
+  "expected_decision": "deny",
+  "expected_reason_contains": "explicit denylist"
+}

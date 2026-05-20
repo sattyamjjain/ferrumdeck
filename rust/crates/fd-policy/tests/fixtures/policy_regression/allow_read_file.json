@@ -1,0 +1,6 @@
+{
+  "name": "allow read_file when in allowlist",
+  "tool_name": "read_file",
+  "expected_decision": "allow",
+  "expected_reason_contains": "in the allowlist"
+}

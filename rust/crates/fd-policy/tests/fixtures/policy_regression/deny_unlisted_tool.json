@@ -1,0 +1,6 @@
+{
+  "name": "deny tool not present in allowlist",
+  "tool_name": "fs.write_random_path",
+  "expected_decision": "deny",
+  "expected_reason_contains": "not in allowlist"
+}

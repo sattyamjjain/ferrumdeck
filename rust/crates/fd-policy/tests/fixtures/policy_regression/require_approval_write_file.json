@@ -1,0 +1,6 @@
+{
+  "name": "write_file requires human approval",
+  "tool_name": "write_file",
+  "expected_decision": "requires_approval",
+  "expected_reason_contains": "requires approval"
+}

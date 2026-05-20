@@ -1,0 +1,6 @@
+{
+  "name": "allow list_directory when in allowlist",
+  "tool_name": "list_directory",
+  "expected_decision": "allow",
+  "expected_reason_contains": "in the allowlist"
+}

@@ -1,0 +1,6 @@
+{
+  "name": "delete_file requires human approval",
+  "tool_name": "delete_file",
+  "expected_decision": "requires_approval",
+  "expected_reason_contains": "requires approval"
+}
