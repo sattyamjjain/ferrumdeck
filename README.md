@@ -66,6 +66,7 @@ FerrumDeck provides a **dual-plane architecture**:
 - **Budget Enforcement**: Automatic run termination when limits exceeded (tokens, cost, time)
 - **Predictive Budget Forecast**: Deterministic linear + EWMA projection of end-of-run cost after every step, surfacing a `budget_breach_projected` flag on the run API + SSE event (`run.forecast.updated`) before the auto-kill fires. See [`docs/runbooks/budget-forecast.md`](docs/runbooks/budget-forecast.md).
 - **Policy Engine**: Configurable rules for tool access and risk management
+- **[Airlock RASP](#airlock-rasp)**: Five runtime self-protection layers on every tool call — anti-RCE pattern matcher, financial circuit breaker, data-exfiltration shield, schema-drift guard, behavioral-drift monitor. Shadow or enforce modes.
 - **Explicit Conflict Resolution + Decision Traces**: When multiple policies match a tool call, a named precedence function (`Deny > RequiresApproval > BudgetCap > Allow`) picks the winner deterministically, and every decision carries an audit-grade trace of matched verdicts and overrides surfaced on the run API + `policy.decision.explained` SSE event. See [`docs/runbooks/policy-conflict-resolution.md`](docs/runbooks/policy-conflict-resolution.md).
 - **Routing-Decision Audit (multi-agent coordination)**: Every time the orchestrator binds a subtask to a concrete agent / role / model, a `RoutingDecision` record (candidates considered, chosen binding, reason code, SHA-256 content hash) is written through the existing immutable audit trail and surfaced on `GET /v1/runs/{id}/routing` plus the `routing.decision.recorded` SSE event. fd-evals replays compare the content hash to detect coordination drift. Anchor: AgensFlow ([arXiv:2605.27466](https://arxiv.org/abs/2605.27466)). See [`docs/runbooks/routing-decision-audit.md`](docs/runbooks/routing-decision-audit.md).
 - **Champion-Challenger Promotion Gate**: A registered challenger version cannot replace the live champion until it clears a deterministic gate — configurable metric thresholds (inclusive floors) **plus** a required human approval. Deny-by-default: the challenger stays in shadow until explicitly promoted. The decision + metric evidence (SHA-256 content hash for tamper-evidence) flow through the **same** `PolicyDecision` channel every gate uses and are written to the immutable audit trail. Exposed on `POST /v1/promotions/evaluate` (write scope) + `GET /v1/promotions/{agent_id}`, surfaced on the agent dashboard (champion vs challenger + gate status). See [`docs/runbooks/champion-challenger-promotion.md`](docs/runbooks/champion-challenger-promotion.md).
@@ -643,7 +644,7 @@ A professional admin UI built with Next.js 16.1.1, React 19.2, and Tailwind CSS 
 | `/audit` | Immutable audit trail viewer with filtering |
 | `/evals` | Evaluation suite results and comparisons |
 | `/policies` | Policy configuration and management |
-| `/threats` | Security threat detection and monitoring |
+| `/threats` | [Airlock RASP](#airlock-rasp) violations — RCE / velocity / exfil / schema-drift / behavioral-drift |
 | `/logs` | Container and service logs viewer |
 | `/settings` | API key management and configuration |
 
@@ -940,12 +941,13 @@ Configure MCP servers in `config/mcp-servers.json`:
 
 ### Defense in Depth
 
-FerrumDeck implements multiple security layers:
+FerrumDeck implements multiple security layers. The first five sit outside the
+run; the sixth — **Airlock RASP** — runs inside every tool dispatch.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ Layer 1: Authentication                                  │
-│   • API Keys (SHA256 hashed, scoped)                    │
+│   • API Keys (HMAC-SHA256 hashed, scoped)               │
 │   • OAuth2/JWT with tenant claims                       │
 ├─────────────────────────────────────────────────────────┤
 │ Layer 2: Deny-by-Default Tools                          │
@@ -968,10 +970,44 @@ FerrumDeck implements multiple security layers:
 │   • Immutable event logging                             │
 │   • Every action recorded                               │
 │   • Compliance-ready                                    │
+├─────────────────────────────────────────────────────────┤
+│ Layer 6: Airlock RASP — runtime self-protection         │
+│   • Anti-RCE pattern matcher                            │
+│   • Financial circuit breaker (velocity + loop guard)   │
+│   • Data exfiltration shield                            │
+│   • Schema-drift guard (per ToolVersion)                │
+│   • Behavioral-drift monitor (per-agent z-score)        │
+│   • Shadow vs Enforce modes                             │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Airlock RASP — Egress DLP
+### Airlock RASP
+
+Lives in `rust/crates/fd-policy/src/airlock/`. Inspects every tool call
+in-process — five concrete checks composed on a single `AirlockInspector`,
+no plugin chain. The inspector runs at the gateway boundary and surfaces
+violations to the [`/threats` dashboard page](#dashboard-nextjs).
+
+| # | Layer | Signal | Failure mode caught |
+|---|-------|--------|---------------------|
+| 1 | **RCE Pattern Matcher** (`patterns.rs`) | Regex over tool-call args | `eval()`, `exec()`, `os.system`, shell metacharacters, base64+eval obfuscation, path traversal |
+| 2 | **Velocity / Circuit Breaker** (`velocity.rs`) | Per-run spend + identical-call counter | Runaway cost, infinite tool-call loops |
+| 3 | **Exfiltration Shield** (`exfiltration.rs`) | URL extraction + domain allowlist | Outbound calls to non-whitelisted hosts, raw IP addresses (C2-style) |
+| 4 | **Schema-Drift Guard** (`schema_drift.rs`) | JSON Schema compiled from `ToolVersion.input_schema` | LLM-constructed payloads that miss required fields, type-mismatch, unknown fields |
+| 5 | **Behavioral-Drift Monitor** (`behavioral_drift.rs`) | Per-agent rolling z-score over `cost_cents` / `latency_ms` / `refused` / `schema_violation` | Single-axis exploitation — calls that deviate >3σ from the agent's own recent baseline after a warmup window |
+
+**Modes**
+
+- **`shadow`** (default): violations are logged + persisted as threats, but the
+  call is allowed through. Use for rollout and rule tuning.
+- **`enforce`**: violations block the call. Use in production once you've
+  triaged the shadow-mode threat stream.
+
+Configure via the gateway's `AirlockConfig` — each layer has independent
+`enabled`, thresholds, and risk-score defaults. See
+`rust/crates/fd-policy/src/airlock/config.rs`.
+
+#### Exfiltration Shield — credential & data-budget detail
 
 The data-exfiltration shield in `rust/crates/fd-policy/src/airlock/exfiltration.rs`
 runs in-process on every network-tool dispatch and layers three checks
@@ -995,11 +1031,6 @@ against the outbound payload:
    exceedance kills the run the same way a budget-exceeded policy
    decision does.
 
-Configure via `ExfiltrationConfig` — see
-`rust/crates/fd-policy/src/airlock/config.rs`. The Anti-RCE matcher,
-Velocity / Circuit Breaker, and Schema-Drift guard sit on the same
-`AirlockInspector` as sibling layers.
-
 ### Threat Model
 
 **Assumption**: Prompt injection cannot be fully prevented.
@@ -1014,6 +1045,7 @@ Velocity / Circuit Breaker, and Schema-Drift guard sit on the same
 | Credential exfiltration (payload) | Airlock credential DLP — cloud keys, PATs, Luhn-valid PANs, mod-97 IBANs (redacted in audit) |
 | Slow-leak exfil to allowed host | Airlock per-domain data budget per run |
 | Tool-call payload drift | Airlock schema-drift guard against the registered `ToolVersion` JSON Schema |
+| Single-axis exploitation | Airlock behavioral-drift monitor — rolling z-score per agent |
 | Privilege escalation | Scoped API keys, tenant isolation |
 | Audit tampering | Append-only, immutable logging |
 
@@ -1352,7 +1384,32 @@ docker compose --env-file .env -f deploy/docker/compose.dev.yaml up -d
 
 ### Kubernetes
 
-Helm charts coming soon. For now, use the Docker images with your preferred orchestration.
+A Helm chart ships at `deploy/helm/ferrumdeck/`. It packages the gateway,
+worker, Next.js dashboard, and (optionally) bundled Postgres (pgvector)
+and Redis. Kustomize manifests at `deploy/k8s/` are retained for parity —
+use whichever fits your tooling.
+
+```bash
+# Pull bundled deps (Bitnami postgresql + redis)
+helm dependency update deploy/helm/ferrumdeck
+
+# Demo install with bundled Postgres + Redis
+helm install ferrumdeck deploy/helm/ferrumdeck \
+  --namespace ferrumdeck --create-namespace \
+  --set secrets.data.anthropicApiKey=sk-ant-...
+
+# Port-forward and verify
+kubectl -n ferrumdeck port-forward svc/ferrumdeck-gateway 8080:8080
+curl http://localhost:8080/health
+```
+
+For production, disable the bundled deps and point at managed Postgres
+(pgvector ≥ 0.7) and managed Redis (Streams support required); set
+`secrets.create=false` and reference an externally-managed Secret from
+External Secrets Operator or sealed-secrets. See
+[`deploy/helm/README.md`](deploy/helm/README.md) for the full production
+checklist. CI runs `helm lint` + `kubeconform` on every change under
+`deploy/helm/`.
 
 **Minimum resources per service:**
 - Gateway: 512MB RAM, 0.5 CPU
