@@ -57,6 +57,7 @@
 //! ```
 
 pub mod config;
+pub mod credential_dlp;
 pub mod exfiltration;
 pub mod inspector;
 pub mod patterns;
@@ -67,6 +68,7 @@ pub mod velocity;
 pub use config::{
     AirlockConfig, AirlockMode, ExfiltrationConfig, RceConfig, SchemaDriftConfig, VelocityConfig,
 };
+pub use credential_dlp::{CredentialKind, CredentialMatch};
 pub use inspector::{
     AirlockInspector, AirlockResult, AirlockViolation, InspectionContext, RiskLevel, ViolationType,
 };

@@ -4,13 +4,20 @@
 //! - Domain whitelist for network tools
 //! - Blocks raw IP addresses (prevents C2 connections)
 //! - Detects suspicious URL patterns
+//! - **Credential DLP** scans outbound payloads for cloud keys / tokens /
+//!   Luhn-valid PANs / mod-97-valid IBANs (see [`super::credential_dlp`]).
+//! - **Per-domain data budget** caps cumulative outbound bytes per (run,
+//!   domain) tuple; further dispatches to that domain are denied.
 
 use super::config::ExfiltrationConfig;
+use super::credential_dlp;
 use super::inspector::{AirlockViolation, RiskLevel, ViolationType};
 use regex::Regex;
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::OnceLock;
-use tracing::debug;
+use tokio::sync::RwLock;
+use tracing::{debug, warn};
 
 /// Get URL extraction regex (compiled once)
 fn get_url_regex() -> &'static Regex {
@@ -35,6 +42,11 @@ pub struct ExfiltrationShield {
     target_tools: Vec<String>,
     allowed_domains: Vec<String>,
     block_ip_addresses: bool,
+    credential_dlp_enabled: bool,
+    data_budget_per_domain_bytes: Option<u64>,
+    /// Per-(run_id, domain) cumulative outbound bytes for the data budget.
+    /// Reset via [`clear_run`](Self::clear_run) when a run finishes.
+    egress: RwLock<HashMap<(String, String), u64>>,
 }
 
 impl ExfiltrationShield {
@@ -48,7 +60,79 @@ impl ExfiltrationShield {
                 .map(|d| d.to_lowercase())
                 .collect(),
             block_ip_addresses: config.block_ip_addresses,
+            credential_dlp_enabled: config.credential_dlp_enabled,
+            data_budget_per_domain_bytes: config.data_budget_per_domain_bytes,
+            egress: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Estimate the outbound payload size in bytes — the serialised JSON
+    /// length is a reasonable proxy for what a network tool would actually
+    /// transmit. Counted at the boundary so the figure matches what an
+    /// observer (gateway egress proxy, audit log) would see.
+    pub fn estimate_payload_bytes(value: &serde_json::Value) -> u64 {
+        serde_json::to_string(value)
+            .map(|s| s.len() as u64)
+            .unwrap_or(0)
+    }
+
+    /// Reads the cumulative bytes spent on (run, domain) without mutating.
+    /// Tests + dashboard rollups can use this.
+    pub async fn egress_bytes(&self, run_id: &str, domain: &str) -> u64 {
+        self.egress
+            .read()
+            .await
+            .get(&(run_id.to_string(), domain.to_string()))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Per-domain data budget check + record. Returns
+    /// `Some(DataExfiltrationBudget)` violation when this call would push
+    /// (run, domain) over budget; otherwise records the bytes and returns
+    /// `None`. No-op (returns `None`) when no budget is configured.
+    pub async fn check_and_record_egress(
+        &self,
+        run_id: &str,
+        domain: &str,
+        bytes: u64,
+    ) -> Option<AirlockViolation> {
+        let budget = self.data_budget_per_domain_bytes?;
+        let key = (run_id.to_string(), domain.to_lowercase());
+        let mut state = self.egress.write().await;
+        let current = *state.get(&key).unwrap_or(&0);
+        let prospective = current.saturating_add(bytes);
+        if prospective > budget {
+            warn!(
+                run_id = run_id,
+                domain = domain,
+                current_bytes = current,
+                pending_bytes = bytes,
+                budget_bytes = budget,
+                "egress data budget exceeded — denying further dispatches",
+            );
+            return Some(AirlockViolation {
+                violation_type: ViolationType::DataExfiltrationBudget,
+                risk_score: 80,
+                risk_level: RiskLevel::High,
+                details: format!(
+                    "egress data budget exceeded for {} on run {}: {} (already sent) + {} (this call) > {} (budget)",
+                    domain, run_id, current, bytes, budget
+                ),
+                trigger: format!("data_budget:{}", domain),
+            });
+        }
+        state.insert(key, prospective);
+        None
+    }
+
+    /// Clear per-run egress state. Call when a run terminates so the
+    /// HashMap doesn't grow unbounded.
+    pub async fn clear_run(&self, run_id: &str) {
+        self.egress
+            .write()
+            .await
+            .retain(|(rid, _), _| rid != run_id);
     }
 
     /// Check if this tool should be inspected
@@ -78,7 +162,7 @@ impl ExfiltrationShield {
     }
 
     /// Extract URLs from JSON value
-    fn extract_urls(value: &serde_json::Value) -> Vec<String> {
+    pub(crate) fn extract_urls(value: &serde_json::Value) -> Vec<String> {
         let mut urls = Vec::new();
 
         match value {
@@ -120,7 +204,7 @@ impl ExfiltrationShield {
     }
 
     /// Extract domain from URL
-    fn extract_domain(url: &str) -> Option<String> {
+    pub(crate) fn extract_domain(url: &str) -> Option<String> {
         // Strip protocol
         let url = url
             .strip_prefix("http://")
@@ -135,7 +219,11 @@ impl ExfiltrationShield {
         Some(host.to_string())
     }
 
-    /// Check tool input for exfiltration attempts
+    /// Check tool input for exfiltration attempts. Layered checks, returns
+    /// the FIRST violation found:
+    /// 1. Credential DLP (cloud key / token / Luhn PAN / mod-97 IBAN)
+    /// 2. Raw IP destination
+    /// 3. Unauthorized domain
     pub fn check(
         &self,
         tool_name: &str,
@@ -143,6 +231,32 @@ impl ExfiltrationShield {
     ) -> Option<AirlockViolation> {
         if !self.should_inspect(tool_name) {
             return None;
+        }
+
+        // Layer 1 — credential DLP. Runs first so a leaked key never even
+        // gets evaluated against the domain allowlist. If the LLM tries to
+        // POST a Stripe key to an allow-listed host, this still fires.
+        if self.credential_dlp_enabled {
+            if let Some(cred) = credential_dlp::scan_json(tool_input) {
+                warn!(
+                    tool = tool_name,
+                    credential_kind = cred.kind.as_str(),
+                    redacted = %cred.redacted,
+                    "credential DLP detected secret in outbound payload"
+                );
+                return Some(AirlockViolation {
+                    violation_type: ViolationType::CredentialLeak,
+                    risk_score: 95,
+                    risk_level: RiskLevel::Critical,
+                    details: format!(
+                        "credential of kind `{}` detected in outbound payload (redacted: {}). \
+                         Rotate the credential and remove it from the agent's reachable state.",
+                        cred.kind.as_str(),
+                        cred.redacted
+                    ),
+                    trigger: format!("credential_leak:{}", cred.kind.as_str()),
+                });
+            }
         }
 
         let urls = Self::extract_urls(tool_input);
@@ -211,6 +325,8 @@ mod tests {
             ],
             allowed_domains: domains.into_iter().map(String::from).collect(),
             block_ip_addresses: true,
+            credential_dlp_enabled: false,
+            data_budget_per_domain_bytes: None,
         })
     }
 
@@ -220,6 +336,8 @@ mod tests {
             target_tools: vec!["http_get".to_string()],
             allowed_domains: vec![],
             block_ip_addresses: true,
+            credential_dlp_enabled: false,
+            data_budget_per_domain_bytes: None,
         })
     }
 
@@ -397,5 +515,108 @@ mod tests {
 
         let result = shield.check("http_get", &input);
         assert!(result.is_none()); // Should be allowed (case insensitive)
+    }
+
+    // =========================================================================
+    // Egress-DLP additions
+    // =========================================================================
+
+    fn shield_with_dlp_and_budget(domains: Vec<&str>, budget: Option<u64>) -> ExfiltrationShield {
+        ExfiltrationShield::new(&ExfiltrationConfig {
+            enabled: true,
+            target_tools: vec!["http_post".to_string(), "http_get".to_string()],
+            allowed_domains: domains.into_iter().map(String::from).collect(),
+            block_ip_addresses: true,
+            credential_dlp_enabled: true,
+            data_budget_per_domain_bytes: budget,
+        })
+    }
+
+    #[test]
+    fn leaked_aws_key_denied_and_logged() {
+        let shield = shield_with_dlp_and_budget(vec!["api.example.com"], None);
+        // Allow-listed destination but payload contains a high-confidence
+        // AWS access key id — credential DLP must fire BEFORE the domain
+        // check would have approved.
+        let input = serde_json::json!({
+            "url": "https://api.example.com/v1/upload",
+            "body": "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"
+        });
+
+        let violation = shield
+            .check("http_post", &input)
+            .expect("AWS key in body must be caught");
+        assert_eq!(violation.violation_type, ViolationType::CredentialLeak);
+        assert_eq!(violation.risk_level, RiskLevel::Critical);
+        assert!(violation.trigger.contains("aws_access_key_id"));
+        // Audit detail must include the kind + redacted form, never the raw key.
+        assert!(violation.details.contains("aws_access_key_id"));
+        assert!(!violation.details.contains("IOSFODNN7"));
+    }
+
+    #[test]
+    fn non_luhn_sixteen_digits_not_flagged_as_card() {
+        let shield = shield_with_dlp_and_budget(vec!["api.example.com"], None);
+        // 16 digits that fail Luhn — must NOT be flagged. The prompt's
+        // explicit false-positive case for the credit-card pattern.
+        let input = serde_json::json!({
+            "url": "https://api.example.com/log",
+            "body": "trace_id=1234567890123456 — arbitrary correlation id"
+        });
+
+        // The whole call should pass cleanly: clean payload + allowed domain.
+        assert!(shield.check("http_post", &input).is_none());
+    }
+
+    #[tokio::test]
+    async fn data_budget_exceedance_kills_the_run() {
+        // 1 KiB budget. Each call uploads ~600 bytes. Second call exceeds.
+        let shield = shield_with_dlp_and_budget(vec!["api.example.com"], Some(1024));
+        let run = "run_01HABCDEFG";
+        let domain = "api.example.com";
+
+        // First call: 600 bytes → recorded, allowed.
+        assert!(shield
+            .check_and_record_egress(run, domain, 600)
+            .await
+            .is_none());
+        assert_eq!(shield.egress_bytes(run, domain).await, 600);
+
+        // Second call: 600 more bytes → 1200 > 1024 → DataExfiltrationBudget.
+        let violation = shield
+            .check_and_record_egress(run, domain, 600)
+            .await
+            .expect("budget should be exceeded");
+        assert_eq!(
+            violation.violation_type,
+            ViolationType::DataExfiltrationBudget
+        );
+        assert!(violation.details.contains(domain));
+        // The pending bytes are NOT recorded when the budget is exceeded.
+        assert_eq!(shield.egress_bytes(run, domain).await, 600);
+
+        // Different run → independent budget.
+        assert!(shield
+            .check_and_record_egress("run_other", domain, 600)
+            .await
+            .is_none());
+
+        // Clear the original run and confirm the budget resets.
+        shield.clear_run(run).await;
+        assert_eq!(shield.egress_bytes(run, domain).await, 0);
+        assert!(shield
+            .check_and_record_egress(run, domain, 600)
+            .await
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn no_budget_configured_is_noop() {
+        let shield = shield_with_dlp_and_budget(vec!["api.example.com"], None);
+        // No budget configured → record_egress always returns None.
+        assert!(shield
+            .check_and_record_egress("run_x", "api.example.com", 999_999)
+            .await
+            .is_none());
     }
 }

@@ -952,6 +952,35 @@ FerrumDeck implements multiple security layers:
 └─────────────────────────────────────────────────────────┘
 ```
 
+### Airlock RASP — Egress DLP
+
+The data-exfiltration shield in `rust/crates/fd-policy/src/airlock/exfiltration.rs`
+runs in-process on every network-tool dispatch and layers three checks
+against the outbound payload:
+
+1. **Credential DLP** (`credential_dlp.rs`) — scans for cloud keys
+   (AWS access key id, GCP service-account JSON), PATs (GitHub, Slack
+   bot tokens, Stripe live keys, Anthropic and OpenAI keys), and
+   financial account numbers. False positives on PAN and IBAN are
+   suppressed with **Luhn** (mod-10) and **mod-97** checksum gates
+   respectively, so a random 16-digit correlation id is not flagged
+   as a credit card. Matches are recorded with a redacted form
+   (first-4 + last-4 only) — the raw secret never reaches audit
+   storage.
+2. **Domain allowlist + raw-IP block** — deny-by-default, with subdomain
+   matching and IP-literal rejection to prevent C2-style direct dialing.
+3. **Per-domain data budget** — configurable `data_budget_per_domain_bytes`
+   caps cumulative outbound bytes per `(run, domain)` tuple. Further
+   dispatches that would exceed the budget are denied; the violation
+   reuses the existing audit and shadow/enforce-mode plumbing, so an
+   exceedance kills the run the same way a budget-exceeded policy
+   decision does.
+
+Configure via `ExfiltrationConfig` — see
+`rust/crates/fd-policy/src/airlock/config.rs`. The Anti-RCE matcher,
+Velocity / Circuit Breaker, and Schema-Drift guard sit on the same
+`AirlockInspector` as sibling layers.
+
 ### Threat Model
 
 **Assumption**: Prompt injection cannot be fully prevented.
@@ -962,7 +991,10 @@ FerrumDeck implements multiple security layers:
 |--------|-----------|
 | Malicious tool calls | Deny-by-default allowlist |
 | Token exhaustion | Budget limits with auto-kill |
-| Data exfiltration | Allowlist blocks unauthorized tools |
+| Data exfiltration (destination) | Domain allowlist + raw-IP block (Airlock RASP) |
+| Credential exfiltration (payload) | Airlock credential DLP — cloud keys, PATs, Luhn-valid PANs, mod-97 IBANs (redacted in audit) |
+| Slow-leak exfil to allowed host | Airlock per-domain data budget per run |
+| Tool-call payload drift | Airlock schema-drift guard against the registered `ToolVersion` JSON Schema |
 | Privilege escalation | Scoped API keys, tenant isolation |
 | Audit tampering | Append-only, immutable logging |
 

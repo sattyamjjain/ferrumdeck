@@ -124,6 +124,17 @@ pub struct ExfiltrationConfig {
     /// Block raw IP addresses (prevents direct C2 connections)
     #[serde(default = "default_true")]
     pub block_ip_addresses: bool,
+
+    /// Run the credential-DLP scanner on outbound payloads. Detects cloud
+    /// keys / tokens / Luhn-valid PANs / mod-97-valid IBANs.
+    #[serde(default = "default_true")]
+    pub credential_dlp_enabled: bool,
+
+    /// Maximum outbound bytes to a single domain per run before the shield
+    /// kills further dispatches. `None` disables the budget. The shield
+    /// estimates per-call body size from the serialised tool input.
+    #[serde(default)]
+    pub data_budget_per_domain_bytes: Option<u64>,
 }
 
 impl Default for ExfiltrationConfig {
@@ -133,6 +144,8 @@ impl Default for ExfiltrationConfig {
             target_tools: default_network_tools(),
             allowed_domains: Vec::new(),
             block_ip_addresses: true,
+            credential_dlp_enabled: true,
+            data_budget_per_domain_bytes: None,
         }
     }
 }

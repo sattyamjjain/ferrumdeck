@@ -33,6 +33,12 @@ pub enum ViolationType {
     IpAddressUsed,
     /// Tool-call payload drifted from the registered input schema
     SchemaDrift,
+    /// Outbound payload contains a high-confidence secret (cloud key,
+    /// PAT, Luhn-valid PAN, mod-97-valid IBAN, etc.)
+    CredentialLeak,
+    /// Cumulative bytes sent to a single domain within a run exceeded
+    /// the configured per-domain data budget
+    DataExfiltrationBudget,
 }
 
 /// Risk level for violations
@@ -286,7 +292,8 @@ impl AirlockInspector {
             }
         }
 
-        // Layer 3: Exfiltration shield
+        // Layer 3: Exfiltration shield — domain/IP/credential checks (sync)
+        // plus per-domain data budget (async, mutates state).
         if self.config.exfiltration.enabled {
             if let Some(violation) = self
                 .exfiltration_shield
@@ -310,6 +317,47 @@ impl AirlockInspector {
                     risk_level: violation.risk_level,
                 };
             }
+
+            // Per-domain data budget (async, mutates state). Only meaningful
+            // when the destination is an allow-listed domain — the URL/IP
+            // checks above would have already blocked anything outside the
+            // allowlist, so any URL surviving to here is a legitimate egress
+            // we want to count against the budget.
+            let urls = super::exfiltration::ExfiltrationShield::extract_urls(&ctx.tool_input);
+            if !urls.is_empty() {
+                let bytes = super::exfiltration::ExfiltrationShield::estimate_payload_bytes(
+                    &ctx.tool_input,
+                );
+                let run_id_str = ctx.run_id.to_string();
+                for url in &urls {
+                    if let Some(domain) =
+                        super::exfiltration::ExfiltrationShield::extract_domain(url)
+                    {
+                        if let Some(violation) = self
+                            .exfiltration_shield
+                            .check_and_record_egress(&run_id_str, &domain, bytes)
+                            .await
+                        {
+                            warn!(
+                                run_id = %ctx.run_id,
+                                tool = %ctx.tool_name,
+                                violation_type = ?violation.violation_type,
+                                risk_score = violation.risk_score,
+                                trigger = %violation.trigger,
+                                shadow_mode = shadow_mode,
+                                "Per-domain data budget exceeded"
+                            );
+                            return AirlockResult {
+                                allowed: shadow_mode,
+                                violation: Some(violation.clone()),
+                                shadow_mode,
+                                risk_score: violation.risk_score,
+                                risk_level: violation.risk_level,
+                            };
+                        }
+                    }
+                }
+            }
         }
 
         // All checks passed
@@ -331,11 +379,12 @@ impl AirlockInspector {
         }
     }
 
-    /// Clear velocity tracking data for a completed run
-    ///
-    /// Should be called when a run completes to free memory.
+    /// Clear per-run state for a completed run — velocity tracker and
+    /// exfiltration shield. Should be called when a run completes to free
+    /// memory.
     pub async fn clear_run(&self, run_id: &str) {
         self.velocity_tracker.clear_run(run_id).await;
+        self.exfiltration_shield.clear_run(run_id).await;
     }
 
     /// Get current velocity tracker statistics
@@ -441,6 +490,8 @@ mod tests {
                 target_tools: vec!["http_get".to_string()],
                 allowed_domains: vec!["allowed.com".to_string()],
                 block_ip_addresses: true,
+                credential_dlp_enabled: false,
+                data_budget_per_domain_bytes: None,
             },
             schema_drift: crate::airlock::config::SchemaDriftConfig::default(),
         };
@@ -474,6 +525,8 @@ mod tests {
                 target_tools: vec!["http_get".to_string()],
                 allowed_domains: vec![], // No whitelist
                 block_ip_addresses: true,
+                credential_dlp_enabled: false,
+                data_budget_per_domain_bytes: None,
             },
             schema_drift: crate::airlock::config::SchemaDriftConfig::default(),
         };
