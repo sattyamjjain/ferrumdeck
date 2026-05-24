@@ -89,6 +89,27 @@ export interface Run {
   // Observability
   trace_id?: string;
   span_id?: string;
+  // Predictive run-budget forecast (populated after the first step completes)
+  projected_cost_cents?: number;
+  ewma_cost_cents?: number;
+  budget_breach_projected?: boolean;
+  breach_kind?: BudgetBreachKind;
+  forecast_at?: string;
+}
+
+// Axis that triggered a projected breach. Matches the Rust BreachKind enum
+// (serialized in snake_case).
+export type BudgetBreachKind = "cost_cents" | "tool_calls" | "wall_time";
+
+// SSE event payload schema for `run.forecast.updated`. See
+// docs/runbooks/budget-forecast.md for the contract.
+export interface RunForecastUpdatedPayload {
+  run_id: string;
+  projected_cost_cents: number;
+  ewma_cost_cents: number;
+  budget_breach_projected: boolean;
+  breach_kind: BudgetBreachKind | null;
+  at: string;
 }
 
 // Run with statistics for list views

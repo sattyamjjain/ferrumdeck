@@ -40,6 +40,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { RunStatusBadge } from "./run-status-badge";
+import { BudgetProjectionBadge } from "./budget-projection-badge";
 import {
   formatCost,
   formatTokens,
@@ -152,6 +153,14 @@ export function RunHeader({ run, stepCount = 0 }: RunHeaderProps) {
                 </Tooltip>
 
                 <MissionStatusBadge status={run.status} isLive={isActive} />
+
+                <BudgetProjectionBadge
+                  projectedCostCents={run.projected_cost_cents}
+                  ewmaCostCents={run.ewma_cost_cents}
+                  breachProjected={run.budget_breach_projected}
+                  breachKind={run.breach_kind}
+                  forecastAt={run.forecast_at}
+                />
               </div>
 
               {/* Context Row */}

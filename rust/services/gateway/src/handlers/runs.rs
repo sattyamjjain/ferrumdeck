@@ -9,13 +9,14 @@ use axum::{
 use chrono::Utc;
 use fd_otel::genai::pricing;
 use fd_policy::budget::BudgetUsage;
+use fd_policy::forecast::{compute_forecast, ForecastInputs, ForecastSnapshot};
 use fd_storage::{
     models::{
         action, actor, resource, AuditEventBuilder, CreateRun, CreateStep, RunStatus, StepStatus,
         StepType, UpdateRun, UpdateStep,
     },
     queue::{JobContext, StepJob},
-    QueueMessage,
+    QueueMessage, RunForecastSnapshot,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, warn};
@@ -80,6 +81,24 @@ pub struct RunResponse {
     pub started_at: Option<String>,
     /// When execution completed
     pub completed_at: Option<String>,
+    /// Linear projection of end-of-run cost in cents (null until the first
+    /// step completes).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projected_cost_cents: Option<i64>,
+    /// EWMA-smoothed projection of end-of-run cost in cents.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ewma_cost_cents: Option<i64>,
+    /// `true` when any axis is projected to exceed its configured cap before
+    /// the run can terminate.
+    #[serde(default)]
+    pub budget_breach_projected: bool,
+    /// Axis that triggered the breach projection: `cost_cents`, `tool_calls`,
+    /// or `wall_time`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub breach_kind: Option<String>,
+    /// When the latest forecast snapshot was computed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forecast_at: Option<String>,
 }
 
 /// Query parameters for listing runs
@@ -192,6 +211,43 @@ fn run_to_response(run: fd_storage::models::Run) -> RunResponse {
         created_at: run.created_at.to_rfc3339(),
         started_at: run.started_at.map(|t| t.to_rfc3339()),
         completed_at: run.completed_at.map(|t| t.to_rfc3339()),
+        projected_cost_cents: run.projected_cost_cents,
+        ewma_cost_cents: run.ewma_cost_cents,
+        budget_breach_projected: run.budget_breach_projected,
+        breach_kind: run.breach_kind,
+        forecast_at: run.forecast_at.map(|t| t.to_rfc3339()),
+    }
+}
+
+/// Convert a [`ForecastSnapshot`] into the storage-shape snapshot that the
+/// repository persists. Saturating casts keep us safe against the rare case
+/// where the projection overflows `i64`.
+fn forecast_to_storage(
+    snapshot: ForecastSnapshot,
+    breach_kind_label: Option<String>,
+    forecast_at: chrono::DateTime<chrono::Utc>,
+) -> RunForecastSnapshot {
+    fn saturating_i64(value: u64) -> i64 {
+        value.min(i64::MAX as u64) as i64
+    }
+    RunForecastSnapshot {
+        projected_cost_cents: saturating_i64(snapshot.projected_cost_cents),
+        ewma_cost_cents: saturating_i64(snapshot.ewma_cost_cents),
+        ewma_step_cost_cents: saturating_i64(snapshot.ewma_step_cost_cents),
+        budget_breach_projected: snapshot.budget_breach_projected,
+        breach_kind: breach_kind_label,
+        forecast_at,
+    }
+}
+
+/// Stable string labels for [`fd_policy::forecast::BreachKind`] used on the
+/// API + SSE wire and persisted on the `runs` table.
+fn breach_kind_label(kind: fd_policy::forecast::BreachKind) -> &'static str {
+    use fd_policy::forecast::BreachKind;
+    match kind {
+        BreachKind::CostCents => "cost_cents",
+        BreachKind::ToolCalls => "tool_calls",
+        BreachKind::WallTime => "wall_time",
     }
 }
 
@@ -666,6 +722,43 @@ pub async fn submit_step_result(
         wall_time_ms,
         cost_cents: updated_run.cost_cents as u64,
     };
+
+    // -----------------------------------------------------------------------
+    // Predictive run-budget forecast
+    // -----------------------------------------------------------------------
+    // Project end-of-run cost (linear + EWMA) against the same budget the
+    // policy engine would auto-kill on, then persist the snapshot so the
+    // dashboard sees it on the next poll / SSE event. Failures are
+    // non-fatal — the forecast is a UX/observability signal, not a gate.
+    let forecast_inputs = ForecastInputs {
+        cost_so_far_cents: updated_run.cost_cents as u64,
+        tool_calls_so_far: updated_run.tool_calls as u32,
+        wall_time_ms_so_far: wall_time_ms,
+        steps_completed: updated_run.tool_calls.max(1) as u32,
+        step_cost_cents,
+        prior_ewma_step_cost_cents: updated_run.ewma_step_cost_cents.map(|v| v.max(0) as u64),
+    };
+    let forecast = compute_forecast(forecast_inputs, state.policy_engine.default_budget());
+    let breach_label = forecast
+        .breach_kind
+        .map(breach_kind_label)
+        .map(str::to_owned);
+    let storage_forecast = forecast_to_storage(forecast.clone(), breach_label.clone(), Utc::now());
+    if let Err(err) = repos
+        .runs()
+        .update_forecast(&run_id, &storage_forecast)
+        .await
+    {
+        warn!(run_id = %run_id, error = %err, "Failed to persist run forecast snapshot");
+    } else if forecast.budget_breach_projected {
+        info!(
+            run_id = %run_id,
+            projected_cost_cents = forecast.projected_cost_cents,
+            ewma_cost_cents = forecast.ewma_cost_cents,
+            breach_kind = breach_label.as_deref().unwrap_or("unknown"),
+            "Run projected to breach budget"
+        );
+    }
 
     let budget_decision = state.policy_engine.check_budget(&usage, None);
 

@@ -28,6 +28,11 @@ mod run_tests {
             created_at: "2024-01-01T00:00:00Z".to_string(),
             started_at: None,
             completed_at: None,
+            projected_cost_cents: None,
+            ewma_cost_cents: None,
+            budget_breach_projected: false,
+            breach_kind: None,
+            forecast_at: None,
         };
 
         let json = serde_json::to_string(&response).unwrap();

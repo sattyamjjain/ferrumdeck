@@ -346,9 +346,36 @@ function generateMockEvent(channelType: string, channelName: string): SSEEvent |
     }
 
     case "run": {
-      const eventTypes = ["step_created", "step_status_changed", "step_completed"];
+      const eventTypes = [
+        "step_created",
+        "step_status_changed",
+        "step_completed",
+        "run.forecast.updated",
+      ];
       const eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
       const runId = channelName.split(":")[1] || "run_demo";
+
+      if (eventType === "run.forecast.updated") {
+        // Predictive run-budget forecast snapshot. Emitted by the gateway
+        // after each step is recorded. See docs/runbooks/budget-forecast.md
+        // for the schema contract.
+        const projected = Math.floor(Math.random() * 800) + 200;
+        const breach = projected > 500;
+        return {
+          id,
+          type: "run.forecast.updated",
+          channel: channelName,
+          timestamp,
+          payload: {
+            run_id: runId,
+            projected_cost_cents: projected,
+            ewma_cost_cents: Math.max(0, projected - Math.floor(Math.random() * 50)),
+            budget_breach_projected: breach,
+            breach_kind: breach ? "cost_cents" : null,
+            at: timestamp,
+          },
+        };
+      }
 
       if (eventType === "step_created") {
         return {

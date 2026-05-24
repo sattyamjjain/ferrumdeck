@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DollarSign } from "lucide-react";
 import type { Run } from "@/types/run";
@@ -10,15 +10,45 @@ interface CostChartProps {
   runs: Run[];
 }
 
+const ACTIVE_STATUSES: ReadonlySet<string> = new Set([
+  "created",
+  "queued",
+  "running",
+  "waiting_approval",
+]);
+
+function isoDateKey(value: string): string {
+  // Same shape we render on the X axis so the keys align.
+  return new Date(value).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export function CostChart({ runs }: CostChartProps) {
   const chartData = useMemo(() => {
-    // Group runs by day and sum costs
+    // Group actual cost by day.
     const grouped = runs.reduce((acc, run) => {
-      const date = new Date(run.created_at).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-      });
+      const date = isoDateKey(run.created_at);
       acc[date] = (acc[date] || 0) + (run.cost_cents || 0);
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Projected-additional cost from currently-active runs that the gateway
+    // has flagged as on track to breach. Apportioned to their created_at day —
+    // the dashboard treats the forecast as "what the run will end up costing
+    // in addition to what it has already burned".
+    const projectedExtra = runs.reduce((acc, run) => {
+      if (
+        !ACTIVE_STATUSES.has(run.status) ||
+        !run.budget_breach_projected ||
+        run.projected_cost_cents === undefined
+      ) {
+        return acc;
+      }
+      const date = isoDateKey(run.created_at);
+      const extra = Math.max(0, run.projected_cost_cents - (run.cost_cents || 0));
+      acc[date] = (acc[date] || 0) + extra;
       return acc;
     }, {} as Record<string, number>);
 
@@ -26,7 +56,8 @@ export function CostChart({ runs }: CostChartProps) {
     return Object.entries(grouped)
       .map(([date, cents]) => ({
         date,
-        cost: cents / 100, // Convert to dollars
+        cost: cents / 100,
+        projected: (projectedExtra[date] || 0) / 100,
       }))
       .slice(-14); // Last 14 days
   }, [runs]);
@@ -86,11 +117,27 @@ export function CostChart({ runs }: CostChartProps) {
                   boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
                 }}
                 labelStyle={{ color: "var(--foreground)", fontWeight: 500 }}
-                formatter={(value) => [`$${Number(value).toFixed(2)}`, "Cost"]}
+                formatter={(value, name) => [
+                  `$${Number(value).toFixed(2)}`,
+                  name === "projected" ? "Projected to add" : "Actual",
+                ]}
               />
+              <Legend wrapperStyle={{ fontSize: 11, color: "var(--foreground-muted)" }} />
               <Bar
                 dataKey="cost"
+                name="Actual"
+                stackId="cost"
                 fill="var(--accent-green)"
+                radius={[0, 0, 0, 0]}
+              />
+              <Bar
+                dataKey="projected"
+                name="Projected (active runs)"
+                stackId="cost"
+                fill="var(--accent-yellow)"
+                fillOpacity={0.55}
+                stroke="var(--accent-yellow)"
+                strokeDasharray="4 2"
                 radius={[4, 4, 0, 0]}
               />
             </BarChart>

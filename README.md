@@ -64,6 +64,7 @@ FerrumDeck provides a **dual-plane architecture**:
 - **Deny-by-Default Tools**: Only explicitly allowed tools can be called
 - **Approval Gates**: High-risk actions require human approval before execution
 - **Budget Enforcement**: Automatic run termination when limits exceeded (tokens, cost, time)
+- **Predictive Budget Forecast**: Deterministic linear + EWMA projection of end-of-run cost after every step, surfacing a `budget_breach_projected` flag on the run API + SSE event (`run.forecast.updated`) before the auto-kill fires. See [`docs/runbooks/budget-forecast.md`](docs/runbooks/budget-forecast.md).
 - **Policy Engine**: Configurable rules for tool access and risk management
 
 ### Observability

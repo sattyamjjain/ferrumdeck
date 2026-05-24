@@ -24,6 +24,9 @@ regex = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 jsonschema = { version = "0.17", default-features = false }
 
+# Deterministic decimal math (budget forecasting)
+rust_decimal = { workspace = true }
+
 [dev-dependencies]
 tokio-test = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

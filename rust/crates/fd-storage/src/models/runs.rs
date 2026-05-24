@@ -58,6 +58,27 @@ pub struct Run {
     pub error: Option<serde_json::Value>,
     pub trace_id: Option<String>,
     pub span_id: Option<String>,
+    /// Latest linear projection of end-of-run cost (cents). `None` until the
+    /// first step completes and the forecaster runs.
+    #[serde(default)]
+    pub projected_cost_cents: Option<i64>,
+    /// Latest EWMA-smoothed projection of end-of-run cost (cents).
+    #[serde(default)]
+    pub ewma_cost_cents: Option<i64>,
+    /// EWMA per-step state carried forward across step completions.
+    #[serde(default)]
+    pub ewma_step_cost_cents: Option<i64>,
+    /// `true` when any axis is projected to exceed its configured cap before
+    /// the run can terminate.
+    #[serde(default)]
+    pub budget_breach_projected: bool,
+    /// Which axis triggered the breach projection (`cost_cents`, `tool_calls`,
+    /// `wall_time`). `None` when no breach is projected.
+    #[serde(default)]
+    pub breach_kind: Option<String>,
+    /// When the latest forecast snapshot was computed.
+    #[serde(default)]
+    pub forecast_at: Option<DateTime<Utc>>,
 }
 
 /// Create run request

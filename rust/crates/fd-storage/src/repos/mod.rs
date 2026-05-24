@@ -17,7 +17,7 @@ pub use agents::AgentsRepo;
 pub use api_keys::ApiKeysRepo;
 pub use audit::AuditRepo;
 pub use policies::PoliciesRepo;
-pub use runs::RunsRepo;
+pub use runs::{RunForecastSnapshot, RunsRepo};
 pub use steps::StepsRepo;
 pub use threats::ThreatsRepo;
 pub use tools::ToolsRepo;

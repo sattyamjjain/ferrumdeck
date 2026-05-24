@@ -245,6 +245,37 @@ impl RunsRepo {
         Ok(())
     }
 
+    /// Persist the latest forecast snapshot for a run.
+    #[instrument(skip(self, snapshot))]
+    pub async fn update_forecast(
+        &self,
+        id: &str,
+        snapshot: &RunForecastSnapshot,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE runs
+            SET projected_cost_cents = $2,
+                ewma_cost_cents = $3,
+                ewma_step_cost_cents = $4,
+                budget_breach_projected = $5,
+                breach_kind = $6,
+                forecast_at = $7
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .bind(snapshot.projected_cost_cents)
+        .bind(snapshot.ewma_cost_cents)
+        .bind(snapshot.ewma_step_cost_cents)
+        .bind(snapshot.budget_breach_projected)
+        .bind(&snapshot.breach_kind)
+        .bind(snapshot.forecast_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Get agent run statistics
     #[instrument(skip(self))]
     pub async fn get_agent_stats(&self, agent_id: &str) -> Result<AgentStats, sqlx::Error> {
@@ -301,4 +332,17 @@ pub struct AgentStats {
     pub avg_duration_ms: i64,
     pub total_cost_cents: i64,
     pub last_run_at: Option<String>,
+}
+
+/// Storage-shape forecast snapshot. The governance plane computes this via
+/// `fd_policy::forecast::compute_forecast`; this struct decouples the schema
+/// layer from the policy crate so storage doesn't depend on fd-policy.
+#[derive(Debug, Clone)]
+pub struct RunForecastSnapshot {
+    pub projected_cost_cents: i64,
+    pub ewma_cost_cents: i64,
+    pub ewma_step_cost_cents: i64,
+    pub budget_breach_projected: bool,
+    pub breach_kind: Option<String>,
+    pub forecast_at: chrono::DateTime<chrono::Utc>,
 }

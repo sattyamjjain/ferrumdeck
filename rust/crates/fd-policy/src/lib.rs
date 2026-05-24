@@ -10,6 +10,7 @@ pub mod airlock;
 pub mod budget;
 pub mod decision;
 pub mod engine;
+pub mod forecast;
 pub mod rules;
 
 pub use decision::{PolicyDecision, PolicyDecisionKind};
