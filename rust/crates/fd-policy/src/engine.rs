@@ -2,7 +2,9 @@
 
 use crate::budget::{Budget, BudgetUsage};
 use crate::decision::PolicyDecision;
-use crate::rules::{ToolAllowlist, ToolAllowlistResult};
+use crate::precedence::{resolve_conflicts, PolicyVerdict, VerdictKind};
+use crate::rules::ToolAllowlist;
+use crate::trace::DecisionTrace;
 use tracing::instrument;
 
 /// The policy engine evaluates actions against configured rules
@@ -20,37 +22,105 @@ impl PolicyEngine {
         }
     }
 
-    /// Evaluate whether a tool call is allowed
+    /// Evaluate whether a tool call is allowed.
+    ///
+    /// Now gathers *every* matching verdict from the allowlist and runs
+    /// them through [`crate::precedence::resolve_conflicts`], so two
+    /// disagreeing policies produce a deterministic winner plus a full
+    /// explanation trace surfaced on [`PolicyDecision::trace`]. Behaviour
+    /// matches the legacy short-circuit (`Deny > RequiresApproval >
+    /// Allow > default-deny`) — back-compat is covered by existing tests.
     #[instrument(skip(self))]
     pub fn evaluate_tool_call(&self, tool_name: &str) -> PolicyDecision {
-        match self.tool_allowlist.check(tool_name) {
-            ToolAllowlistResult::Allowed => {
-                PolicyDecision::allow(format!("tool '{}' is in allowlist", tool_name))
+        let matched = self.tool_allowlist.matches(tool_name);
+        let resolved = resolve_conflicts(matched.clone());
+        let trace = DecisionTrace::from_resolution(matched, &resolved);
+
+        let decision = match resolved.winning.as_ref().map(|v| v.kind) {
+            Some(VerdictKind::Deny) => {
+                let reason = resolved
+                    .winning
+                    .as_ref()
+                    .map(|v| v.reason.clone())
+                    .unwrap_or_else(|| format!("tool '{}' is denied", tool_name));
+                PolicyDecision::deny(reason)
             }
-            ToolAllowlistResult::RequiresApproval => PolicyDecision::requires_approval(format!(
-                "tool '{}' requires approval before execution",
-                tool_name
-            )),
-            ToolAllowlistResult::Denied => {
-                PolicyDecision::deny(format!("tool '{}' is not in allowlist", tool_name))
+            Some(VerdictKind::RequiresApproval) => {
+                let reason = resolved
+                    .winning
+                    .as_ref()
+                    .map(|v| v.reason.clone())
+                    .unwrap_or_else(|| format!("tool '{}' requires approval", tool_name));
+                PolicyDecision::requires_approval(reason)
             }
-        }
+            Some(VerdictKind::Allow) => {
+                let reason = resolved
+                    .winning
+                    .as_ref()
+                    .map(|v| v.reason.clone())
+                    .unwrap_or_else(|| format!("tool '{}' is in allowlist", tool_name));
+                PolicyDecision::allow(reason)
+            }
+            // BudgetCap should never be a winner from allowlist matching —
+            // the budget plane is checked via `check_budget`. Treat it as
+            // a deny if it ever appears here (defence-in-depth).
+            Some(VerdictKind::BudgetCap) => {
+                PolicyDecision::deny(format!("tool '{}' blocked by budget cap", tool_name))
+            }
+            // No matches at all → deny-by-default. The trace still records
+            // the empty match set so audit can prove the allowlist saw
+            // nothing for this tool.
+            None => PolicyDecision::deny(format!("tool '{}' is not in allowlist", tool_name)),
+        };
+
+        decision.with_trace(trace)
     }
 
-    /// Check if budget allows continuing
+    /// Check if budget allows continuing. The returned decision carries a
+    /// trace whose single matched verdict (if any) is the offending
+    /// budget axis.
     #[instrument(skip(self))]
     pub fn check_budget(&self, usage: &BudgetUsage, budget: Option<&Budget>) -> PolicyDecision {
         let budget = budget.unwrap_or(&self.default_budget);
 
-        match usage.check_against(budget) {
-            Some(exceeded) => PolicyDecision::deny(format!("budget exceeded: {}", exceeded)),
-            None => PolicyDecision::allow("within budget limits"),
-        }
+        let (decision, matched) = match usage.check_against(budget) {
+            Some(exceeded) => {
+                let verdict = PolicyVerdict::new(
+                    VerdictKind::BudgetCap,
+                    format!("budget:{}", budget_axis(&exceeded)),
+                    format!("budget exceeded: {}", exceeded),
+                );
+                let matched = vec![verdict];
+                (
+                    PolicyDecision::deny(format!("budget exceeded: {}", exceeded)),
+                    matched,
+                )
+            }
+            None => (PolicyDecision::allow("within budget limits"), Vec::new()),
+        };
+
+        let resolved = resolve_conflicts(matched.clone());
+        let trace = DecisionTrace::from_resolution(matched, &resolved);
+        decision.with_trace(trace)
     }
 
     /// Get the default budget
     pub fn default_budget(&self) -> &Budget {
         &self.default_budget
+    }
+}
+
+/// Stable axis label for a [`BudgetExceeded`](crate::budget::BudgetExceeded)
+/// — used as the `budget:<axis>` source string on the trace.
+fn budget_axis(exceeded: &crate::budget::BudgetExceeded) -> &'static str {
+    use crate::budget::BudgetExceeded;
+    match exceeded {
+        BudgetExceeded::InputTokens { .. } => "max_input_tokens",
+        BudgetExceeded::OutputTokens { .. } => "max_output_tokens",
+        BudgetExceeded::TotalTokens { .. } => "max_total_tokens",
+        BudgetExceeded::ToolCalls { .. } => "max_tool_calls",
+        BudgetExceeded::WallTime { .. } => "max_wall_time_ms",
+        BudgetExceeded::Cost { .. } => "max_cost_cents",
     }
 }
 
@@ -319,6 +389,142 @@ mod tests {
     // =============================================================================
     // Integration Scenarios
     // =============================================================================
+
+    // =============================================================================
+    // Conflict-resolution + trace integration tests
+    // =============================================================================
+
+    #[test]
+    fn conflict_deny_overrides_allow_records_trace() {
+        // Tool is on BOTH the allow- and deny-lists. Deny must win, and
+        // the trace must record the Allow as overridden.
+        let allowlist = ToolAllowlist {
+            allowed_tools: vec!["dangerous_tool".into()],
+            approval_required: vec![],
+            denied_tools: vec!["dangerous_tool".into()],
+        };
+        let engine = PolicyEngine::new(allowlist, Budget::default());
+        let decision = engine.evaluate_tool_call("dangerous_tool");
+
+        assert!(decision.is_denied());
+        let trace = decision.trace.as_ref().expect("trace populated");
+        assert_eq!(trace.matched.len(), 2);
+        assert_eq!(trace.winning_kind, Some(VerdictKind::Deny));
+        assert_eq!(trace.winning_source.as_deref(), Some("allowlist:denied"));
+        assert_eq!(trace.overrides.len(), 1);
+        assert_eq!(trace.overrides[0].verdict.kind, VerdictKind::Allow);
+        assert!(trace.overrides[0].reason.contains("higher-precedence deny"));
+    }
+
+    #[test]
+    fn conflict_approval_overrides_allow_records_trace() {
+        let allowlist = ToolAllowlist {
+            allowed_tools: vec!["write_file".into()],
+            approval_required: vec!["write_file".into()],
+            denied_tools: vec![],
+        };
+        let engine = PolicyEngine::new(allowlist, Budget::default());
+        let decision = engine.evaluate_tool_call("write_file");
+
+        assert!(decision.needs_approval());
+        let trace = decision.trace.as_ref().expect("trace populated");
+        assert_eq!(trace.winning_kind, Some(VerdictKind::RequiresApproval));
+        assert_eq!(trace.overrides.len(), 1);
+        assert_eq!(trace.overrides[0].verdict.kind, VerdictKind::Allow);
+    }
+
+    #[test]
+    fn conflict_three_way_deny_wins_and_records_two_overrides() {
+        let allowlist = ToolAllowlist {
+            allowed_tools: vec!["multi_tool".into()],
+            approval_required: vec!["multi_tool".into()],
+            denied_tools: vec!["multi_tool".into()],
+        };
+        let engine = PolicyEngine::new(allowlist, Budget::default());
+        let decision = engine.evaluate_tool_call("multi_tool");
+
+        assert!(decision.is_denied());
+        let trace = decision.trace.as_ref().expect("trace populated");
+        assert_eq!(trace.matched.len(), 3);
+        assert_eq!(trace.winning_kind, Some(VerdictKind::Deny));
+        assert_eq!(trace.overrides.len(), 2);
+        // Overrides in submission order: approval then allow.
+        assert_eq!(
+            trace.overrides[0].verdict.kind,
+            VerdictKind::RequiresApproval
+        );
+        assert_eq!(trace.overrides[1].verdict.kind, VerdictKind::Allow);
+        assert!(trace.had_conflicts());
+    }
+
+    #[test]
+    fn no_conflict_allow_only_records_clean_trace() {
+        let allowlist = ToolAllowlist {
+            allowed_tools: vec!["read_file".into()],
+            approval_required: vec![],
+            denied_tools: vec![],
+        };
+        let engine = PolicyEngine::new(allowlist, Budget::default());
+        let decision = engine.evaluate_tool_call("read_file");
+
+        assert!(decision.is_allowed());
+        let trace = decision.trace.as_ref().expect("trace populated");
+        assert_eq!(trace.matched.len(), 1);
+        assert_eq!(trace.winning_kind, Some(VerdictKind::Allow));
+        assert!(trace.overrides.is_empty());
+        assert!(!trace.had_conflicts());
+    }
+
+    #[test]
+    fn default_deny_records_empty_matched_set() {
+        // Tool not on any list — deny by default, trace records the empty
+        // match set so audit can prove the allowlist saw nothing.
+        let engine = PolicyEngine::default();
+        let decision = engine.evaluate_tool_call("unknown_tool");
+
+        assert!(decision.is_denied());
+        let trace = decision.trace.as_ref().expect("trace populated");
+        assert!(trace.matched.is_empty());
+        assert!(trace.winning_kind.is_none());
+        assert!(trace.overrides.is_empty());
+    }
+
+    #[test]
+    fn budget_check_attaches_budget_cap_verdict_in_trace() {
+        let engine = PolicyEngine::default();
+        let usage = BudgetUsage {
+            cost_cents: 10_000, // way over default $5 limit
+            ..Default::default()
+        };
+        let decision = engine.check_budget(&usage, None);
+
+        assert!(decision.is_denied());
+        let trace = decision.trace.as_ref().expect("trace populated");
+        assert_eq!(trace.matched.len(), 1);
+        assert_eq!(trace.matched[0].kind, VerdictKind::BudgetCap);
+        assert_eq!(trace.matched[0].source, "budget:max_cost_cents");
+        assert_eq!(trace.winning_kind, Some(VerdictKind::BudgetCap));
+    }
+
+    #[test]
+    fn budget_within_limits_records_empty_trace() {
+        let engine = PolicyEngine::default();
+        let usage = BudgetUsage::default();
+        let decision = engine.check_budget(&usage, None);
+
+        assert!(decision.is_allowed());
+        let trace = decision.trace.as_ref().expect("trace populated");
+        assert!(trace.matched.is_empty());
+        assert!(trace.winning_kind.is_none());
+    }
+
+    #[test]
+    fn trace_precedence_label_matches_canonical_string() {
+        let engine = PolicyEngine::default();
+        let decision = engine.evaluate_tool_call("anything");
+        let trace = decision.trace.as_ref().expect("trace populated");
+        assert_eq!(trace.precedence, crate::precedence::PRECEDENCE_LABEL);
+    }
 
     #[test]
     fn test_realistic_agent_policy() {

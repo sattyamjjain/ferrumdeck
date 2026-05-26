@@ -66,6 +66,7 @@ FerrumDeck provides a **dual-plane architecture**:
 - **Budget Enforcement**: Automatic run termination when limits exceeded (tokens, cost, time)
 - **Predictive Budget Forecast**: Deterministic linear + EWMA projection of end-of-run cost after every step, surfacing a `budget_breach_projected` flag on the run API + SSE event (`run.forecast.updated`) before the auto-kill fires. See [`docs/runbooks/budget-forecast.md`](docs/runbooks/budget-forecast.md).
 - **Policy Engine**: Configurable rules for tool access and risk management
+- **Explicit Conflict Resolution + Decision Traces**: When multiple policies match a tool call, a named precedence function (`Deny > RequiresApproval > BudgetCap > Allow`) picks the winner deterministically, and every decision carries an audit-grade trace of matched verdicts and overrides surfaced on the run API + `policy.decision.explained` SSE event. See [`docs/runbooks/policy-conflict-resolution.md`](docs/runbooks/policy-conflict-resolution.md).
 
 ### Observability
 - **OpenTelemetry Integration**: Full distributed tracing with GenAI semantic conventions

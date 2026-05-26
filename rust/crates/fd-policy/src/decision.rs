@@ -3,6 +3,8 @@
 use fd_core::{PolicyDecisionId, PolicyRuleId};
 use serde::{Deserialize, Serialize};
 
+use crate::trace::DecisionTrace;
+
 /// The outcome of a policy evaluation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyDecision {
@@ -21,6 +23,13 @@ pub struct PolicyDecision {
     /// Additional context
     #[serde(default)]
     pub metadata: serde_json::Value,
+
+    /// Audit-grade explanation of how this decision was reached: every
+    /// matched verdict, which one fired, and which were overridden by
+    /// precedence. `None` for legacy code paths that haven't been wired
+    /// through the conflict resolver yet — additive on the wire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace: Option<DecisionTrace>,
 }
 
 /// The kind of policy decision
@@ -48,6 +57,7 @@ impl PolicyDecision {
             reason: reason.into(),
             rule_id: None,
             metadata: serde_json::Value::Null,
+            trace: None,
         }
     }
 
@@ -58,6 +68,7 @@ impl PolicyDecision {
             reason: reason.into(),
             rule_id: None,
             metadata: serde_json::Value::Null,
+            trace: None,
         }
     }
 
@@ -68,11 +79,20 @@ impl PolicyDecision {
             reason: reason.into(),
             rule_id: None,
             metadata: serde_json::Value::Null,
+            trace: None,
         }
     }
 
     pub fn with_rule(mut self, rule_id: PolicyRuleId) -> Self {
         self.rule_id = Some(rule_id);
+        self
+    }
+
+    /// Attach an explanation trace produced by
+    /// [`crate::precedence::resolve_conflicts`] +
+    /// [`crate::trace::DecisionTrace::from_resolution`].
+    pub fn with_trace(mut self, trace: DecisionTrace) -> Self {
+        self.trace = Some(trace);
         self
     }
 

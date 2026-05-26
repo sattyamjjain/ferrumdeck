@@ -922,6 +922,13 @@ pub struct CheckToolResponse {
     /// Whether Airlock is in shadow mode (log-only)
     #[serde(default)]
     pub shadow_mode: bool,
+
+    /// Audit-grade explanation of how the policy decision was reached:
+    /// every matched verdict, which one fired, and which were overridden
+    /// by precedence. Additive — older clients can ignore the field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Object)]
+    pub decision_trace: Option<fd_policy::trace::DecisionTrace>,
 }
 
 /// Check if a tool call is allowed by policy and Airlock security inspection
@@ -1122,6 +1129,10 @@ pub async fn check_tool_policy(
 
     let violation_details = airlock_result.violation.as_ref().map(|v| v.details.clone());
 
+    // Take the explanation trace before we consume `decision.reason` /
+    // `decision.id` below — keeps the field-move pattern simple.
+    let decision_trace = decision.trace.clone();
+
     Ok(Json(CheckToolResponse {
         allowed: final_allowed,
         requires_approval: decision.needs_approval(),
@@ -1141,5 +1152,6 @@ pub async fn check_tool_policy(
         violation_details,
         blocked_by_airlock: airlock_blocked,
         shadow_mode: airlock_result.shadow_mode,
+        decision_trace,
     }))
 }

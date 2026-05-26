@@ -11,10 +11,17 @@ pub mod budget;
 pub mod decision;
 pub mod engine;
 pub mod forecast;
+pub mod precedence;
 pub mod rules;
+pub mod trace;
 
 pub use decision::{PolicyDecision, PolicyDecisionKind};
 pub use engine::PolicyEngine;
+pub use precedence::{
+    precedence_rank, resolve_conflicts, OverrideRecord, PolicyVerdict, ResolvedDecision,
+    VerdictKind, PRECEDENCE_LABEL,
+};
+pub use trace::DecisionTrace;
 
 // Re-export Airlock types for convenience
 pub use airlock::{

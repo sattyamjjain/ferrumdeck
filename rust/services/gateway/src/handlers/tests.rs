@@ -126,6 +126,7 @@ mod run_tests {
             violation_details: None,
             blocked_by_airlock: false,
             shadow_mode: false,
+            decision_trace: None,
         };
 
         let json = serde_json::to_string(&response).unwrap();

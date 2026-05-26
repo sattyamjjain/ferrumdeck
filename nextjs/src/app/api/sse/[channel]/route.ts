@@ -351,9 +351,56 @@ function generateMockEvent(channelType: string, channelName: string): SSEEvent |
         "step_status_changed",
         "step_completed",
         "run.forecast.updated",
+        "policy.decision.explained",
       ];
       const eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
       const runId = channelName.split(":")[1] || "run_demo";
+
+      if (eventType === "policy.decision.explained") {
+        // Policy-conflict resolution explanation trace. Emitted each time a
+        // tool-call decision is reached, so dashboards can show "why was
+        // this denied/approved" without re-running the engine. See
+        // docs/runbooks/policy-conflict-resolution.md for the contract.
+        const variants = [
+          {
+            winning: { kind: "deny", source: "allowlist:denied" },
+            overrides: [
+              { kind: "allow", source: "allowlist:allowed" },
+              { kind: "requires_approval", source: "allowlist:approval" },
+            ],
+          },
+          {
+            winning: { kind: "requires_approval", source: "allowlist:approval" },
+            overrides: [{ kind: "allow", source: "allowlist:allowed" }],
+          },
+          {
+            winning: { kind: "allow", source: "allowlist:allowed" },
+            overrides: [],
+          },
+        ];
+        const pick = variants[Math.floor(Math.random() * variants.length)];
+        return {
+          id,
+          type: "policy.decision.explained",
+          channel: channelName,
+          timestamp,
+          payload: {
+            run_id: runId,
+            tool_name: "write_file",
+            decision_id: `pld_${Date.now().toString(36)}`,
+            winning_kind: pick.winning.kind,
+            winning_source: pick.winning.source,
+            overrides: pick.overrides.map((o) => ({
+              kind: o.kind,
+              source: o.source,
+              overridden_by: pick.winning.kind,
+              reason: `overridden by higher-precedence ${pick.winning.kind} verdict (deny > requires_approval > budget_cap > allow)`,
+            })),
+            precedence: "deny > requires_approval > budget_cap > allow",
+            at: timestamp,
+          },
+        };
+      }
 
       if (eventType === "run.forecast.updated") {
         // Predictive run-budget forecast snapshot. Emitted by the gateway
