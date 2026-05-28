@@ -27,3 +27,6 @@ regex = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
+# Integration tests construct deterministic ids for the golden-fixture
+# regression — see tests/audit_record_schema_drift.rs.
+ulid = { workspace = true }

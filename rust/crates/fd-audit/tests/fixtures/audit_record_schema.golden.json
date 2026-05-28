@@ -1,0 +1,30 @@
+{
+  "id": "01H8XGJWBWBAQ4N5G7E1Y3J7AA",
+  "timestamp": "2023-11-14T22:13:20Z",
+  "tenant_id": "01H8XGJWBWBAQ4N5G7E1Y3J7BB",
+  "kind": {
+    "type": "policy_decision",
+    "run_id": "01H8XGJWBWBAQ4N5G7E1Y3J7CC",
+    "action": "tool.execute",
+    "allowed": false
+  },
+  "actor": {
+    "type": "api_key",
+    "key_id": "key_fixture_001"
+  },
+  "resource": {
+    "resource_type": "run",
+    "resource_id": "run_fixture_001"
+  },
+  "action": "policy.denied",
+  "outcome": "failure",
+  "metadata": {
+    "policy_decision_id": "pol_fixture_001",
+    "reason": "tool 'shell_exec' is not in allowlist",
+    "tool": "shell_exec",
+    "trace": {
+      "precedence": "deny > requires_approval > budget_cap > allow",
+      "winning_source": "allowlist:denied"
+    }
+  }
+}

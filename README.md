@@ -161,6 +161,17 @@ FerrumDeck provides a **dual-plane architecture**:
 | Jaeger UI | `16686` | Distributed tracing |
 | OTel Collector | `4317` / `4318` | gRPC / HTTP endpoints |
 
+### Receipts schema
+
+The control plane's append-only audit log is documented as a stable receipts
+substrate compatible with [Foundation Protocol](https://arxiv.org/abs/2605.23218)
+(Mila + MetaGPT). See [`docs/receipts-schema.md`](docs/receipts-schema.md) for
+the canonical `AuditEvent` shape, the FP event-substrate mapping
+(metering / receipt / settlement / policy / provenance / audit), the
+wrap-don't-replace stance on downstream consumers, and the per-call p95
+budget. Drift is gated by the `audit_record_schema_drift` integration test
+in `rust/crates/fd-audit/tests/`.
+
 ---
 
 ## Quick Start
