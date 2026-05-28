@@ -27,6 +27,9 @@ jsonschema = { version = "0.17", default-features = false }
 # Deterministic decimal math (budget forecasting)
 rust_decimal = { workspace = true }
 
+# Timestamp on bench-audit summaries (workspace-managed; serde feature on).
+chrono = { workspace = true }
+
 [dev-dependencies]
 tokio-test = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

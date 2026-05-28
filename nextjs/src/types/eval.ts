@@ -119,6 +119,48 @@ export interface EvalSuiteSummary {
   last_run_score?: number;
 }
 
+// Benchmark-audit (ABA, arXiv:2605.26079)
+// ============================================================================
+// The eval plane (fd-evals) produces a `BenchAuditReport` describing how
+// trustworthy a suite's task metadata + grader config is. The Rust policy
+// plane consults `bench_trust_score` + flagged tasks before allowing a
+// benchmark delta to gate a routing/model-swap decision.
+
+// One of the four ABA-style hygiene classes audited per task.
+export type BenchHygieneClass =
+  | "ambiguous_spec"
+  | "env_conflict"
+  | "brittle_grading"
+  | "suspect_truth";
+
+// Severity assigned to a single hygiene hit.
+export type BenchFlagSeverity = "low" | "medium" | "high";
+
+// One hygiene hit against a single task in the suite.
+export interface BenchTaskFlag {
+  task_id: string;
+  hygiene_class: BenchHygieneClass;
+  severity: BenchFlagSeverity;
+  evidence: string;
+}
+
+// Full per-suite audit report. `bench_trust_score` is in [0, 1]; the Rust
+// policy plane denies a benchmark-gated routing decision when this value is
+// below the configured `min_trust_score` OR when the cited delta sits inside
+// the flagged-task margin.
+export interface BenchAuditReport {
+  suite_id: string;
+  suite_path: string | null;
+  bench_trust_score: number;
+  flagged_task_ids: string[];
+  flagged_task_ratio: number;
+  task_flags: BenchTaskFlag[];
+  hygiene_class_scores: Record<BenchHygieneClass, number>;
+  total_tasks: number;
+  audited_at: string;
+  anchor: string;
+}
+
 // Eval run - a single execution of an eval suite
 export interface EvalRun {
   id: string;
@@ -149,6 +191,9 @@ export interface EvalRun {
   started_at?: string;
   completed_at?: string;
   created_by?: string;
+  // Optional benchmark-audit pre-flight (ABA, arXiv:2605.26079). When present,
+  // the policy plane gates external-benchmark-cited routing changes on this.
+  bench_audit?: BenchAuditReport;
 }
 
 // Breakdown of scores by scorer

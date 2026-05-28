@@ -1,5 +1,6 @@
 //! Policy engine implementation
 
+use crate::bench_audit::{BenchAuditPolicy, BenchGatedClaim, BenchTrustSummary};
 use crate::budget::{Budget, BudgetUsage};
 use crate::decision::PolicyDecision;
 use crate::precedence::{resolve_conflicts, PolicyVerdict, VerdictKind};
@@ -107,6 +108,71 @@ impl PolicyEngine {
     /// Get the default budget
     pub fn default_budget(&self) -> &Budget {
         &self.default_budget
+    }
+
+    /// Evaluate a routing / model-swap decision that cites an external
+    /// benchmark delta. Reuses [`resolve_conflicts`] so the bench-audit gate
+    /// shares precedence semantics with the allowlist + budget tiers — this
+    /// is a new *rule source*, not a parallel engine. Deny-by-default still
+    /// applies: if the [`BenchAuditPolicy`] emits no verdicts (no signal
+    /// from the eval plane), the decision is denied with an empty trace.
+    #[instrument(skip(self, policy, claim, summary))]
+    pub fn evaluate_bench_gated_decision(
+        &self,
+        policy: &BenchAuditPolicy,
+        claim: &BenchGatedClaim,
+        summary: &BenchTrustSummary,
+    ) -> PolicyDecision {
+        let matched = policy.evaluate(claim, summary);
+        let resolved = resolve_conflicts(matched.clone());
+        let trace = DecisionTrace::from_resolution(matched, &resolved);
+
+        let decision = match resolved.winning.as_ref().map(|v| v.kind) {
+            Some(VerdictKind::Deny) => PolicyDecision::deny(
+                resolved
+                    .winning
+                    .as_ref()
+                    .map(|v| v.reason.clone())
+                    .unwrap_or_else(|| {
+                        format!("bench-audit gate denied decision '{}'", claim.decision_id)
+                    }),
+            ),
+            Some(VerdictKind::RequiresApproval) => PolicyDecision::requires_approval(
+                resolved
+                    .winning
+                    .as_ref()
+                    .map(|v| v.reason.clone())
+                    .unwrap_or_else(|| {
+                        format!(
+                            "bench-audit gate requires approval for decision '{}'",
+                            claim.decision_id
+                        )
+                    }),
+            ),
+            Some(VerdictKind::Allow) => PolicyDecision::allow(
+                resolved
+                    .winning
+                    .as_ref()
+                    .map(|v| v.reason.clone())
+                    .unwrap_or_else(|| {
+                        format!("bench-audit gate allowed decision '{}'", claim.decision_id)
+                    }),
+            ),
+            // `BudgetCap` is a budget-plane signal — it should never come out
+            // of the bench-audit policy. Defence-in-depth: treat as deny.
+            Some(VerdictKind::BudgetCap) => PolicyDecision::deny(format!(
+                "decision '{}' rejected by spurious budget verdict from bench-audit plane",
+                claim.decision_id
+            )),
+            // No matches → deny-by-default. The trace still records the empty
+            // match set so audit can prove the policy plane saw nothing.
+            None => PolicyDecision::deny(format!(
+                "bench-audit plane returned no signal for decision '{}' — denying by default",
+                claim.decision_id
+            )),
+        };
+
+        decision.with_trace(trace)
     }
 }
 
@@ -516,6 +582,145 @@ mod tests {
         let trace = decision.trace.as_ref().expect("trace populated");
         assert!(trace.matched.is_empty());
         assert!(trace.winning_kind.is_none());
+    }
+
+    // =============================================================================
+    // Bench-audit gate (arXiv:2605.26079) — wires the new policy through the
+    // existing precedence resolver + decision trace, not a parallel engine.
+    // =============================================================================
+
+    use crate::bench_audit::{BenchAuditPolicy, BenchGatedClaim, BenchTrustSummary};
+    use chrono::DateTime;
+
+    fn audit_summary(score: f64, flagged: u32, total: u32) -> BenchTrustSummary {
+        BenchTrustSummary {
+            suite_id: "smoke".into(),
+            bench_trust_score: score,
+            total_tasks: total,
+            flagged_task_count: flagged,
+            audited_at: DateTime::from_timestamp(1_700_000_000, 0).expect("ts"),
+            anchor: crate::bench_audit::BENCH_AUDIT_ANCHOR.into(),
+        }
+    }
+
+    fn audit_claim(delta: f64) -> BenchGatedClaim {
+        BenchGatedClaim {
+            decision_id: "dec_routing".into(),
+            suite_id: "smoke".into(),
+            delta_score: delta,
+        }
+    }
+
+    #[test]
+    fn bench_gate_clean_suite_allows_and_records_trace() {
+        let engine = PolicyEngine::default();
+        let decision = engine.evaluate_bench_gated_decision(
+            &BenchAuditPolicy::default(),
+            &audit_claim(0.05),
+            &audit_summary(0.92, 0, 20),
+        );
+
+        assert!(
+            decision.is_allowed(),
+            "clean suite + clear delta must allow"
+        );
+        let trace = decision.trace.as_ref().expect("trace populated");
+        assert_eq!(trace.winning_kind, Some(VerdictKind::Allow));
+        assert_eq!(
+            trace.winning_source.as_deref(),
+            Some("bench_audit:high_trust_score"),
+        );
+    }
+
+    #[test]
+    fn bench_gate_low_trust_denies_with_trace_source() {
+        let engine = PolicyEngine::default();
+        let decision = engine.evaluate_bench_gated_decision(
+            &BenchAuditPolicy::default(),
+            &audit_claim(0.20),
+            &audit_summary(0.40, 12, 20),
+        );
+
+        assert!(decision.is_denied());
+        let trace = decision.trace.as_ref().expect("trace populated");
+        assert_eq!(trace.winning_kind, Some(VerdictKind::Deny));
+        let source = trace.winning_source.as_deref().unwrap_or("");
+        assert!(
+            source == "bench_audit:low_trust_score"
+                || source == "bench_audit:within_flagged_margin",
+            "expected a bench_audit:* deny source, got {source:?}"
+        );
+    }
+
+    #[test]
+    fn bench_gate_within_flagged_margin_records_override() {
+        // 5/20 flagged → 0.25 margin. A 0.10 delta sits inside it even though
+        // the suite is otherwise clean. Engine must still deny *and* record
+        // that there was a conflict in the trace (the high-trust Allow gets
+        // overridden by the within-margin Deny).
+        let engine = PolicyEngine::default();
+        let decision = engine.evaluate_bench_gated_decision(
+            &BenchAuditPolicy::default(),
+            &audit_claim(0.10),
+            &audit_summary(0.92, 5, 20),
+        );
+
+        assert!(decision.is_denied());
+        let trace = decision.trace.as_ref().expect("trace populated");
+        assert_eq!(
+            trace.winning_source.as_deref(),
+            Some("bench_audit:within_flagged_margin"),
+        );
+        // The Allow verdict must be recorded as overridden, not silently
+        // dropped — that's the contract DecisionTrace owes audit consumers.
+        assert!(
+            trace
+                .overrides
+                .iter()
+                .any(|o| o.verdict.source == "bench_audit:high_trust_score"
+                    && o.overridden_by == VerdictKind::Deny),
+            "expected high_trust_score Allow to be recorded as overridden: {trace:?}",
+        );
+    }
+
+    #[test]
+    fn bench_gate_mid_band_requires_approval() {
+        let engine = PolicyEngine::default();
+        let decision = engine.evaluate_bench_gated_decision(
+            &BenchAuditPolicy::default(),
+            &audit_claim(0.10),
+            &audit_summary(0.75, 0, 20),
+        );
+
+        assert!(decision.needs_approval());
+        let trace = decision.trace.as_ref().expect("trace populated");
+        assert_eq!(trace.winning_kind, Some(VerdictKind::RequiresApproval));
+        assert_eq!(
+            trace.winning_source.as_deref(),
+            Some("bench_audit:hitl_band"),
+        );
+    }
+
+    #[test]
+    fn bench_gate_suite_mismatch_denies() {
+        let engine = PolicyEngine::default();
+        let mismatched = BenchGatedClaim {
+            decision_id: "dec_001".into(),
+            suite_id: "regression".into(),
+            delta_score: 0.30,
+        };
+        let decision = engine.evaluate_bench_gated_decision(
+            &BenchAuditPolicy::default(),
+            &mismatched,
+            &audit_summary(0.92, 0, 20),
+        );
+
+        assert!(decision.is_denied());
+        let trace = decision.trace.as_ref().expect("trace populated");
+        assert_eq!(
+            trace.winning_source.as_deref(),
+            Some("bench_audit:suite_mismatch"),
+        );
     }
 
     #[test]

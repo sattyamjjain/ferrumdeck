@@ -21,6 +21,7 @@ import {
   EvalRunResults,
   EvalRunResultsSkeleton,
 } from "@/components/evals/eval-run-results";
+import { BenchTrustCard } from "@/components/evals/bench-trust-card";
 import { useEvalRun, useCancelEvalRun } from "@/hooks/use-evals";
 import {
   formatTimeAgo,
@@ -293,7 +294,12 @@ export default function EvalRunDetailPage({ params }: EvalRunDetailPageProps) {
             )}
           </div>
         ) : (
-          <EvalRunResults evalRun={evalRun} />
+          <div className="space-y-6">
+            {evalRun.bench_audit && (
+              <BenchTrustCard audit={evalRun.bench_audit} />
+            )}
+            <EvalRunResults evalRun={evalRun} />
+          </div>
         )}
       </div>
     </div>

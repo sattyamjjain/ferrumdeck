@@ -10,6 +10,8 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from fd_evals.bench_audit import BenchAuditor
+from fd_evals.bench_audit import save_report as save_bench_audit_report
 from fd_evals.runner import EvalRunner
 from fd_evals.scorers import (
     FilesChangedScorer,
@@ -247,6 +249,99 @@ def generate_report(
         _print_markdown_report(data)
     else:
         _display_summary_from_dict(data, verbose=True)
+
+
+@app.command("audit")
+def audit_suite(
+    suite: Annotated[
+        str | None,
+        typer.Option("--suite", "-s", help="Evaluation suite name (audits its dataset)"),
+    ] = None,
+    dataset: Annotated[
+        Path | None,
+        typer.Option("--dataset", "-d", help="Path to a tasks.jsonl file to audit directly"),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Output path for the bench-audit report JSON"),
+    ] = None,
+    min_trust: Annotated[
+        float,
+        typer.Option(
+            "--min-trust",
+            help="Minimum bench_trust_score [0,1]; CLI exits non-zero if below",
+        ),
+    ] = 0.70,
+) -> None:
+    """Audit an eval suite for ABA-style hygiene (arXiv:2605.26079).
+
+    Deterministic pre-flight: scores ``ambiguous_spec``, ``env_conflict``,
+    ``brittle_grading``, and ``suspect_truth`` per task. Produces a
+    ``bench_trust_score`` that the Rust policy plane consults before allowing
+    a benchmark delta to gate a routing/model-swap decision.
+
+    Examples:
+        fd-eval audit --suite smoke
+        fd-eval audit --dataset evals/datasets/safe-pr-agent/tasks.jsonl
+    """
+    if suite:
+        resolved_dataset = _resolve_suite_path(suite)
+        suite_id = suite
+        suite_path = str(Path("evals") / "suites" / f"{suite}.yaml")
+    elif dataset:
+        if not dataset.exists():
+            raise typer.BadParameter(f"Dataset not found: {dataset}")
+        resolved_dataset = dataset
+        suite_id = dataset.parent.name
+        suite_path = None
+    else:
+        raise typer.BadParameter("Either --suite or --dataset is required")
+
+    console.print(f"[cyan]Auditing suite '{suite_id}'[/cyan] (anchor: arXiv:2605.26079)")
+    console.print(f"  Dataset: {resolved_dataset}")
+
+    auditor = BenchAuditor()
+    report = auditor.audit_dataset(resolved_dataset, suite_id=suite_id, suite_path=suite_path)
+
+    summary = Table(show_header=False, box=None)
+    summary.add_column("Metric", style="cyan")
+    summary.add_column("Value")
+    summary.add_row("Suite", report.suite_id)
+    summary.add_row("Total tasks", str(report.total_tasks))
+    summary.add_row("Flagged tasks", str(len(report.flagged_task_ids)))
+    summary.add_row(
+        "Bench trust score",
+        f"[{'green' if report.bench_trust_score >= min_trust else 'red'}]"
+        f"{report.bench_trust_score:.4f}[/]",
+    )
+    summary.add_row("Anchor", report.anchor)
+    console.print(summary)
+
+    if report.task_flags:
+        flag_table = Table(title="Hygiene Flags")
+        flag_table.add_column("Task", style="cyan")
+        flag_table.add_column("Class")
+        flag_table.add_column("Severity")
+        flag_table.add_column("Evidence")
+        for flag in report.task_flags:
+            flag_table.add_row(
+                flag.task_id,
+                flag.hygiene_class.value,
+                flag.severity.value,
+                flag.evidence,
+            )
+        console.print(flag_table)
+
+    if output:
+        save_bench_audit_report(report, output)
+        console.print(f"\n[green]Report saved to: {output}[/green]")
+
+    if report.bench_trust_score < min_trust:
+        console.print(
+            f"\n[red]Bench trust {report.bench_trust_score:.4f} below "
+            f"threshold {min_trust:.4f} — benchmark cannot gate routing.[/red]"
+        )
+        raise typer.Exit(1)
 
 
 @app.command("list-tasks")

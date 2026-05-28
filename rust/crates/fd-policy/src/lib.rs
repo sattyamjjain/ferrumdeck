@@ -7,6 +7,7 @@
 //! - **Airlock**: Runtime security inspection (Agent RASP)
 
 pub mod airlock;
+pub mod bench_audit;
 pub mod budget;
 pub mod decision;
 pub mod engine;
@@ -15,6 +16,7 @@ pub mod precedence;
 pub mod rules;
 pub mod trace;
 
+pub use bench_audit::{BenchAuditPolicy, BenchGatedClaim, BenchTrustSummary, BENCH_AUDIT_ANCHOR};
 pub use decision::{PolicyDecision, PolicyDecisionKind};
 pub use engine::PolicyEngine;
 pub use precedence::{
