@@ -42,6 +42,19 @@ FD_STEP_TYPE = "ferrumdeck.step.type"
 FD_TENANT_ID = "ferrumdeck.tenant.id"
 FD_AGENT_ID = "ferrumdeck.agent.id"
 
+# Tool-call firing-rate metric. Mirror of the Rust constants in
+# `fd_otel::firing_rate` — keep these names in sync; both planes write the
+# same OTel attribute keys so Jaeger / any OTLP consumer sees one schema.
+FD_TOOL_FIRING_RATE = "ferrumdeck.metrics.tool_call_firing_rate"
+FD_TOOL_FIRING_REASONING_STEPS = "ferrumdeck.metrics.tool_call_reasoning_steps"
+FD_TOOL_FIRING_INVOKING_STEPS = "ferrumdeck.metrics.tool_call_invoking_steps"
+FD_TOOL_FIRING_LOW_BREACHED = "ferrumdeck.metrics.tool_call_firing_low_breached"
+FD_TOOL_FIRING_LOW_THRESHOLD = "ferrumdeck.metrics.tool_call_firing_low_threshold"
+
+# Default low-firing-rate alert threshold; agent windows below this are
+# flagged on the dashboard. Operators can override via the panel settings.
+FD_TOOL_FIRING_DEFAULT_THRESHOLD: float = 0.40
+
 # Model pricing per 1M tokens (as of Dec 2024)
 # https://www.anthropic.com/pricing#anthropic-api
 MODEL_PRICING: dict[str, dict[str, float]] = {

@@ -25,6 +25,9 @@ dependencies = [
     "typer>=0.9.0",
     "rich>=13.0.0",
     "pyyaml>=6.0.0",
+    # Workspace sibling — shares the OTel GenAI attribute-key constants so
+    # the firing-rate compute path uses one canonical set of names.
+    "fd-runtime",
 ]
 
 [project.optional-dependencies]

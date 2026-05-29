@@ -37,6 +37,18 @@ pub mod attrs {
     // Cost tracking (extended)
     pub const FERRUMDECK_COST_CENTS: &str = "ferrumdeck.cost.cents";
     pub const FERRUMDECK_COST_CURRENCY: &str = "ferrumdeck.cost.currency";
+
+    // Tool-call firing-rate metric (extended) — see
+    // `fd_otel::firing_rate` for the contract.
+    pub const FERRUMDECK_TOOL_FIRING_RATE: &str = "ferrumdeck.metrics.tool_call_firing_rate";
+    pub const FERRUMDECK_TOOL_FIRING_REASONING_STEPS: &str =
+        "ferrumdeck.metrics.tool_call_reasoning_steps";
+    pub const FERRUMDECK_TOOL_FIRING_INVOKING_STEPS: &str =
+        "ferrumdeck.metrics.tool_call_invoking_steps";
+    pub const FERRUMDECK_TOOL_FIRING_LOW_BREACHED: &str =
+        "ferrumdeck.metrics.tool_call_firing_low_breached";
+    pub const FERRUMDECK_TOOL_FIRING_LOW_THRESHOLD: &str =
+        "ferrumdeck.metrics.tool_call_firing_low_threshold";
 }
 
 /// GenAI system values

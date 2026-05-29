@@ -1,0 +1,16 @@
+{
+  "metric": {
+    "invoking_steps": 2,
+    "low_firing_rate_breached": false,
+    "low_firing_rate_threshold": 0.4,
+    "rate": 0.6666666666666666,
+    "reasoning_steps": 3
+  },
+  "otel_attributes": {
+    "ferrumdeck.metrics.tool_call_firing_low_breached": false,
+    "ferrumdeck.metrics.tool_call_firing_low_threshold": 0.4,
+    "ferrumdeck.metrics.tool_call_firing_rate": 0.6666666666666666,
+    "ferrumdeck.metrics.tool_call_invoking_steps": 2,
+    "ferrumdeck.metrics.tool_call_reasoning_steps": 3
+  }
+}

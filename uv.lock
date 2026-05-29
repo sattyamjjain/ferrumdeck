@@ -522,6 +522,7 @@ name = "fd-evals"
 version = "0.1.0"
 source = { editable = "python/packages/fd-evals" }
 dependencies = [
+    { name = "fd-runtime" },
     { name = "httpx" },
     { name = "jsonschema" },
     { name = "pydantic" },
@@ -542,6 +543,7 @@ schema = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fd-runtime", editable = "python/packages/fd-runtime" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "jsonschema", specifier = ">=4.20.0" },
     { name = "jsonschema", marker = "extra == 'schema'", specifier = ">=4.20.0" },

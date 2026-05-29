@@ -73,6 +73,7 @@ FerrumDeck provides a **dual-plane architecture**:
 - **Cost Tracking**: Real-time token counting and cost calculation per run
 - **Jaeger UI**: Visual trace exploration and debugging
 - **Audit Trail**: Immutable logging of every action for compliance
+- **Tool-call firing rate**: Derived OTel signal (`ferrumdeck.metrics.tool_call_firing_rate`) tracking the share of reasoning steps that invoked at least one tool, per run + per agent over a sliding window. Surfaced on the agent overview tab with a configurable low-firing-rate threshold (default 40%) that flags model regressions or broken tool registries before they propagate. See [`docs/runbooks/tool-call-firing-rate.md`](docs/runbooks/tool-call-firing-rate.md).
 
 ### Reproducibility
 - **Versioned Registry**: Agents, tools, and prompts are version-controlled
