@@ -30,6 +30,11 @@ rust_decimal = { workspace = true }
 # Timestamp on bench-audit summaries (workspace-managed; serde feature on).
 chrono = { workspace = true }
 
+# Content-addressed hashing for routing-decision audit records — see
+# fd_policy::routing.
+sha2 = { workspace = true }
+hex = { workspace = true }
+
 [dev-dependencies]
 tokio-test = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

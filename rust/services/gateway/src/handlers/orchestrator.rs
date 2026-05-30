@@ -12,9 +12,13 @@ use fd_dag::{
     DagScheduler, SchedulerState, StepCompletionResult, StepDefinition,
     StepStatus as DagStepStatus, StepType as DagStepType, WorkflowDag,
 };
+use fd_policy::routing::{
+    RoutingCandidate, RoutingChoice, RoutingDecision, RoutingReason, RoutingReasonCode,
+};
 use fd_storage::models::{
-    CreateWorkflowStepExecution, UpdateWorkflowRun, UpdateWorkflowStepExecution, WorkflowRunStatus,
-    WorkflowStepExecutionStatus, WorkflowStepType,
+    audit::{action as audit_action, resource as audit_resource},
+    AuditEventBuilder, CreateWorkflowStepExecution, UpdateWorkflowRun, UpdateWorkflowStepExecution,
+    WorkflowRunStatus, WorkflowStepExecutionStatus, WorkflowStepType,
 };
 use fd_storage::queue::{JobContext, QueueMessage, StepJob};
 use std::collections::HashMap;
@@ -532,9 +536,87 @@ impl WorkflowOrchestrator {
         let message = QueueMessage::new(&execution_id, job);
         self.state.enqueue_step(&message).await?;
 
+        // Record the routing decision into the existing audit trail. This is
+        // the AgensFlow-anchored multi-agent coordination record — see
+        // docs/runbooks/routing-decision-audit.md for the contract.
+        self.record_routing_decision(run_id, project_id, tenant_id, step);
+
         debug!(run_id, step_id = %step.id, execution_id, "Created and enqueued step");
 
         Ok(execution_id)
+    }
+
+    /// Build a [`RoutingDecision`] for the just-dispatched subtask and
+    /// write it through the existing `spawn_audit` path. Fire-and-forget:
+    /// the audit chain is best-effort and never gates dispatch (same
+    /// latency profile as every other audit write in this crate).
+    ///
+    /// Today the workflow definition only carries the step's intended
+    /// model in `step.config.model`; the candidate enumeration therefore
+    /// records that single candidate as both the considered and the chosen
+    /// binding, with `RoutingReasonCode::FallbackDefault`. When a richer
+    /// ranker is wired in (multi-candidate policy match, ABA bench-gated
+    /// model swap, etc.) only the candidate list + reason code change —
+    /// the audit shape is already in place.
+    fn record_routing_decision(
+        &self,
+        run_id: &str,
+        project_id: &str,
+        tenant_id: &str,
+        step: &StepDefinition,
+    ) {
+        let role = step_role(&step.step_type);
+        let model = step
+            .config
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unspecified")
+            .to_string();
+        let agent_id = step
+            .config
+            .get("agent_id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+
+        let candidate = RoutingCandidate {
+            role: role.clone(),
+            agent_id: agent_id.clone(),
+            model: model.clone(),
+            score: None,
+        };
+        let chosen = RoutingChoice {
+            role,
+            agent_id,
+            model,
+        };
+        let reason = RoutingReason::new(
+            RoutingReasonCode::FallbackDefault,
+            "workflow-declared default binding (no ranker engaged)",
+        );
+
+        let decision_id = format!("rtg_{}", Ulid::new());
+        let decision = RoutingDecision::new(
+            &decision_id,
+            run_id,
+            &step.id,
+            vec![candidate],
+            chosen,
+            reason,
+            chrono::Utc::now(),
+        );
+
+        let event = AuditEventBuilder::new(
+            audit_action::ROUTING_DECIDED,
+            audit_resource::ROUTING_DECISION,
+        )
+        .resource_id(&decision_id)
+        .tenant(tenant_id.to_string())
+        .project(project_id.to_string())
+        .run(run_id.to_string())
+        .details(decision.to_audit_details())
+        .build();
+
+        self.repos().spawn_audit(event);
     }
 
     /// Enqueue ready steps
@@ -619,6 +701,22 @@ impl WorkflowOrchestrator {
 
         error!(run_id, error, "Workflow failed");
         Ok(())
+    }
+}
+
+/// Human-readable coordination role label for a DAG step. Matches the
+/// `step.config.role` field if the workflow declared one explicitly,
+/// otherwise derived from the structural step type. Kept narrow: this is
+/// only metadata for the routing-decision audit record, not a behavioural
+/// override.
+fn step_role(step_type: &DagStepType) -> String {
+    match step_type {
+        DagStepType::Llm => "llm".to_string(),
+        DagStepType::Tool => "tool".to_string(),
+        DagStepType::Condition => "condition".to_string(),
+        DagStepType::Loop => "loop".to_string(),
+        DagStepType::Parallel => "parallel".to_string(),
+        DagStepType::Approval => "approval".to_string(),
     }
 }
 

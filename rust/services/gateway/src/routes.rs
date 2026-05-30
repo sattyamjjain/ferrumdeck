@@ -75,6 +75,7 @@ pub fn build_router(state: AppState) -> Router {
                 .route("/runs/{run_id}", get(handlers::runs::get_run))
                 .route("/runs/{run_id}/cancel", post(handlers::runs::cancel_run))
                 .route("/runs/{run_id}/steps", get(handlers::runs::list_steps))
+                .route("/runs/{run_id}/routing", get(handlers::runs::get_routing))
                 .route(
                     "/runs/{run_id}/steps/{step_id}",
                     post(handlers::runs::submit_step_result),

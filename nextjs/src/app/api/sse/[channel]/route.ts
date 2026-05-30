@@ -352,6 +352,7 @@ function generateMockEvent(channelType: string, channelName: string): SSEEvent |
         "step_completed",
         "run.forecast.updated",
         "policy.decision.explained",
+        "routing.decision.recorded",
       ];
       const eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
       const runId = channelName.split(":")[1] || "run_demo";
@@ -397,6 +398,63 @@ function generateMockEvent(channelType: string, channelName: string): SSEEvent |
               reason: `overridden by higher-precedence ${pick.winning.kind} verdict (deny > requires_approval > budget_cap > allow)`,
             })),
             precedence: "deny > requires_approval > budget_cap > allow",
+            at: timestamp,
+          },
+        };
+      }
+
+      if (eventType === "routing.decision.recorded") {
+        // Multi-agent routing-decision audit record. Emitted by the gateway
+        // every time the orchestrator binds a subtask to a concrete
+        // agent / role / model. Anchor: AgensFlow (arXiv:2605.27466). The
+        // full record shape matches `RoutingDecisionResponse` from the
+        // gateway's `/v1/runs/{id}/routing` endpoint; this mock locks in
+        // the SSE wire shape so the dashboard can ship before the gateway
+        // → BFF push wiring lands (same pattern as `policy.decision.explained`
+        // and `run.forecast.updated`).
+        const reasonCodes = [
+          "policy_match",
+          "budget_within_limits",
+          "approval_gate",
+          "skip",
+          "fallback_default",
+        ] as const;
+        const reasonCode = reasonCodes[Math.floor(Math.random() * reasonCodes.length)];
+        return {
+          id,
+          type: "routing.decision.recorded",
+          channel: channelName,
+          timestamp,
+          payload: {
+            run_id: runId,
+            decision_id: `rtg_${Date.now().toString(36)}`,
+            subtask_id: `stp_${Date.now().toString(36)}`,
+            candidates: [
+              {
+                role: "planner",
+                agent_id: "agt_plan_alpha",
+                model: "claude-opus-4-7",
+                score: 0.91,
+              },
+              {
+                role: "planner",
+                agent_id: "agt_plan_beta",
+                model: "gpt-4o",
+                score: 0.74,
+              },
+            ],
+            chosen: {
+              role: "planner",
+              agent_id: "agt_plan_alpha",
+              model: "claude-opus-4-7",
+            },
+            reason: {
+              code: reasonCode,
+              detail: `mock routing-decision reason: ${reasonCode}`,
+            },
+            content_hash:
+              "0000000000000000000000000000000000000000000000000000000000000000",
+            anchor: "arXiv:2605.27466",
             at: timestamp,
           },
         };

@@ -80,6 +80,13 @@ class ReplayTrace:
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     cost_cents: float = 0.0
+    # Routing-decision audit chain (AgensFlow, arXiv:2605.27466). Optional and
+    # additive — older traces without this field continue to parse cleanly.
+    # Each entry is the raw `audit_events.details` dict; use
+    # ``fd_evals.routing.extract_chain_from_audit`` to project an audit event
+    # stream into this list, or parse directly with
+    # ``RoutingDecision.from_audit_details``.
+    routing_decisions: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ReplayTrace":
@@ -115,6 +122,7 @@ class ReplayTrace:
             total_input_tokens=data.get("input_tokens", 0),
             total_output_tokens=data.get("output_tokens", 0),
             cost_cents=data.get("cost_cents", 0.0),
+            routing_decisions=list(data.get("routing_decisions", [])),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -148,6 +156,7 @@ class ReplayTrace:
             "input_tokens": self.total_input_tokens,
             "output_tokens": self.total_output_tokens,
             "cost_cents": self.cost_cents,
+            "routing_decisions": list(self.routing_decisions),
         }
 
 

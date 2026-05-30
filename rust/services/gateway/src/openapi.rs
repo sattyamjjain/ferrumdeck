@@ -34,6 +34,7 @@ use crate::handlers::{health, runs};
         runs::list_runs,
         runs::cancel_run,
         runs::list_steps,
+        runs::get_routing,
     ),
     components(
         schemas(
@@ -47,6 +48,9 @@ use crate::handlers::{health, runs};
             runs::RunResponse,
             runs::ListRunsResponse,
             runs::StepResponse,
+            // Routing-decision audit (AgensFlow, arXiv:2605.27466)
+            runs::RoutingResponse,
+            runs::RoutingDecisionResponse,
         )
     )
 )]

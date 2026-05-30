@@ -103,6 +103,12 @@ pub mod action {
     pub const API_KEY_CREATED: &str = "api_key.created";
     pub const API_KEY_REVOKED: &str = "api_key.revoked";
     pub const API_KEY_USED: &str = "api_key.used";
+
+    // Routing-decision audit (multi-agent coordination, AgensFlow anchor
+    // arXiv:2605.27466). The full RoutingDecision JSON lives in
+    // `audit_events.details`; this constant is the immutable filter key
+    // used by `AuditRepo::list_routing_decisions`.
+    pub const ROUTING_DECIDED: &str = "routing.decided";
 }
 
 /// Resource types
@@ -115,6 +121,8 @@ pub mod resource {
     pub const POLICY_RULE: &str = "policy_rule";
     pub const APPROVAL: &str = "approval";
     pub const API_KEY: &str = "api_key";
+    /// Multi-agent routing decision — paired with `action::ROUTING_DECIDED`.
+    pub const ROUTING_DECISION: &str = "routing_decision";
 }
 
 /// Audit event builder for ergonomic creation

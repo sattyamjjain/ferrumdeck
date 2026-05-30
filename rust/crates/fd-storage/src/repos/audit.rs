@@ -87,6 +87,32 @@ impl AuditRepo {
         .await
     }
 
+    /// List the routing-decision audit records for one run, oldest-first.
+    ///
+    /// Filters [`AuditRepo::list_by_run`] down to events whose `action` is
+    /// [`crate::models::audit::action::ROUTING_DECIDED`] — the standard
+    /// `audit_events` table is the source of truth, no parallel store. The
+    /// JSON in each event's `details` column round-trips through
+    /// `fd_policy::routing::RoutingDecision::from_audit_details` on the
+    /// gateway read path.
+    #[instrument(skip(self))]
+    pub async fn list_routing_decisions(
+        &self,
+        run_id: &str,
+    ) -> Result<Vec<AuditEvent>, sqlx::Error> {
+        sqlx::query_as::<_, AuditEvent>(
+            r#"
+            SELECT * FROM audit_events
+            WHERE run_id = $1 AND action = $2
+            ORDER BY occurred_at ASC
+            "#,
+        )
+        .bind(run_id)
+        .bind(crate::models::audit::action::ROUTING_DECIDED)
+        .fetch_all(&self.pool)
+        .await
+    }
+
     /// List audit events by action
     #[instrument(skip(self))]
     pub async fn list_by_action(

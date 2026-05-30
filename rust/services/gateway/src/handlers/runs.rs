@@ -10,6 +10,7 @@ use chrono::Utc;
 use fd_otel::genai::pricing;
 use fd_policy::budget::BudgetUsage;
 use fd_policy::forecast::{compute_forecast, ForecastInputs, ForecastSnapshot};
+use fd_policy::routing::RoutingDecision;
 use fd_storage::{
     models::{
         action, actor, resource, AuditEventBuilder, CreateRun, CreateStep, RunStatus, StepStatus,
@@ -614,6 +615,128 @@ pub async fn list_steps(
     let steps: Vec<StepResponse> = steps.into_iter().map(step_to_response).collect();
 
     Ok(Json(steps))
+}
+
+// =============================================================================
+// Routing-decision read endpoint (AgensFlow, arXiv:2605.27466)
+// =============================================================================
+
+/// One routing-decision record, projected from `audit_events.details` for
+/// the API response. Mirrors `fd_policy::routing::RoutingDecision` plus the
+/// `occurred_at` timestamp that the audit row carries.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RoutingDecisionResponse {
+    /// `rtg_*` ULID of the decision.
+    pub id: String,
+    /// Run this decision belongs to.
+    pub run_id: String,
+    /// Subtask / DAG step the decision bound.
+    pub subtask_id: String,
+    /// Every candidate the orchestrator considered, in evaluation order.
+    pub candidates: serde_json::Value,
+    /// The candidate that won.
+    pub chosen: serde_json::Value,
+    /// Reason for the choice (`code` + operator-readable `detail`).
+    pub reason: serde_json::Value,
+    /// SHA-256 over a stable JSON projection of the structural fields.
+    /// fd-evals replays compare this to detect coordination drift.
+    pub content_hash: String,
+    /// Wall-clock UTC when the audit row was written.
+    pub occurred_at: String,
+    /// Stable arXiv anchor for the audit methodology.
+    pub anchor: String,
+}
+
+/// Response wrapper around the routing-decision chain for one run.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RoutingResponse {
+    pub run_id: String,
+    /// Decisions ordered oldest → newest. Empty when the run has not yet
+    /// dispatched any subtasks (or when the orchestrator path that emits
+    /// them has not been exercised — see runbook).
+    pub decisions: Vec<RoutingDecisionResponse>,
+    /// Stable arXiv anchor mirrored at the response root for consumers
+    /// that read the envelope without iterating decisions.
+    pub anchor: String,
+}
+
+/// Get the routing-decision chain for a run.
+///
+/// Reads the existing `audit_events` table filtered by
+/// `action = "routing.decided"`; no parallel store. Each row's `details`
+/// JSON deserialises through
+/// [`fd_policy::routing::RoutingDecision::from_audit_details`]. Anchor:
+/// AgensFlow ([arXiv:2605.27466](https://arxiv.org/abs/2605.27466)).
+#[utoipa::path(
+    get,
+    path = "/v1/runs/{run_id}/routing",
+    tag = "runs",
+    params(
+        ("run_id" = String, Path, description = "Run ID")
+    ),
+    responses(
+        (status = 200, description = "Routing-decision chain for the run", body = RoutingResponse),
+        (status = 404, description = "Run not found")
+    )
+)]
+#[instrument(skip(state, auth))]
+pub async fn get_routing(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Path(run_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let run = state
+        .repos()
+        .runs()
+        .get(&run_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Run", &run_id))?;
+
+    if !auth.can_access_project(&run.project_id) {
+        warn!(
+            run_id = %run_id,
+            "Unauthorized routing-chain access attempt"
+        );
+        return Err(ApiError::forbidden("Access denied to this run"));
+    }
+
+    let events = state
+        .repos()
+        .audit()
+        .list_routing_decisions(&run_id)
+        .await?;
+
+    let mut decisions = Vec::with_capacity(events.len());
+    for event in events {
+        let parsed = match RoutingDecision::from_audit_details(&event.details) {
+            Ok(d) => d,
+            Err(err) => {
+                warn!(
+                    audit_event_id = %event.id,
+                    error = %err,
+                    "Skipping malformed routing-decision audit row"
+                );
+                continue;
+            }
+        };
+        decisions.push(RoutingDecisionResponse {
+            id: parsed.id,
+            run_id: parsed.run_id,
+            subtask_id: parsed.subtask_id,
+            candidates: serde_json::to_value(&parsed.candidates).unwrap_or(serde_json::Value::Null),
+            chosen: serde_json::to_value(&parsed.chosen).unwrap_or(serde_json::Value::Null),
+            reason: serde_json::to_value(&parsed.reason).unwrap_or(serde_json::Value::Null),
+            content_hash: parsed.content_hash,
+            occurred_at: event.occurred_at.to_rfc3339(),
+            anchor: parsed.anchor,
+        });
+    }
+
+    Ok(Json(RoutingResponse {
+        run_id,
+        decisions,
+        anchor: fd_policy::routing::ROUTING_ANCHOR.to_string(),
+    }))
 }
 
 /// Submit step result (from worker)
