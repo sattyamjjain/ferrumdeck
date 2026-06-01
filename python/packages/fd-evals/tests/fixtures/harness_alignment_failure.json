@@ -1,0 +1,128 @@
+{
+  "_comment": "Harness-Bench execution-alignment failure fixture. The same model (claude-opus-4-7) under two different harness configs produces different fd-evals scores on the same dataset. The 'strict-no-net' harness denies the http_request tool, blocks the agent from fetching dependencies, and drops the average score; the 'permissive' harness leaves the tool available and tasks pass cleanly. This is the per-harness-dimension signal the dashboard surfaces.",
+  "baseline": {
+    "run_id": "run_baseline_strict",
+    "dataset_name": "safe-pr-agent",
+    "model": "claude-opus-4-7",
+    "harness_config": {
+      "harness_id": "strict-no-net",
+      "label": "strict-policy-no-net",
+      "permission_tier": "deny_by_default_strict",
+      "tools_available": [
+        {"name": "read_file", "version": "1.0.0"},
+        {"name": "write_file", "version": "1.0.0"},
+        {"name": "search_code", "version": "1.0.0"}
+      ],
+      "state_recovery": {
+        "max_retries": 0,
+        "max_iterations": 5,
+        "on_error": "stop",
+        "replay_seed": 1700000000
+      },
+      "tracing": {
+        "exporter": "otlp",
+        "sample_rate": 1.0,
+        "gen_ai_semconv_version": "1.27.0"
+      },
+      "anchor": "Harness-Bench"
+    },
+    "task_results": [
+      {
+        "task_id": "task_001",
+        "task_name": "Add README badge",
+        "passed": true,
+        "input_tokens": 1500,
+        "output_tokens": 600,
+        "cost_cents": 1.2,
+        "scorer_results": {
+          "FilesChangedScorer": {"score": 1.0, "passed": true}
+        }
+      },
+      {
+        "task_id": "task_002",
+        "task_name": "Update dependencies",
+        "passed": false,
+        "input_tokens": 2200,
+        "output_tokens": 400,
+        "cost_cents": 1.5,
+        "scorer_results": {
+          "FilesChangedScorer": {"score": 0.0, "passed": false}
+        }
+      },
+      {
+        "task_id": "task_003",
+        "task_name": "Add webhook handler",
+        "passed": false,
+        "input_tokens": 2400,
+        "output_tokens": 350,
+        "cost_cents": 1.7,
+        "scorer_results": {
+          "FilesChangedScorer": {"score": 0.0, "passed": false}
+        }
+      }
+    ]
+  },
+  "current": {
+    "run_id": "run_current_permissive",
+    "dataset_name": "safe-pr-agent",
+    "model": "claude-opus-4-7",
+    "harness_config": {
+      "harness_id": "permissive-with-net",
+      "label": "permissive-policy-with-net",
+      "permission_tier": "permissive_with_net",
+      "tools_available": [
+        {"name": "read_file", "version": "1.0.0"},
+        {"name": "write_file", "version": "1.0.0"},
+        {"name": "search_code", "version": "1.0.0"},
+        {"name": "http_request", "version": "2.1.0"}
+      ],
+      "state_recovery": {
+        "max_retries": 2,
+        "max_iterations": 12,
+        "on_error": "continue",
+        "replay_seed": 1700000000
+      },
+      "tracing": {
+        "exporter": "otlp",
+        "sample_rate": 1.0,
+        "gen_ai_semconv_version": "1.27.0"
+      },
+      "anchor": "Harness-Bench"
+    },
+    "task_results": [
+      {
+        "task_id": "task_001",
+        "task_name": "Add README badge",
+        "passed": true,
+        "input_tokens": 1500,
+        "output_tokens": 620,
+        "cost_cents": 1.2,
+        "scorer_results": {
+          "FilesChangedScorer": {"score": 1.0, "passed": true}
+        }
+      },
+      {
+        "task_id": "task_002",
+        "task_name": "Update dependencies",
+        "passed": true,
+        "input_tokens": 2500,
+        "output_tokens": 700,
+        "cost_cents": 1.9,
+        "scorer_results": {
+          "FilesChangedScorer": {"score": 1.0, "passed": true}
+        }
+      },
+      {
+        "task_id": "task_003",
+        "task_name": "Add webhook handler",
+        "passed": true,
+        "input_tokens": 2700,
+        "output_tokens": 800,
+        "cost_cents": 2.1,
+        "scorer_results": {
+          "FilesChangedScorer": {"score": 1.0, "passed": true}
+        }
+      }
+    ]
+  }
+}

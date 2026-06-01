@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 
+from fd_evals.harness import HarnessConfig
 from fd_evals.scorers.base import BaseScorer, CompositeScorer
 from fd_evals.task import EvalResult, EvalRunSummary, EvalTask, ScorerResult
 
@@ -42,6 +43,8 @@ class EvalRunner:
         control_plane_url: str | None = None,
         api_key: str | None = None,
         use_mock: bool = False,
+        model: str | None = None,
+        harness_config: HarnessConfig | None = None,
     ):
         """Initialize the eval runner.
 
@@ -50,6 +53,13 @@ class EvalRunner:
             control_plane_url: URL of the FerrumDeck control plane.
             api_key: API key for authentication.
             use_mock: If True, use mock execution instead of real control plane.
+            model: Model under evaluation (e.g. "claude-opus-4-7"). Recorded on
+                the run summary so downstream comparisons can group by
+                `(model × harness_config)`.
+            harness_config: Harness-Bench configuration in effect for the
+                run. Optional and additive — older callers continue to work
+                unchanged; when set, the four Harness-Bench dimensions are
+                recorded alongside the existing baseline shape.
         """
         self.scorers = scorers or []
         self.control_plane_url = (
@@ -57,6 +67,8 @@ class EvalRunner:
         ).rstrip("/")
         self.api_key = api_key or os.getenv("FD_API_KEY")
         self.use_mock = use_mock
+        self.model = model
+        self.harness_config = harness_config
         self._composite_scorer = (
             CompositeScorer(self.scorers, name="EvalScorer", require_all_pass=False)
             if self.scorers
@@ -398,6 +410,8 @@ class EvalRunner:
             total_output_tokens=total_output_tokens,
             total_execution_time_ms=total_execution_time,
             results=results,
+            model=self.model,
+            harness_config=self.harness_config,
             started_at=started_at,
             completed_at=completed_at,
         )

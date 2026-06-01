@@ -85,6 +85,7 @@ FerrumDeck provides a **dual-plane architecture**:
 - **Evaluation Framework**: Deterministic test suites for agent workflows
 - **Regression Gating**: CI blocks merges if agent quality degrades
 - **Baseline Comparisons**: Track performance across versions
+- **Per-harness eval dimension (Harness-Bench)**: fd-evals reports at the `(model × harness_config)` level — same model under different harness configs can produce different scores. Each run records its `tools_available`, `permission_tier`, `state_recovery`, and `tracing` config alongside the existing baseline, the dashboard groups results by `(model × harness)` with a side-by-side Recharts bar chart, and `DeltaReport` exposes a per-dimension diff (added/removed tools, tier change, recovery change). See [`docs/runbooks/harness-config.md`](docs/runbooks/harness-config.md).
 
 ---
 

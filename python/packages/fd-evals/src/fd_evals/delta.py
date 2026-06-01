@@ -12,6 +12,14 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from fd_evals.harness import (
+    HarnessConfig,
+    HarnessConfigDiff,
+    diff_harness_configs,
+    harness_config_from_dict,
+    label_for_model_harness,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -99,6 +107,16 @@ class DeltaReport:
     created_at: str
     task_deltas: list[TaskDelta]
     summary: dict[str, Any] = field(default_factory=dict)
+    # Per-side model id ("claude-opus-4-7", "gpt-4o", ...) — optional so
+    # older reports without a model column still load through `from_dict`.
+    baseline_model: str | None = None
+    current_model: str | None = None
+    # Harness-Bench configuration captured for each side. When either is
+    # present the dashboard groups results by `(model × harness)`; when
+    # both are present and structurally different, `harness_diff` exposes
+    # the per-dimension change.
+    baseline_harness_config: HarnessConfig | None = None
+    current_harness_config: HarnessConfig | None = None
 
     def __post_init__(self) -> None:
         """Compute summary statistics."""
@@ -158,8 +176,30 @@ class DeltaReport:
         """Get count of regressed tasks."""
         return self.summary.get("regressed", 0)
 
+    @property
+    def harness_diff(self) -> HarnessConfigDiff:
+        """Structured per-dimension harness diff between the two sides.
+
+        When both sides ran under the same harness config (matching content
+        hash), :attr:`HarnessConfigDiff.shared_harness` is ``True`` and the
+        report can be read as "same harness, different outcome" — exactly
+        the *execution-alignment failure* signal Harness-Bench surfaces.
+        """
+        return diff_harness_configs(self.baseline_harness_config, self.current_harness_config)
+
+    @property
+    def baseline_group_label(self) -> str:
+        """Dashboard label for the baseline side, `(model × harness)` form."""
+        return label_for_model_harness(self.baseline_model, self.baseline_harness_config)
+
+    @property
+    def current_group_label(self) -> str:
+        """Dashboard label for the current side, `(model × harness)` form."""
+        return label_for_model_harness(self.current_model, self.current_harness_config)
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
+        harness_diff = self.harness_diff
         return {
             "baseline_run_id": self.baseline_run_id,
             "current_run_id": self.current_run_id,
@@ -167,6 +207,17 @@ class DeltaReport:
             "current_version": self.current_version,
             "created_at": self.created_at,
             "summary": self.summary,
+            "baseline_model": self.baseline_model,
+            "current_model": self.current_model,
+            "baseline_harness_config": (
+                self.baseline_harness_config.to_dict() if self.baseline_harness_config else None
+            ),
+            "current_harness_config": (
+                self.current_harness_config.to_dict() if self.current_harness_config else None
+            ),
+            "harness_diff": harness_diff.to_dict() if harness_diff.is_present else None,
+            "baseline_group_label": self.baseline_group_label,
+            "current_group_label": self.current_group_label,
             "task_deltas": [
                 {
                     "task_id": td.task_id,
@@ -258,6 +309,10 @@ class DeltaReport:
             created_at=data["created_at"],
             task_deltas=task_deltas,
             summary=data.get("summary", {}),
+            baseline_model=data.get("baseline_model"),
+            current_model=data.get("current_model"),
+            baseline_harness_config=harness_config_from_dict(data.get("baseline_harness_config")),
+            current_harness_config=harness_config_from_dict(data.get("current_harness_config")),
         )
 
 
@@ -312,6 +367,12 @@ class DeltaReporter:
             current_version=current_results.get("version", "unknown"),
             created_at=datetime.now().isoformat(),
             task_deltas=task_deltas,
+            baseline_model=baseline_results.get("model"),
+            current_model=current_results.get("model"),
+            baseline_harness_config=harness_config_from_dict(
+                baseline_results.get("harness_config")
+            ),
+            current_harness_config=harness_config_from_dict(current_results.get("harness_config")),
         )
 
     def _compare_task(

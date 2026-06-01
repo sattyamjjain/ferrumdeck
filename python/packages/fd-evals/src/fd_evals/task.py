@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from fd_evals.harness import HarnessConfig
+
 
 def _utc_now() -> datetime:
     """Return current UTC time."""
@@ -128,6 +130,16 @@ class EvalRunSummary:
     results: list[EvalResult]
     started_at: datetime
     completed_at: datetime | None = None
+    # The model under evaluation (e.g. "claude-opus-4-7"). Optional — older
+    # reports omitted it; runner now plumbs it through so dashboard grouping
+    # by `(model × harness_config)` works without reaching into per-step
+    # data. Backward-compatible: None survives through to_dict/from_dict.
+    model: str | None = None
+    # Harness-Bench configuration in effect for this run. Additive Option-
+    # equivalent field — when None, dashboards/CLI render "no harness" and
+    # downstream comparisons skip per-harness grouping. See
+    # `fd_evals.harness.HarnessConfig` for the dimensions.
+    harness_config: "HarnessConfig | None" = None
 
     @property
     def pass_rate(self) -> float:
@@ -137,8 +149,12 @@ class EvalRunSummary:
         return (self.passed_tasks / self.total_tasks) * 100
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
+        """Convert to dictionary for serialization.
+
+        ``model`` and ``harness_config`` are emitted only when present so an
+        old reader that ignores unknown keys continues to work unchanged.
+        """
+        out: dict[str, Any] = {
             "run_id": self.run_id,
             "dataset_name": self.dataset_name,
             "total_tasks": self.total_tasks,
@@ -154,3 +170,8 @@ class EvalRunSummary:
             "started_at": self.started_at.isoformat(),
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
         }
+        if self.model is not None:
+            out["model"] = self.model
+        if self.harness_config is not None:
+            out["harness_config"] = self.harness_config.to_dict()
+        return out

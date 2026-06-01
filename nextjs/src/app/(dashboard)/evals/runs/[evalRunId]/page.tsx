@@ -22,6 +22,7 @@ import {
   EvalRunResultsSkeleton,
 } from "@/components/evals/eval-run-results";
 import { BenchTrustCard } from "@/components/evals/bench-trust-card";
+import { HarnessConfigPanel } from "@/components/evals/harness-config-panel";
 import { useEvalRun, useCancelEvalRun } from "@/hooks/use-evals";
 import {
   formatTimeAgo,
@@ -295,6 +296,7 @@ export default function EvalRunDetailPage({ params }: EvalRunDetailPageProps) {
           </div>
         ) : (
           <div className="space-y-6">
+            <HarnessConfigPanel evalRun={evalRun} />
             {evalRun.bench_audit && (
               <BenchTrustCard audit={evalRun.bench_audit} />
             )}

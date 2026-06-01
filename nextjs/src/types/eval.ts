@@ -119,6 +119,57 @@ export interface EvalSuiteSummary {
   last_run_score?: number;
 }
 
+// Harness-Bench (per-harness eval dimension)
+// ============================================================================
+// Same model under different harness configs produces different fd-evals
+// scores ("execution-alignment failure"). Mirrors `fd_evals.harness` on the
+// Python side and gates every (model × harness_config) grouping the dashboard
+// renders.
+
+export interface ToolBinding {
+  name: string;
+  version?: string;
+}
+
+export interface StateRecoveryConfig {
+  max_retries: number;
+  max_iterations: number;
+  on_error: string;
+  replay_seed?: number;
+}
+
+export interface TracingConfig {
+  exporter: string;
+  sample_rate: number;
+  gen_ai_semconv_version?: string;
+}
+
+export interface HarnessConfig {
+  harness_id: string;
+  label: string;
+  permission_tier: string;
+  tools_available: ToolBinding[];
+  state_recovery: StateRecoveryConfig;
+  tracing: TracingConfig;
+  anchor: string;
+}
+
+export interface HarnessConfigDelta {
+  permission_tier_changed: boolean;
+  added_tools: ToolBinding[];
+  removed_tools: ToolBinding[];
+  version_changed_tools: { baseline: ToolBinding; current: ToolBinding }[];
+  state_recovery_changed: boolean;
+  tracing_changed: boolean;
+}
+
+export interface HarnessConfigDiff {
+  baseline: HarnessConfig | null;
+  current: HarnessConfig | null;
+  delta: HarnessConfigDelta | null;
+  shared_harness: boolean;
+}
+
 // Benchmark-audit (ABA, arXiv:2605.26079)
 // ============================================================================
 // The eval plane (fd-evals) produces a `BenchAuditReport` describing how
@@ -194,6 +245,18 @@ export interface EvalRun {
   // Optional benchmark-audit pre-flight (ABA, arXiv:2605.26079). When present,
   // the policy plane gates external-benchmark-cited routing changes on this.
   bench_audit?: BenchAuditReport;
+  // Model under evaluation (`claude-opus-4-7`, `gpt-4o`, …). Drives the
+  // `(model × harness)` dashboard grouping when paired with `harness_config`.
+  model?: string;
+  // Harness-Bench configuration in effect for this run. Optional and
+  // additive — older runs ship without it and the dashboard renders a
+  // "(no harness)" badge.
+  harness_config?: HarnessConfig;
+  // When the run is compared against a baseline run with a different harness,
+  // the diff is denormalised here so the panel can render without re-fetching
+  // the baseline run.
+  baseline_harness_config?: HarnessConfig;
+  harness_diff?: HarnessConfigDiff;
 }
 
 // Breakdown of scores by scorer
