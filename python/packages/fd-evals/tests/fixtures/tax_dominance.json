@@ -1,0 +1,59 @@
+{
+  "_comment": "§2605.27320 cost-decomposition fixture. Three eval tasks; task_002 demonstrates the 'tax remains positive even when debt is minimized' point — its primary call costs $0.0010 but a retry storm (4 retries) + a judge + a revalidation push tax to $0.0095, making tax 90% of the total. task_001 is the inverse (debt-heavy) and task_003 is balanced. The dashboard ranks by tax_share descending; task_002 sits at the top.",
+  "run_id": "run_tax_dominance_demo",
+  "dataset_name": "safe-pr-agent",
+  "model": "claude-opus-4-7",
+  "task_results": [
+    {
+      "task_id": "task_001",
+      "task_name": "Add README badge",
+      "passed": true,
+      "input_tokens": 1500,
+      "output_tokens": 600,
+      "cost_cents": 0.012,
+      "call_records": [
+        {"role": "primary", "cost_cents": 0.0105},
+        {"role": "monitor", "cost_cents": 0.0015}
+      ],
+      "scorer_results": {
+        "FilesChangedScorer": {"score": 1.0, "passed": true}
+      }
+    },
+    {
+      "task_id": "task_002",
+      "task_name": "Update dependencies (flaky network triggers retry storm)",
+      "passed": true,
+      "input_tokens": 2200,
+      "output_tokens": 400,
+      "cost_cents": 0.0105,
+      "call_records": [
+        {"role": "primary", "cost_cents": 0.0010},
+        {"role": "retry", "cost_cents": 0.0018},
+        {"role": "retry", "cost_cents": 0.0018},
+        {"role": "retry", "cost_cents": 0.0018},
+        {"role": "retry", "cost_cents": 0.0017},
+        {"role": "judge", "cost_cents": 0.0012},
+        {"role": "revalidation", "cost_cents": 0.0012}
+      ],
+      "scorer_results": {
+        "FilesChangedScorer": {"score": 1.0, "passed": true}
+      }
+    },
+    {
+      "task_id": "task_003",
+      "task_name": "Add webhook handler",
+      "passed": true,
+      "input_tokens": 2400,
+      "output_tokens": 800,
+      "cost_cents": 0.022,
+      "call_records": [
+        {"role": "primary", "cost_cents": 0.014},
+        {"role": "guardrail", "cost_cents": 0.004},
+        {"role": "judge", "cost_cents": 0.004}
+      ],
+      "scorer_results": {
+        "FilesChangedScorer": {"score": 1.0, "passed": true}
+      }
+    }
+  ]
+}

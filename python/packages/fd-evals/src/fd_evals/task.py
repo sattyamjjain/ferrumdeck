@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from fd_evals.cost_decomposition import CallRecord, CostBreakdown, sum_breakdowns
 from fd_evals.harness import HarnessConfig
 
 
@@ -84,10 +85,21 @@ class EvalResult:
     error: str | None = None
     trace_id: str | None = None
     timestamp: datetime = field(default_factory=_utc_now)
+    # Debt-vs-tax cost decomposition (§2605.27320). Both fields are
+    # additive Option-equivalents — older callers that don't populate
+    # them continue to work, and `to_dict` emits the keys only when
+    # present so legacy readers are unaffected.
+    call_records: list[CallRecord] | None = None
+    cost_breakdown: CostBreakdown | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
+        """Convert to dictionary for serialization.
+
+        ``call_records`` and ``cost_breakdown`` are emitted only when
+        present so the wire shape stays byte-identical for runs that
+        predate the cost-decomposition rollout.
+        """
+        out: dict[str, Any] = {
             "task_id": self.task_id,
             "task_name": self.task_name,
             "run_id": self.run_id,
@@ -111,6 +123,11 @@ class EvalResult:
             "trace_id": self.trace_id,
             "timestamp": self.timestamp.isoformat(),
         }
+        if self.call_records is not None:
+            out["call_records"] = [c.to_dict() for c in self.call_records]
+        if self.cost_breakdown is not None:
+            out["cost_breakdown"] = self.cost_breakdown.to_dict()
+        return out
 
 
 @dataclass
@@ -140,6 +157,11 @@ class EvalRunSummary:
     # downstream comparisons skip per-harness grouping. See
     # `fd_evals.harness.HarnessConfig` for the dimensions.
     harness_config: "HarnessConfig | None" = None
+    # Run-level debt-vs-tax decomposition (§2605.27320). Aggregated from the
+    # per-task `EvalResult.cost_breakdown` rollups via
+    # `cost_decomposition.sum_breakdowns`. Optional: only populated when at
+    # least one task on the run carried a breakdown.
+    cost_breakdown: CostBreakdown | None = None
 
     @property
     def pass_rate(self) -> float:
@@ -147,6 +169,19 @@ class EvalRunSummary:
         if self.total_tasks == 0:
             return 0.0
         return (self.passed_tasks / self.total_tasks) * 100
+
+    def derive_cost_breakdown(self) -> CostBreakdown | None:
+        """Aggregate per-task cost breakdowns into the run-level one.
+
+        Returns ``None`` when no task on the run carries a breakdown — the
+        runner uses this to populate :attr:`cost_breakdown` exactly when
+        the data exists; legacy runs still emit a `None` field that
+        `to_dict` strips out.
+        """
+        per_task = [r.cost_breakdown for r in self.results]
+        if all(b is None for b in per_task):
+            return None
+        return sum_breakdowns(per_task)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization.
@@ -174,4 +209,6 @@ class EvalRunSummary:
             out["model"] = self.model
         if self.harness_config is not None:
             out["harness_config"] = self.harness_config.to_dict()
+        if self.cost_breakdown is not None:
+            out["cost_breakdown"] = self.cost_breakdown.to_dict()
         return out

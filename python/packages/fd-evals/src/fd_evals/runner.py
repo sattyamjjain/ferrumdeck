@@ -398,7 +398,7 @@ class EvalRunner:
         completed_at = datetime.now(tz=UTC)
         average_score = sum(r.total_score for r in results) / len(results) if results else 0.0
 
-        return EvalRunSummary(
+        summary = EvalRunSummary(
             run_id=run_id,
             dataset_name=dataset_name,
             total_tasks=len(results),
@@ -415,6 +415,11 @@ class EvalRunner:
             started_at=started_at,
             completed_at=completed_at,
         )
+        # Roll up the debt-vs-tax decomposition only when at least one task
+        # carries a per-call breakdown — otherwise leave the field None so
+        # legacy paths and tests stay byte-identical.
+        summary.cost_breakdown = summary.derive_cost_breakdown()
+        return summary
 
     def save_report(
         self,

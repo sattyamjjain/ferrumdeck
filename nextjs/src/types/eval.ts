@@ -52,6 +52,13 @@ export interface EvalTask {
   timeout_ms?: number;
 }
 
+// Optional per-task cost decomposition surfaced when the runner records
+// per-call span roles. Old reports omit it; the panel renders `null` then.
+export interface EvalTaskResultWithBreakdown {
+  cost_breakdown?: CostBreakdown;
+  call_records?: CallRecord[];
+}
+
 // Eval task result from a run
 export interface EvalTaskResult {
   task_id: string;
@@ -68,6 +75,10 @@ export interface EvalTaskResult {
   tokens_used: number;
   error?: string;
   diff?: TaskDiff;
+  // Optional debt-vs-tax cost decomposition (§2605.27320). Surfaces on the
+  // dashboard's `CostDecompositionPanel`; absent on legacy runs.
+  cost_breakdown?: CostBreakdown;
+  call_records?: CallRecord[];
 }
 
 // Difference between expected and actual output
@@ -117,6 +128,54 @@ export interface EvalSuiteSummary {
   last_run_at?: string;
   last_run_status?: EvalGateStatus;
   last_run_score?: number;
+}
+
+// Debt-vs-tax cost decomposition (§2605.27320)
+// ============================================================================
+// Mirrors `fd_evals.cost_decomposition` on the Python side and
+// `fd_otel::cost_decomposition` on the Rust side. The OTel attribute keys
+// `ferrumdeck.cost.{role,token_cents,tax_cents,tax_share}` are written by
+// both planes so a single span seen in Jaeger reads one schema.
+
+export type SpanRole =
+  | "primary"
+  | "retry"
+  | "judge"
+  | "guardrail"
+  | "escalation"
+  | "revalidation"
+  | "monitor";
+
+export interface CallRecord {
+  role: SpanRole;
+  cost_cents: number;
+}
+
+export interface RoleRollup {
+  role: SpanRole;
+  cost_cents: number;
+  call_count: number;
+}
+
+export interface CostBreakdown {
+  token_cost_cents: number;
+  tax_cost_cents: number;
+  total_cost_cents: number;
+  tax_share: number;
+  is_tax_dominant: boolean;
+  by_role: RoleRollup[];
+  anchor: string;
+}
+
+// Convenience row shape the dashboard uses for the per-task tax-dominance
+// ranking. Mirrors `fd_evals.cost_decomposition.TaskCostRow`.
+export interface TaskCostRow {
+  task_id: string;
+  task_name: string;
+  token_cost_cents: number;
+  tax_cost_cents: number;
+  tax_share: number;
+  is_tax_dominant: boolean;
 }
 
 // Harness-Bench (per-harness eval dimension)
@@ -257,6 +316,9 @@ export interface EvalRun {
   // the baseline run.
   baseline_harness_config?: HarnessConfig;
   harness_diff?: HarnessConfigDiff;
+  // Run-level debt-vs-tax breakdown (§2605.27320). Aggregated from per-task
+  // breakdowns by the runner; absent on legacy runs.
+  cost_breakdown?: CostBreakdown;
 }
 
 // Breakdown of scores by scorer

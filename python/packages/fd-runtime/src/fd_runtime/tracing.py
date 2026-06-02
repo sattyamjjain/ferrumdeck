@@ -55,6 +55,14 @@ FD_TOOL_FIRING_LOW_THRESHOLD = "ferrumdeck.metrics.tool_call_firing_low_threshol
 # flagged on the dashboard. Operators can override via the panel settings.
 FD_TOOL_FIRING_DEFAULT_THRESHOLD: float = 0.40
 
+# Debt-vs-tax cost decomposition (§2605.27320). Mirror of the Rust
+# `fd_otel::genai::attrs` constants; both planes write the same OTel
+# attribute keys so Jaeger / any OTLP consumer sees one schema.
+FD_COST_ROLE = "ferrumdeck.cost.role"
+FD_COST_TOKEN_CENTS = "ferrumdeck.cost.token_cents"
+FD_COST_TAX_CENTS = "ferrumdeck.cost.tax_cents"
+FD_COST_TAX_SHARE = "ferrumdeck.cost.tax_share"
+
 # Model pricing per 1M tokens (as of Dec 2024)
 # https://www.anthropic.com/pricing#anthropic-api
 MODEL_PRICING: dict[str, dict[str, float]] = {

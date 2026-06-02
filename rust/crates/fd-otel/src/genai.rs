@@ -38,6 +38,15 @@ pub mod attrs {
     pub const FERRUMDECK_COST_CENTS: &str = "ferrumdeck.cost.cents";
     pub const FERRUMDECK_COST_CURRENCY: &str = "ferrumdeck.cost.currency";
 
+    // Debt-vs-tax cost decomposition (§2605.27320). Per-call `*.role` is
+    // tagged on the LLM/tool span; the three rollup attrs land on the
+    // run-completion span. Python mirror lives in `fd_runtime.tracing` and
+    // `fd_evals.cost_decomposition`.
+    pub const FERRUMDECK_COST_ROLE: &str = "ferrumdeck.cost.role";
+    pub const FERRUMDECK_COST_TOKEN_CENTS: &str = "ferrumdeck.cost.token_cents";
+    pub const FERRUMDECK_COST_TAX_CENTS: &str = "ferrumdeck.cost.tax_cents";
+    pub const FERRUMDECK_COST_TAX_SHARE: &str = "ferrumdeck.cost.tax_share";
+
     // Tool-call firing-rate metric (extended) — see
     // `fd_otel::firing_rate` for the contract.
     pub const FERRUMDECK_TOOL_FIRING_RATE: &str = "ferrumdeck.metrics.tool_call_firing_rate";
