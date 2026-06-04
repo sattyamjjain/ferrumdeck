@@ -13,6 +13,7 @@ pub mod decision;
 pub mod engine;
 pub mod forecast;
 pub mod precedence;
+pub mod promotion;
 pub mod routing;
 pub mod rules;
 pub mod trace;
@@ -23,6 +24,10 @@ pub use engine::PolicyEngine;
 pub use precedence::{
     precedence_rank, resolve_conflicts, OverrideRecord, PolicyVerdict, ResolvedDecision,
     VerdictKind, PRECEDENCE_LABEL,
+};
+pub use promotion::{
+    MetricEvidence, MetricThreshold, PromotionDecision, PromotionGate, PromotionGateConfig,
+    PromotionStatus, PROMOTION_ANCHOR,
 };
 pub use routing::{
     RoutingCandidate, RoutingChoice, RoutingDecision, RoutingReason, RoutingReasonCode,

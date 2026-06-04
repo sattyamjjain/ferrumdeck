@@ -62,6 +62,12 @@ pub fn build_router(state: AppState) -> Router {
                             post(handlers::registry::create_agent_version),
                         )
                         .route("/registry/tools", post(handlers::registry::create_tool))
+                        // Champion-challenger promotion gate (write: mutates
+                        // the live champion binding via the audited gate)
+                        .route(
+                            "/promotions/evaluate",
+                            post(handlers::promotions::evaluate_promotion),
+                        )
                         // Workflow creation
                         .route("/workflows", post(handlers::workflows::create_workflow))
                         .layer(middleware::from_fn(require_write())),
@@ -109,6 +115,11 @@ pub fn build_router(state: AppState) -> Router {
                 .route(
                     "/registry/agents/{agent_id}/stats",
                     get(handlers::registry::get_agent_stats),
+                )
+                // Promotion history (read): champion vs challenger + gate status
+                .route(
+                    "/promotions/{agent_id}",
+                    get(handlers::promotions::get_promotions),
                 )
                 .route(
                     "/registry/tools/{tool_id}",

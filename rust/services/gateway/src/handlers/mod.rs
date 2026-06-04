@@ -5,6 +5,7 @@ pub mod approvals;
 pub mod health;
 pub mod orchestrator;
 pub mod policies;
+pub mod promotions;
 pub mod registry;
 pub mod runs;
 pub mod security;

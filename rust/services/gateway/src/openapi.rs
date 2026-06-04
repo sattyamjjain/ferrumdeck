@@ -5,7 +5,7 @@
 
 use utoipa::OpenApi;
 
-use crate::handlers::{health, runs};
+use crate::handlers::{health, promotions, runs};
 
 /// OpenAPI documentation for the FerrumDeck Gateway API
 #[derive(OpenApi)]
@@ -22,7 +22,8 @@ use crate::handlers::{health, runs};
     ),
     tags(
         (name = "health", description = "Health check endpoints"),
-        (name = "runs", description = "Run management endpoints")
+        (name = "runs", description = "Run management endpoints"),
+        (name = "promotions", description = "Champion-challenger promotion gate")
     ),
     paths(
         // Health endpoints
@@ -35,6 +36,9 @@ use crate::handlers::{health, runs};
         runs::cancel_run,
         runs::list_steps,
         runs::get_routing,
+        // Promotion-gate endpoints
+        promotions::evaluate_promotion,
+        promotions::get_promotions,
     ),
     components(
         schemas(
@@ -51,6 +55,11 @@ use crate::handlers::{health, runs};
             // Routing-decision audit (AgensFlow, arXiv:2605.27466)
             runs::RoutingResponse,
             runs::RoutingDecisionResponse,
+            // Champion-challenger promotion gate
+            promotions::EvaluatePromotionRequest,
+            promotions::MetricThresholdRequest,
+            promotions::PromotionDecisionResponse,
+            promotions::PromotionHistoryResponse,
         )
     )
 )]

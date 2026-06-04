@@ -113,6 +113,37 @@ impl AuditRepo {
         .await
     }
 
+    /// List the champion-challenger promotion-decision audit records for one
+    /// agent, newest-first.
+    ///
+    /// Filters to events whose `action` is
+    /// [`crate::models::audit::action::PROMOTION_DECIDED`] and whose
+    /// `resource_id` is the agent id — the standard `audit_events` table is
+    /// the source of truth, no parallel store. The JSON in each event's
+    /// `details` column round-trips through
+    /// `fd_policy::promotion::PromotionDecision::from_audit_details` on the
+    /// gateway read path.
+    #[instrument(skip(self))]
+    pub async fn list_promotion_decisions(
+        &self,
+        agent_id: &str,
+        limit: i64,
+    ) -> Result<Vec<AuditEvent>, sqlx::Error> {
+        sqlx::query_as::<_, AuditEvent>(
+            r#"
+            SELECT * FROM audit_events
+            WHERE resource_id = $1 AND action = $2
+            ORDER BY occurred_at DESC
+            LIMIT $3
+            "#,
+        )
+        .bind(agent_id)
+        .bind(crate::models::audit::action::PROMOTION_DECIDED)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+    }
+
     /// List audit events by action
     #[instrument(skip(self))]
     pub async fn list_by_action(

@@ -41,6 +41,7 @@ import { AgentVersions } from "@/components/agents/agent-versions";
 import { AgentTools } from "@/components/agents/agent-tools";
 import { PromoteDialog } from "@/components/agents/promote-dialog";
 import { ToolCallFiringRatePanel } from "@/components/agents/tool-call-firing-rate-panel";
+import { PromotionGatePanel } from "@/components/agents/promotion-gate-panel";
 import type { AgentVersion } from "@/types/agent";
 
 function getStatusStyles(status: string): { bg: string; text: string; border: string } {
@@ -337,6 +338,9 @@ export default function AgentDetailPage() {
 
           {/* Tool-call firing-rate trend (OTel-derived) */}
           <ToolCallFiringRatePanel agentId={agentId} />
+
+          {/* Champion-challenger promotion gate */}
+          <PromotionGatePanel agentId={agentId} />
 
           {/* Active Versions */}
           <Card className="bg-card/50 border-border/50">

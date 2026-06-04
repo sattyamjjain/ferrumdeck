@@ -109,6 +109,12 @@ pub mod action {
     // `audit_events.details`; this constant is the immutable filter key
     // used by `AuditRepo::list_routing_decisions`.
     pub const ROUTING_DECIDED: &str = "routing.decided";
+
+    // Champion-challenger promotion gate. The full PromotionDecision JSON
+    // (challenger/champion ids, metric evidence, status) lives in
+    // `audit_events.details`; this constant is the immutable filter key used
+    // by `AuditRepo::list_promotion_decisions`.
+    pub const PROMOTION_DECIDED: &str = "promotion.decided";
 }
 
 /// Resource types
@@ -123,6 +129,9 @@ pub mod resource {
     pub const API_KEY: &str = "api_key";
     /// Multi-agent routing decision — paired with `action::ROUTING_DECIDED`.
     pub const ROUTING_DECISION: &str = "routing_decision";
+    /// Champion-challenger promotion decision — paired with
+    /// `action::PROMOTION_DECIDED`. The `resource_id` is the agent id.
+    pub const PROMOTION: &str = "promotion";
 }
 
 /// Audit event builder for ergonomic creation
