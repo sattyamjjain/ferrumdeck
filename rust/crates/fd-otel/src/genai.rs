@@ -58,6 +58,20 @@ pub mod attrs {
         "ferrumdeck.metrics.tool_call_firing_low_breached";
     pub const FERRUMDECK_TOOL_FIRING_LOW_THRESHOLD: &str =
         "ferrumdeck.metrics.tool_call_firing_low_threshold";
+
+    // Receiver-attestation (optional, off by default). Cross-checks a
+    // self-reported tool/service span against a receiver-signed receipt.
+    // Verification lives in the Python data plane (`fd_runtime.attestation`);
+    // these keys are mirrored here so any OTLP/Jaeger consumer reads one
+    // schema. `attested=false` (or absent) means the span is self-reported
+    // and unverified — additive signal, never enforcement.
+    pub const FERRUMDECK_ATTESTED: &str = "ferrumdeck.attestation.attested";
+    pub const FERRUMDECK_ATTESTATION_STATUS: &str = "ferrumdeck.attestation.status";
+    pub const FERRUMDECK_ATTESTATION_RECEIVER: &str = "ferrumdeck.attestation.receiver_id";
+    pub const FERRUMDECK_ATTESTATION_CALL_TOKEN: &str = "ferrumdeck.attestation.call_token";
+    pub const FERRUMDECK_ATTESTATION_SCHEME: &str = "ferrumdeck.attestation.scheme";
+    pub const FERRUMDECK_ATTESTATION_SELF_REPORTED_UNVERIFIED: &str =
+        "ferrumdeck.attestation.self_reported_unverified";
 }
 
 /// GenAI system values

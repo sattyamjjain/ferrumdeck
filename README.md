@@ -1038,6 +1038,65 @@ ferrumdeck.agent.id        = "agt_xxx"
 ferrumdeck.tenant.id       = "ten_xxx"
 ```
 
+### Receiver Attestation (optional, off by default)
+
+FerrumDeck spans are **agent-self-reported**: the agent (or the worker on its
+behalf) describes what it did. That is useful, but a self-reported span is an
+*assertion*, not a *proof* — nothing independently confirms the call happened
+as described.
+
+Receiver attestation is an **optional** cross-check. When enabled, a tool/
+service call may carry a minimal, Sello-style **receiver-signed receipt**
+(`receiver_id`, `tool_name`, a per-call `call_token` binding, an
+owner-encrypted `payload_ref`, and a signature). The trace plane
+(`fd_runtime.attestation`) verifies that the receipt (a) has a valid receiver
+signature and (b) binds to the *same call* the span claims (same tool name +
+same `call_token`), then annotates the span:
+
+```
+ferrumdeck.attestation.attested                  = true | false
+ferrumdeck.attestation.status                    = "attested"
+                                                 | "unverified_no_receipt"
+                                                 | "unverified_signature_invalid"
+                                                 | "unverified_mismatch"
+                                                 | "unverified_unknown_receiver"
+ferrumdeck.attestation.self_reported_unverified  = true | false
+ferrumdeck.attestation.receiver_id               = "github-mcp"
+ferrumdeck.attestation.call_token                = "call_tok_xxx"
+```
+
+**Enable it** with the environment switch (off unless explicitly set):
+
+```bash
+export FD_ATTESTATION_ENABLED=true   # default: false (existing pipelines unaffected)
+```
+
+and supply a `ReceiptVerifier` (keyed per receiver) + the per-call receipt to
+`trace_tool_call(...)`. When disabled, the verification path is skipped
+entirely and spans are byte-for-byte identical to before.
+
+**Trust model — what attestation DOES and does NOT prove.** Be honest about
+this; it is deliberately narrow:
+
+- ✅ **Does** prove that *a party holding the receiver's key* issued a receipt
+  that binds to this specific call (same tool + same `call_token`), and that
+  the receipt was not altered after signing.
+- ✅ **Does** give you an honest, additive signal: a span without a verified
+  receipt is flagged `self_reported_unverified = true` instead of being
+  silently trusted.
+- ❌ Does **not** prove the call's *contents* or *results* are correct — the
+  `payload_ref` is owner-encrypted and the trace plane never decrypts it.
+  Attestation proves *binding*, not *semantics*.
+- ❌ Does **not** provide third-party non-repudiation with the default scheme.
+  The default is **HMAC-SHA256** (a symmetric, shared-secret signature): a
+  valid signature proves the holder of the receiver key produced it, not that
+  *only* the receiver could have. The `ReceiptVerifier` interface is
+  scheme-agnostic so an asymmetric scheme (e.g. Ed25519) can replace HMAC
+  later without changing callers.
+- ❌ Does **not** enforce anything. Unattested spans are **never dropped** —
+  most spans are unattested today. This is signal for the trace view, not a
+  gate. There is no "attestation required" mode.
+
 ### Jaeger UI
 
 Access traces at [http://localhost:16686](http://localhost:16686):
