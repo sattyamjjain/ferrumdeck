@@ -13,6 +13,19 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import Span, Status, StatusCode
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
+from fd_runtime.attestation import (
+    FD_ATTESTATION_CALL_TOKEN,
+    FD_ATTESTATION_RECEIVER,
+    FD_ATTESTATION_SCHEME,
+    FD_ATTESTATION_STATUS,
+    FD_ATTESTED,
+    FD_SELF_REPORTED_UNVERIFIED,
+    AttestationConfig,
+    AttestationResult,
+    ReceiptVerifier,
+    ToolCallReceipt,
+)
+
 # GenAI semantic convention attribute names
 # See: https://opentelemetry.io/docs/specs/semconv/gen-ai/
 GEN_AI_SYSTEM = "gen_ai.system"
@@ -175,12 +188,36 @@ def trace_llm_call(
             raise
 
 
+def apply_attestation(span: Span, result: AttestationResult) -> None:
+    """Annotate a span with the verdict of a receiver-attestation check.
+
+    Additive only — sets the ``ferrumdeck.attestation.*`` attributes and the
+    human-facing ``self_reported_unverified`` flag. Never drops the span and
+    never raises; an unattested span keeps all its self-reported data and
+    simply gains the honest "unverified" signal.
+    """
+    span.set_attribute(FD_ATTESTED, result.attested)
+    span.set_attribute(FD_ATTESTATION_STATUS, result.status.value)
+    span.set_attribute(FD_SELF_REPORTED_UNVERIFIED, result.self_reported_unverified)
+    if result.receiver_id is not None:
+        span.set_attribute(FD_ATTESTATION_RECEIVER, result.receiver_id)
+    if result.call_token is not None:
+        span.set_attribute(FD_ATTESTATION_CALL_TOKEN, result.call_token)
+    if result.scheme is not None:
+        span.set_attribute(FD_ATTESTATION_SCHEME, result.scheme)
+
+
 @contextmanager
 def trace_tool_call(
     tool_name: str,
     server: str | None = None,
     run_id: str | None = None,
     step_id: str | None = None,
+    *,
+    receipt: ToolCallReceipt | None = None,
+    call_token: str | None = None,
+    verifier: ReceiptVerifier | None = None,
+    attestation: AttestationConfig | None = None,
 ) -> Generator[Span, None, None]:
     """Context manager for tracing tool calls.
 
@@ -188,6 +225,19 @@ def trace_tool_call(
         with trace_tool_call("github_create_pr", server="github-mcp") as span:
             result = await router.call_tool(...)
             span.set_attribute(TOOL_STATUS, "success")
+
+    Optional receiver attestation (OFF by default): pass an
+    :class:`AttestationConfig` with ``enabled=True``, a
+    :class:`ReceiptVerifier`, the per-call ``call_token`` the agent claims,
+    and (when available) the receiver-signed ``receipt``. The span is then
+    cross-checked and annotated with ``ferrumdeck.attestation.*`` — a
+    matching verified receipt marks it ``attested=True``; no receipt or a
+    mismatch marks it ``attested=False`` and surfaces a
+    "self-reported, unverified" flag. Unattested spans are **never** dropped.
+
+    When ``attestation`` is ``None`` or disabled, this behaves exactly as it
+    did before — no attestation attributes are written and there is no extra
+    work on the hot path.
     """
     tracer = get_tracer()
 
@@ -200,6 +250,15 @@ def trace_tool_call(
             span.set_attribute(FD_RUN_ID, run_id)
         if step_id:
             span.set_attribute(FD_STEP_ID, step_id)
+
+        # Optional, off-by-default receiver-attestation cross-check.
+        if attestation is not None and attestation.enabled and verifier is not None:
+            result = verifier.verify(
+                receipt,
+                expected_tool_name=tool_name,
+                expected_call_token=call_token,
+            )
+            apply_attestation(span, result)
 
         try:
             yield span
