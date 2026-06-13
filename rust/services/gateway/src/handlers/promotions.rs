@@ -157,7 +157,7 @@ pub async fn evaluate_promotion(
         .await?
         .ok_or_else(|| ApiError::not_found("Agent", &request.agent_id))?;
 
-    if !auth.can_access_project(&agent.project_id) {
+    if !super::project_access_allowed(state.repos(), &auth, &agent.project_id).await? {
         warn!(
             agent_id = %request.agent_id,
             "Unauthorized promotion-evaluate attempt"
@@ -247,7 +247,7 @@ pub async fn get_promotions(
         .await?
         .ok_or_else(|| ApiError::not_found("Agent", &agent_id))?;
 
-    if !auth.can_access_project(&agent.project_id) {
+    if !super::project_access_allowed(state.repos(), &auth, &agent.project_id).await? {
         warn!(agent_id = %agent_id, "Unauthorized promotion-history access attempt");
         return Err(ApiError::forbidden("Access denied to this agent"));
     }

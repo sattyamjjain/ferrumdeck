@@ -167,7 +167,7 @@ pub async fn resolve_approval(
         .await?
         .ok_or_else(|| ApiError::internal("Run not found for approval"))?;
 
-    if !auth.can_access_project(&run.project_id) {
+    if !super::project_access_allowed(state.repos(), &auth, &run.project_id).await? {
         tracing::warn!(
             approval_id = %approval_id,
             run_id = %approval.run_id,

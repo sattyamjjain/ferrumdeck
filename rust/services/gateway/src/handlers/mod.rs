@@ -27,6 +27,26 @@ use serde::de::DeserializeOwned;
 use serde_json::json;
 use validator::Validate;
 
+/// Enforce tenant isolation for a project-scoped resource.
+///
+/// Returns `Ok(true)` if `auth` may access `project_id`, `Ok(false)` if it may
+/// not, and `Err` only on a database failure. When the API key carries an
+/// explicit project allowlist the project must be on it; otherwise the project's
+/// owning tenant (project -> workspace -> tenant) must equal the caller's
+/// tenant. Deny-by-default: an unknown project or a tenant mismatch returns
+/// `Ok(false)` — there is no implicit allow.
+pub(crate) async fn project_access_allowed(
+    repos: &crate::state::Repos,
+    auth: &crate::middleware::AuthContext,
+    project_id: &str,
+) -> Result<bool, ApiError> {
+    if !auth.allowed_project_ids.is_empty() {
+        return Ok(auth.allowed_project_ids.iter().any(|p| p == project_id));
+    }
+    let owner = repos.projects().tenant_id_for(project_id).await?;
+    Ok(matches!(owner, Some(t) if t == auth.tenant_id))
+}
+
 /// Standard API error response
 pub struct ApiError {
     pub status: StatusCode,

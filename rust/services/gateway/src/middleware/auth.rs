@@ -60,35 +60,6 @@ impl AuthContext {
     pub fn has_scope(&self, scope: &str) -> bool {
         self.scopes.contains(&scope.to_string()) || self.scopes.contains(&"admin".to_string())
     }
-
-    /// Check if this auth context can access the given project.
-    ///
-    /// Access is granted if:
-    /// 1. The project_id is in the allowed_project_ids list, OR
-    /// 2. The project_id contains the tenant_id (convention: prj_{tenant}_{unique}), OR
-    /// 3. allowed_project_ids is empty (legacy: assumes all projects for this tenant are accessible)
-    ///
-    /// SECURITY: For strict multi-tenancy, callers should verify project ownership
-    /// via database lookup when allowed_project_ids is empty.
-    pub fn can_access_project(&self, project_id: &str) -> bool {
-        // If we have an explicit allowlist, check it
-        if !self.allowed_project_ids.is_empty() {
-            return self.allowed_project_ids.contains(&project_id.to_string());
-        }
-
-        // Convention-based check: project IDs often embed tenant ID
-        // e.g., prj_tenant123_abc -> tenant123 can access
-        // This is a fallback for backwards compatibility
-        // For production, projects should be looked up to verify tenant_id matches
-        if project_id.contains(&self.tenant_id) {
-            return true;
-        }
-
-        // Default: For legacy compatibility, allow access if tenant matches
-        // In production, this should be replaced with a database lookup
-        // to verify project.tenant_id == auth.tenant_id
-        true
-    }
 }
 
 /// Combined authentication middleware (OAuth2/JWT with API key fallback)

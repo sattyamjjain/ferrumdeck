@@ -450,7 +450,7 @@ pub async fn get_run(
 
     // SECURITY: Verify tenant owns this run's project
     // The run belongs to a project, and the project must belong to the authenticated tenant
-    if !auth.can_access_project(&run.project_id) {
+    if !super::project_access_allowed(state.repos(), &auth, &run.project_id).await? {
         warn!(
             run_id = %run_id,
             run_project = %run.project_id,
@@ -524,7 +524,7 @@ pub async fn cancel_run(
         .ok_or_else(|| ApiError::not_found("Run", &run_id))?;
 
     // SECURITY: Verify tenant owns this run's project
-    if !auth.can_access_project(&run.project_id) {
+    if !super::project_access_allowed(state.repos(), &auth, &run.project_id).await? {
         warn!(
             run_id = %run_id,
             run_project = %run.project_id,
@@ -600,7 +600,7 @@ pub async fn list_steps(
         .ok_or_else(|| ApiError::not_found("Run", &run_id))?;
 
     // SECURITY: Verify tenant owns this run's project
-    if !auth.can_access_project(&run.project_id) {
+    if !super::project_access_allowed(state.repos(), &auth, &run.project_id).await? {
         warn!(
             run_id = %run_id,
             run_project = %run.project_id,
@@ -692,7 +692,7 @@ pub async fn get_routing(
         .await?
         .ok_or_else(|| ApiError::not_found("Run", &run_id))?;
 
-    if !auth.can_access_project(&run.project_id) {
+    if !super::project_access_allowed(state.repos(), &auth, &run.project_id).await? {
         warn!(
             run_id = %run_id,
             "Unauthorized routing-chain access attempt"

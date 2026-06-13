@@ -2,8 +2,8 @@
 
 use fd_policy::{AirlockConfig, AirlockInspector, AirlockMode, PolicyEngine};
 use fd_storage::{
-    AgentsRepo, ApiKeysRepo, AuditRepo, DbPool, PoliciesRepo, QueueClient, RunsRepo, StepsRepo,
-    ThreatsRepo, ToolsRepo, WorkflowsRepo,
+    AgentsRepo, ApiKeysRepo, AuditRepo, DbPool, PoliciesRepo, ProjectsRepo, QueueClient, RunsRepo,
+    StepsRepo, ThreatsRepo, ToolsRepo, WorkflowsRepo,
 };
 use std::sync::Arc;
 
@@ -79,6 +79,10 @@ impl Repos {
 
     pub fn policies(&self) -> PoliciesRepo {
         PoliciesRepo::new(self.db.clone())
+    }
+
+    pub fn projects(&self) -> ProjectsRepo {
+        ProjectsRepo::new(self.db.clone())
     }
 
     #[allow(dead_code)]
