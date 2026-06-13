@@ -1,6 +1,8 @@
 # FerrumDeck
 
-**AgentOps Control Plane** — A production-grade platform for running agentic AI workflows with deterministic governance, comprehensive observability, and measurable reliability.
+**AgentOps Control Plane** — a platform for running agentic AI workflows with deterministic governance: deny-by-default tool policy, per-run budget enforcement, runtime (Airlock) inspection, approval gates, and an append-only audit trail.
+
+> **Status: early / alpha, built primarily by one maintainer.** The governance core — per-agent deny-by-default tool allowlists, per-run/per-agent budget enforcement, DB-backed tenant isolation, and Airlock RASP at the gateway tool-policy check — is implemented and tested. Several advertised layers are still being wired end-to-end. See **[Project Status & Limitations](#project-status--limitations)** for an honest map of what enforces today vs. what's on the roadmap before you rely on it.
 
 [![CI](https://github.com/sattyamjjain/ferrumdeck/actions/workflows/ci.yml/badge.svg)](https://github.com/sattyamjjain/ferrumdeck/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -13,6 +15,7 @@
 ## Table of Contents
 
 - [Overview](#overview)
+- [Project Status & Limitations](#project-status--limitations)
 - [Key Features](#key-features)
 - [Architecture](#architecture)
 - [Quick Start](#quick-start)
@@ -55,6 +58,61 @@ FerrumDeck provides a **dual-plane architecture**:
 | Budget tracking | Tool calls via MCP |
 | Audit logging | Step execution |
 | Approval gates | Artifact storage |
+
+---
+
+## Project Status & Limitations
+
+FerrumDeck is an **early-stage / alpha** project, built primarily by a single
+maintainer. It is a real, working control plane — but it is not yet
+production-hardened. This is an honest map of what enforces **today** vs. what is
+**scaffolded or on the roadmap**, so you can evaluate it without surprises.
+
+**Implemented and enforced (covered by the Rust test suite):**
+
+- **Deny-by-default tool policy, per agent.** The gateway evaluates every tool
+  call against the run's *agent* allowlist (allowed / approval-required / denied
+  tiers) — not a process-global default.
+- **Budget enforcement, per run / per agent.** The auto-kill and the cost
+  forecast evaluate against the run's effective budget (per-run `config.budget`
+  override → agent-version caps → engine default).
+- **Tenant isolation.** Project-scoped access is gated by a DB-backed
+  `project → workspace → tenant` ownership check; unknown project or tenant
+  mismatch is denied.
+- **Airlock RASP at the gateway tool-policy check** (`POST /v1/runs/{id}/check-tool`):
+  the anti-RCE pattern matcher, the financial/velocity circuit breaker, and the
+  data-exfiltration + credential-DLP shield run here, in `shadow` or `enforce`
+  mode.
+- **Append-only audit trail** for policy, budget, approval, routing, and
+  promotion decisions (the repository exposes no `UPDATE`/`DELETE`).
+
+**Scaffolded / not yet wired end-to-end — do not rely on these yet:**
+
+- **Airlock on the agentic execution path.** The Python worker's *agentic
+  LLM-loop* executor does not yet call back to the control-plane `check-tool`
+  endpoint, so Airlock and approval gates are enforced on the explicit
+  `StepType.TOOL` path but **not** inside an in-loop agentic run. Wiring this is
+  the top roadmap item; until then, run agentic workloads only in trusted
+  contexts.
+- **Schema-drift and behavioral-drift Airlock layers** are implemented and
+  unit-tested but are **not activated** in the running gateway (they need
+  `tool_version_id` / `agent_id` plumbed into the inspection context).
+- **Audit tamper-evidence.** The log is append-only at the application layer,
+  but there is **no cryptographic hash-chain or DB-level write-once enforcement
+  yet** — so it is not tamper-*evident* against a privileged database actor. A
+  hash-chain is on the roadmap; please don't represent the trail as
+  immutable/tamper-proof for compliance until it ships.
+- **Multi-tenant SaaS hardening.** Tenant isolation is enforced, but there is no
+  dashboard auth/session layer, no SSO/RBAC, and no API-key self-service — treat
+  the dashboard + gateway as a **trusted-operator** deployment for now.
+
+**Testing caveat.** The unit/lint suites (`cargo test --workspace`, clippy,
+`ruff`, jest) pass and gate CI. The `tests/security`, `tests/chaos`, and
+`tests/e2e` suites require a live stack (`make dev-up`) and currently assert
+liveness more than behaviour — do not read them as proof that a given attack is
+blocked. Hardening them is in progress.
+
+Found a gap not listed here? Please open an issue — accurate status is a feature.
 
 ---
 
@@ -1047,7 +1105,7 @@ against the outbound payload:
 | Tool-call payload drift | Airlock schema-drift guard against the registered `ToolVersion` JSON Schema |
 | Single-axis exploitation | Airlock behavioral-drift monitor — rolling z-score per agent |
 | Privilege escalation | Scoped API keys, tenant isolation |
-| Audit tampering | Append-only, immutable logging |
+| Audit tampering | Append-only logging (app-layer; no `UPDATE`/`DELETE` in the repo API). Cryptographic hash-chaining + DB-level write-once are on the roadmap — see [Project Status](#project-status--limitations) |
 
 ---
 
