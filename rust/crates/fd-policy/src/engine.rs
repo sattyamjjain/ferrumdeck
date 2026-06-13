@@ -33,7 +33,24 @@ impl PolicyEngine {
     /// Allow > default-deny`) — back-compat is covered by existing tests.
     #[instrument(skip(self))]
     pub fn evaluate_tool_call(&self, tool_name: &str) -> PolicyDecision {
-        let matched = self.tool_allowlist.matches(tool_name);
+        self.evaluate_tool_call_with(&self.tool_allowlist, tool_name)
+    }
+
+    /// Evaluate a tool call against a *caller-supplied* allowlist instead of
+    /// the engine's process-global default.
+    ///
+    /// The gateway uses this to hold each run to **its own agent's** configured
+    /// tools (deny / approval-required / allowed tiers), so deny-by-default is
+    /// keyed on the agent — not on a single empty default shared across every
+    /// run. [`Self::evaluate_tool_call`] is the special case where the allowlist
+    /// is the engine's own default.
+    #[instrument(skip(self, allowlist))]
+    pub fn evaluate_tool_call_with(
+        &self,
+        allowlist: &ToolAllowlist,
+        tool_name: &str,
+    ) -> PolicyDecision {
+        let matched = allowlist.matches(tool_name);
         let resolved = resolve_conflicts(matched.clone());
         let trace = DecisionTrace::from_resolution(matched, &resolved);
 

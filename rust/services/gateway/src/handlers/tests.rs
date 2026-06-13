@@ -470,6 +470,8 @@ mod registry_tests {
                 version: "1.0.0".to_string(),
                 model: "claude-sonnet-4-20250514".to_string(),
                 allowed_tools: vec!["read_file".to_string()],
+                approval_required_tools: vec!["write_file".to_string()],
+                denied_tools: vec!["exec_shell".to_string()],
                 created_at: "2024-01-01T00:00:00Z".to_string(),
             }),
         };

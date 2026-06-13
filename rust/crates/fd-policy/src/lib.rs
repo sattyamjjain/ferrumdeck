@@ -35,6 +35,7 @@ pub use routing::{
     RoutingCandidate, RoutingChoice, RoutingDecision, RoutingReason, RoutingReasonCode,
     ROUTING_ANCHOR,
 };
+pub use rules::{ToolAllowlist, ToolAllowlistResult, ToolRiskLevel};
 pub use trace::DecisionTrace;
 
 // Re-export Airlock types for convenience

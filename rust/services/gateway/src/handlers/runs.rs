@@ -1076,8 +1076,25 @@ pub async fn check_tool_policy(
         .await?
         .ok_or_else(|| ApiError::not_found("Run", &run_id))?;
 
-    // Step 1: Check tool against policy allowlist
-    let decision = state.policy_engine.evaluate_tool_call(&request.tool_name);
+    // Step 1: Check the tool against THIS run's agent allowlist (deny-by-default).
+    // The agent version stores the allowed / approval-required / denied tool tiers;
+    // we build the per-run allowlist from it and evaluate against that, rather than
+    // a process-global default — so each agent is held to exactly the tools it was
+    // configured with. A run whose agent version is missing falls back to an empty
+    // allowlist, i.e. deny-by-default.
+    let allowlist = repos
+        .agents()
+        .get_version(&run.agent_version_id)
+        .await?
+        .map(|av| fd_policy::ToolAllowlist {
+            allowed_tools: av.allowed_tools,
+            approval_required: av.approval_required_tools,
+            denied_tools: av.denied_tools,
+        })
+        .unwrap_or_default();
+    let decision = state
+        .policy_engine
+        .evaluate_tool_call_with(&allowlist, &request.tool_name);
 
     // Step 2: Run Airlock inspection on the tool input payload
     let tool_input = request.tool_input.clone().unwrap_or(serde_json::json!({}));

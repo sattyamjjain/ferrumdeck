@@ -39,6 +39,10 @@ pub struct CreateAgentVersionRequest {
     #[serde(default)]
     pub allowed_tools: Vec<String>,
     #[serde(default)]
+    pub approval_required_tools: Vec<String>,
+    #[serde(default)]
+    pub denied_tools: Vec<String>,
+    #[serde(default)]
     pub tool_configs: serde_json::Value,
     pub max_tokens: Option<i32>,
     pub max_tool_calls: Option<i32>,
@@ -65,6 +69,8 @@ pub struct AgentVersionResponse {
     pub version: String,
     pub model: String,
     pub allowed_tools: Vec<String>,
+    pub approval_required_tools: Vec<String>,
+    pub denied_tools: Vec<String>,
     pub created_at: String,
 }
 
@@ -140,6 +146,8 @@ fn agent_to_response(
             version: v.version,
             model: v.model,
             allowed_tools: v.allowed_tools,
+            approval_required_tools: v.approval_required_tools,
+            denied_tools: v.denied_tools,
             created_at: v.created_at.to_rfc3339(),
         }),
     }
@@ -258,6 +266,8 @@ pub async fn list_agent_versions(
             version: v.version,
             model: v.model,
             allowed_tools: v.allowed_tools,
+            approval_required_tools: v.approval_required_tools,
+            denied_tools: v.denied_tools,
             created_at: v.created_at.to_rfc3339(),
         })
         .collect();
@@ -296,6 +306,8 @@ pub async fn create_agent_version(
             request.model_params
         },
         allowed_tools: request.allowed_tools,
+        approval_required_tools: request.approval_required_tools,
+        denied_tools: request.denied_tools,
         tool_configs: if request.tool_configs.is_null() {
             serde_json::json!({})
         } else {
@@ -316,6 +328,8 @@ pub async fn create_agent_version(
         version: version.version,
         model: version.model,
         allowed_tools: version.allowed_tools,
+        approval_required_tools: version.approval_required_tools,
+        denied_tools: version.denied_tools,
         created_at: version.created_at.to_rfc3339(),
     };
 

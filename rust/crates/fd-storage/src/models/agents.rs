@@ -56,6 +56,12 @@ pub struct AgentVersion {
     pub model: String,
     pub model_params: serde_json::Value,
     pub allowed_tools: Vec<String>,
+    /// Tools that require human approval before execution (deny-until-approved).
+    #[serde(default)]
+    pub approval_required_tools: Vec<String>,
+    /// Tools explicitly denied regardless of the allow list.
+    #[serde(default)]
+    pub denied_tools: Vec<String>,
     pub tool_configs: serde_json::Value,
     pub max_tokens: Option<i32>,
     pub max_tool_calls: Option<i32>,
@@ -76,6 +82,10 @@ pub struct CreateAgentVersion {
     pub model: String,
     pub model_params: serde_json::Value,
     pub allowed_tools: Vec<String>,
+    #[serde(default)]
+    pub approval_required_tools: Vec<String>,
+    #[serde(default)]
+    pub denied_tools: Vec<String>,
     pub tool_configs: serde_json::Value,
     pub max_tokens: Option<i32>,
     pub max_tool_calls: Option<i32>,

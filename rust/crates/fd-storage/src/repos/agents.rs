@@ -170,10 +170,11 @@ impl AgentsRepo {
             r#"
             INSERT INTO agent_versions (
                 id, agent_id, version, system_prompt, model, model_params,
-                allowed_tools, tool_configs, max_tokens, max_tool_calls,
+                allowed_tools, approval_required_tools, denied_tools,
+                tool_configs, max_tokens, max_tool_calls,
                 max_wall_time_secs, max_cost_cents, changelog, created_by
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             RETURNING *
             "#,
         )
@@ -184,6 +185,8 @@ impl AgentsRepo {
         .bind(&version.model)
         .bind(&version.model_params)
         .bind(&version.allowed_tools)
+        .bind(&version.approval_required_tools)
+        .bind(&version.denied_tools)
         .bind(&version.tool_configs)
         .bind(version.max_tokens)
         .bind(version.max_tool_calls)
