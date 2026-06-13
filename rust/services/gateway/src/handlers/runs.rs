@@ -8,13 +8,13 @@ use axum::{
 };
 use chrono::Utc;
 use fd_otel::genai::pricing;
-use fd_policy::budget::BudgetUsage;
+use fd_policy::budget::{Budget, BudgetUsage};
 use fd_policy::forecast::{compute_forecast, ForecastInputs, ForecastSnapshot};
 use fd_policy::routing::RoutingDecision;
 use fd_storage::{
     models::{
-        action, actor, resource, AuditEventBuilder, CreateRun, CreateStep, RunStatus, StepStatus,
-        StepType, UpdateRun, UpdateStep,
+        action, actor, resource, AgentVersion, AuditEventBuilder, CreateRun, CreateStep, RunStatus,
+        StepStatus, StepType, UpdateRun, UpdateStep,
     },
     queue::{JobContext, StepJob},
     QueueMessage, RunForecastSnapshot,
@@ -846,6 +846,21 @@ pub async fn submit_step_result(
         cost_cents: updated_run.cost_cents as u64,
     };
 
+    // Resolve the budget this run is actually held to (per-run config override >
+    // agent-version caps > engine default), so the forecast and the auto-kill
+    // below evaluate against the run's real limits — not a single global default.
+    let effective_budget = {
+        let agent_version = repos
+            .agents()
+            .get_version(&updated_run.agent_version_id)
+            .await?;
+        resolve_run_budget(
+            &updated_run.config,
+            agent_version.as_ref(),
+            state.policy_engine.default_budget(),
+        )
+    };
+
     // -----------------------------------------------------------------------
     // Predictive run-budget forecast
     // -----------------------------------------------------------------------
@@ -861,7 +876,7 @@ pub async fn submit_step_result(
         step_cost_cents,
         prior_ewma_step_cost_cents: updated_run.ewma_step_cost_cents.map(|v| v.max(0) as u64),
     };
-    let forecast = compute_forecast(forecast_inputs, state.policy_engine.default_budget());
+    let forecast = compute_forecast(forecast_inputs, &effective_budget);
     let breach_label = forecast
         .breach_kind
         .map(breach_kind_label)
@@ -883,7 +898,9 @@ pub async fn submit_step_result(
         );
     }
 
-    let budget_decision = state.policy_engine.check_budget(&usage, None);
+    let budget_decision = state
+        .policy_engine
+        .check_budget(&usage, Some(&effective_budget));
 
     if budget_decision.is_denied() {
         warn!(
@@ -1297,4 +1314,116 @@ pub async fn check_tool_policy(
         shadow_mode: airlock_result.shadow_mode,
         decision_trace,
     }))
+}
+
+/// Resolve the effective budget a run is held to.
+///
+/// Precedence: an explicit per-run `config.budget` override wins; otherwise the
+/// run's agent-version caps apply (if it set any); otherwise the engine default.
+/// The auto-kill check and the forecast both evaluate against this, so per-agent
+/// and per-run budget caps actually bound the run instead of a single
+/// process-global default.
+fn resolve_run_budget(
+    run_config: &serde_json::Value,
+    agent_version: Option<&AgentVersion>,
+    default: &Budget,
+) -> Budget {
+    // 1. Explicit per-run override: config.budget. Partial objects are allowed —
+    //    unset axes deserialize to None (unlimited for that axis).
+    if let Some(raw) = run_config.get("budget") {
+        if let Ok(budget) = serde_json::from_value::<Budget>(raw.clone()) {
+            return budget;
+        }
+    }
+
+    // 2. Agent-version caps, if the agent configured any.
+    if let Some(av) = agent_version {
+        let has_cap = av.max_tokens.is_some()
+            || av.max_tool_calls.is_some()
+            || av.max_wall_time_secs.is_some()
+            || av.max_cost_cents.is_some();
+        if has_cap {
+            return Budget {
+                max_input_tokens: None,
+                max_output_tokens: None,
+                max_total_tokens: av.max_tokens.map(|v| v.max(0) as u64),
+                max_tool_calls: av.max_tool_calls.map(|v| v.max(0) as u32),
+                max_wall_time_ms: av.max_wall_time_secs.map(|v| (v.max(0) as u64) * 1000),
+                max_cost_cents: av.max_cost_cents.map(|v| v.max(0) as u64),
+            };
+        }
+    }
+
+    // 3. Engine default.
+    default.clone()
+}
+
+#[cfg(test)]
+mod budget_resolution_tests {
+    use super::resolve_run_budget;
+    use fd_policy::budget::Budget;
+    use fd_storage::models::AgentVersion;
+
+    fn agent_version_with_caps(
+        max_tokens: Option<i32>,
+        max_cost_cents: Option<i32>,
+    ) -> AgentVersion {
+        AgentVersion {
+            id: "agv_test".into(),
+            agent_id: "agt_test".into(),
+            version: "1.0.0".into(),
+            system_prompt: String::new(),
+            model: "claude-sonnet-4-20250514".into(),
+            model_params: serde_json::json!({}),
+            allowed_tools: vec![],
+            approval_required_tools: vec![],
+            denied_tools: vec![],
+            tool_configs: serde_json::json!({}),
+            max_tokens,
+            max_tool_calls: None,
+            max_wall_time_secs: None,
+            max_cost_cents,
+            changelog: None,
+            created_at: chrono::Utc::now(),
+            created_by: None,
+        }
+    }
+
+    #[test]
+    fn per_run_config_override_wins() {
+        let config = serde_json::json!({ "budget": { "max_cost_cents": 42 } });
+        let av = agent_version_with_caps(Some(10_000), Some(999));
+        let budget = resolve_run_budget(&config, Some(&av), &Budget::default());
+        // The explicit per-run override beats agent caps and the default.
+        assert_eq!(budget.max_cost_cents, Some(42));
+        // Axes absent from the partial override are unlimited, not inherited.
+        assert_eq!(budget.max_total_tokens, None);
+    }
+
+    #[test]
+    fn agent_caps_used_when_no_override() {
+        let config = serde_json::json!({});
+        let av = agent_version_with_caps(Some(75_000), Some(100));
+        let budget = resolve_run_budget(&config, Some(&av), &Budget::default());
+        assert_eq!(budget.max_total_tokens, Some(75_000));
+        assert_eq!(budget.max_cost_cents, Some(100));
+    }
+
+    #[test]
+    fn falls_back_to_default_when_no_override_and_no_caps() {
+        let config = serde_json::json!({});
+        let av = agent_version_with_caps(None, None);
+        let default = Budget::default();
+        let budget = resolve_run_budget(&config, Some(&av), &default);
+        assert_eq!(budget.max_cost_cents, default.max_cost_cents);
+        assert_eq!(budget.max_total_tokens, default.max_total_tokens);
+    }
+
+    #[test]
+    fn falls_back_to_default_when_no_agent_version() {
+        let config = serde_json::json!({});
+        let default = Budget::default();
+        let budget = resolve_run_budget(&config, None, &default);
+        assert_eq!(budget.max_cost_cents, default.max_cost_cents);
+    }
 }
