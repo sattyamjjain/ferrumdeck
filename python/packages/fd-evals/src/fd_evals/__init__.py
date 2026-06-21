@@ -25,6 +25,13 @@ from fd_evals.delta import (
     load_report,
     save_report,
 )
+from fd_evals.harness_delta import (
+    HARNESS_ANCHOR,
+    HarnessDelta,
+    HarnessDeltaConfig,
+    HarnessDeltaEvidence,
+    derive_harness_deltas,
+)
 from fd_evals.replay import (
     ReplayConfig,
     ReplayMode,
@@ -45,9 +52,11 @@ from fd_evals.scorers import (
     TestPassScorer,
 )
 from fd_evals.task import EvalResult, EvalTask
+from fd_evals.training_signal import score_overrides_from_results
 
 __all__ = [
     "BENCH_AUDIT_ANCHOR",
+    "HARNESS_ANCHOR",
     "BaseScorer",
     "BenchAuditReport",
     "BenchAuditor",
@@ -61,6 +70,9 @@ __all__ = [
     "EvalTask",
     "FilesChangedScorer",
     "FlagSeverity",
+    "HarnessDelta",
+    "HarnessDeltaConfig",
+    "HarnessDeltaEvidence",
     "HygieneClass",
     "LintScorer",
     "PRCreatedScorer",
@@ -74,6 +86,7 @@ __all__ = [
     "TaskFlag",
     "TestPassScorer",
     "create_trace_from_run",
+    "derive_harness_deltas",
     "generate_markdown_report",
     "load_bench_audit_report",
     "load_report",
@@ -81,4 +94,5 @@ __all__ = [
     "save_bench_audit_report",
     "save_report",
     "save_trace",
+    "score_overrides_from_results",
 ]

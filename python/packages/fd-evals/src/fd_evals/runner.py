@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from fd_evals.harness import HarnessConfig
+from fd_evals.harness_delta import HarnessDelta
 from fd_evals.scorers.base import BaseScorer, CompositeScorer
 from fd_evals.task import EvalResult, EvalRunSummary, EvalTask, ScorerResult
 
@@ -437,3 +438,53 @@ class EvalRunner:
 
         with output_path.open("w") as f:
             json.dump(summary.to_dict(), f, indent=2)
+
+    async def post_harness_suggestion(self, delta: HarnessDelta) -> dict[str, Any]:
+        """POST a proposed harness/policy delta to the control plane.
+
+        The gateway records it as a *proposal* for human review; it is never
+        auto-applied. Returns the created suggestion JSON. Raises
+        :class:`ControlPlaneError` on a non-2xx response.
+        """
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{self.control_plane_url}/v1/harness-suggestions",
+                headers=self.headers,
+                json=delta.to_create_request(),
+            )
+        if response.status_code >= 400:
+            raise ControlPlaneError(
+                f"harness-suggestion POST failed: {response.status_code} {response.text}"
+            )
+        return response.json()
+
+    async def fetch_training_signal(
+        self,
+        run_id: str,
+        run_score: float | None = None,
+        score_overrides: dict[str, float] | None = None,
+    ) -> str:
+        """Fetch a run's redacted training-signal JSONL from the control plane.
+
+        The gateway builds and redacts the signal server-side (reusing the
+        audit redaction path). ``run_score`` applies to every step without a
+        per-step override; ``score_overrides`` are keyed by ``step_id``.
+        Returns the raw JSONL text. Raises :class:`ControlPlaneError` on a
+        non-2xx response.
+        """
+        body: dict[str, Any] = {}
+        if run_score is not None:
+            body["run_score"] = run_score
+        if score_overrides:
+            body["score_overrides"] = score_overrides
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{self.control_plane_url}/v1/runs/{run_id}/training-signal",
+                headers=self.headers,
+                json=body,
+            )
+        if response.status_code >= 400:
+            raise ControlPlaneError(
+                f"training-signal export failed: {response.status_code} {response.text}"
+            )
+        return response.text
