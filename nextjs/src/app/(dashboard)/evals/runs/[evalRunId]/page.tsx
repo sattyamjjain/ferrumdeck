@@ -24,6 +24,8 @@ import {
 import { BenchTrustCard } from "@/components/evals/bench-trust-card";
 import { CostDecompositionPanel } from "@/components/evals/cost-decomposition-panel";
 import { HarnessConfigPanel } from "@/components/evals/harness-config-panel";
+import { HarnessSuggestionsPanel } from "@/components/evals/harness-suggestions-panel";
+import { TrainingSignalDownload } from "@/components/evals/training-signal-download";
 import { useEvalRun, useCancelEvalRun } from "@/hooks/use-evals";
 import {
   formatTimeAgo,
@@ -297,7 +299,21 @@ export default function EvalRunDetailPage({ params }: EvalRunDetailPageProps) {
           </div>
         ) : (
           <div className="space-y-6">
+            <div className="flex justify-end">
+              <TrainingSignalDownload
+                runIds={evalRun.task_results
+                  .map((t) => t.run_id)
+                  .filter((id): id is string => Boolean(id))}
+                runScores={Object.fromEntries(
+                  evalRun.task_results
+                    .filter((t) => t.run_id)
+                    .map((t) => [t.run_id as string, t.score])
+                )}
+                filename={`training-signal-${evalRun.id}`}
+              />
+            </div>
             <HarnessConfigPanel evalRun={evalRun} />
+            <HarnessSuggestionsPanel agentId={evalRun.agent_id} />
             <CostDecompositionPanel evalRun={evalRun} />
             {evalRun.bench_audit && (
               <BenchTrustCard audit={evalRun.bench_audit} />

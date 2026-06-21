@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/empty-state";
+import { TrainingSignalDownload } from "@/components/evals/training-signal-download";
 import { useEvalSuite, useEvalRuns, useRunEvalSuite } from "@/hooks/use-evals";
 import {
   formatTimeAgo,
@@ -305,6 +306,22 @@ export default function SuiteDetailPage({ params }: SuiteDetailPageProps) {
 
           {/* Run History Tab */}
           <TabsContent value="history" className="mt-6">
+            {runs.length > 0 && (
+              <div className="flex justify-end mb-3">
+                <TrainingSignalDownload
+                  runIds={(runs[0]?.task_results ?? [])
+                    .map((t) => t.run_id)
+                    .filter((id): id is string => Boolean(id))}
+                  runScores={Object.fromEntries(
+                    (runs[0]?.task_results ?? [])
+                      .filter((t) => t.run_id)
+                      .map((t) => [t.run_id as string, t.score])
+                  )}
+                  filename={`training-signal-${suiteId}-latest`}
+                  label="Download training signal (latest run)"
+                />
+              </div>
+            )}
             {runsLoading ? (
               <Card>
                 <CardContent className="p-6">
