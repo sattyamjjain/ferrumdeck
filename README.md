@@ -97,6 +97,15 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
 - **Schema-drift and behavioral-drift Airlock layers** are implemented and
   unit-tested but are **not activated** in the running gateway (they need
   `tool_version_id` / `agent_id` plumbed into the inspection context).
+- **Trace→signal loop (HarnessX).** The harness-suggestion governance
+  endpoints (`/v1/harness-suggestions*`) and the training-signal export
+  (`POST /v1/runs/{id}/training-signal`, redacted server-side via the audit
+  redaction path) are implemented, unit-tested, and wired into the dashboard.
+  But the **evals dashboard data is still BFF-stubbed** (`/api/v1/evals/*`
+  returns empty until a gateway eval backend lands), so the full
+  eval→gateway→dashboard round-trip is demonstrable only with a live stack and
+  a non-stub eval feed. Approving a suggestion **records** the decision; it
+  never auto-applies a policy/allowlist/budget change.
 - **Audit tamper-evidence.** The log is append-only at the application layer,
   but there is **no cryptographic hash-chain or DB-level write-once enforcement
   yet** — so it is not tamper-*evident* against a privileged database actor. A
@@ -128,6 +137,7 @@ Found a gap not listed here? Please open an issue — accurate status is a featu
 - **Explicit Conflict Resolution + Decision Traces**: When multiple policies match a tool call, a named precedence function (`Deny > RequiresApproval > BudgetCap > Allow`) picks the winner deterministically, and every decision carries an audit-grade trace of matched verdicts and overrides surfaced on the run API + `policy.decision.explained` SSE event. See [`docs/runbooks/policy-conflict-resolution.md`](docs/runbooks/policy-conflict-resolution.md).
 - **Routing-Decision Audit (multi-agent coordination)**: Every time the orchestrator binds a subtask to a concrete agent / role / model, a `RoutingDecision` record (candidates considered, chosen binding, reason code, SHA-256 content hash) is written through the existing immutable audit trail and surfaced on `GET /v1/runs/{id}/routing` plus the `routing.decision.recorded` SSE event. fd-evals replays compare the content hash to detect coordination drift. Anchor: AgensFlow ([arXiv:2605.27466](https://arxiv.org/abs/2605.27466)). See [`docs/runbooks/routing-decision-audit.md`](docs/runbooks/routing-decision-audit.md).
 - **Champion-Challenger Promotion Gate**: A registered challenger version cannot replace the live champion until it clears a deterministic gate — configurable metric thresholds (inclusive floors) **plus** a required human approval. Deny-by-default: the challenger stays in shadow until explicitly promoted. The decision + metric evidence (SHA-256 content hash for tamper-evidence) flow through the **same** `PolicyDecision` channel every gate uses and are written to the immutable audit trail. Exposed on `POST /v1/promotions/evaluate` (write scope) + `GET /v1/promotions/{agent_id}`, surfaced on the agent dashboard (champion vs challenger + gate status). See [`docs/runbooks/champion-challenger-promotion.md`](docs/runbooks/champion-challenger-promotion.md).
+- **Eval-Driven Harness Suggestions (trace→delta, HarnessX)**: fd-evals turns the aggregate signal across an eval run's trace into a *proposed* harness/policy delta — e.g. "run cost exceeded the cap on 7/10 runs → propose a tighter per-call cap" — and POSTs it to the control plane. The `HarnessSuggestion` is content-hashed and written to the immutable audit trail (same store as the promotion gate, no parallel channel), exposed on `POST /v1/harness-suggestions` + `GET /v1/harness-suggestions/agent/{agent_id}` + `POST /v1/harness-suggestions/{id}/resolve`, and surfaced on the eval-run dashboard with a **review/approve** panel. **Human-in-the-loop, deny-by-default**: approving *records* the decision in the audit trail and **never** auto-applies a change to a live policy, allowlist, or budget — applying remains a separate, explicit step.
 - **Delegation-Aware Budget Leases**: The stateless budget gate compares an accumulated usage snapshot against a cap, which lets a parent task that delegates to N children collectively spend up to `N ×` the cap — every child checking the same cap believes it owns the whole budget (the Token-Budgets delegation-fanout class). A `BudgetLease` closes that gap: all leases in one delegation tree share a single atomic remaining-budget pool, a child is handed a sub-lease **carved from** (not copied alongside) the parent's authority, and every spend decrements the one shared pool — so total spend across parent + children can never exceed the root cap, even under concurrent fan-out. The lease is move-only (`!Copy`, `!Clone`): a lease moved into a delegated child is a compile error if the parent reuses it, runtime-rejected otherwise. Anchor: Token Budgets ([arXiv:2606.04056](https://arxiv.org/abs/2606.04056)).
 
 ### Observability
@@ -148,6 +158,7 @@ Found a gap not listed here? Please open an issue — accurate status is a featu
 - **Regression Gating**: CI blocks merges if agent quality degrades
 - **Baseline Comparisons**: Track performance across versions
 - **Per-harness eval dimension (Harness-Bench)**: fd-evals reports at the `(model × harness_config)` level — same model under different harness configs can produce different scores. Each run records its `tools_available`, `permission_tier`, `state_recovery`, and `tracing` config alongside the existing baseline, the dashboard groups results by `(model × harness)` with a side-by-side Recharts bar chart, and `DeltaReport` exposes a per-dimension diff (added/removed tools, tier change, recovery change). See [`docs/runbooks/harness-config.md`](docs/runbooks/harness-config.md).
+- **Training-signal export (trace→signal, HarnessX)**: closes the eval loop the other way — projects a run's trace into a JSONL of `(state, action, observation, outcome_score)` tuples for downstream training/eval. Built **server-side** at `POST /v1/runs/{id}/training-signal`, where every `state`/`observation` is run through the **existing audit redaction path** (`fd_audit::redaction`) so PII/secrets are stripped before they ever leave the control plane; `outcome_score` is trace-intrinsic (step status) with an optional eval-supplied `run_score` override. The dashboard exposes a per-suite/per-run "Download training signal" action.
 
 ---
 
