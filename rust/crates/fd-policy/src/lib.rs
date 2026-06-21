@@ -12,6 +12,7 @@ pub mod budget;
 pub mod decision;
 pub mod engine;
 pub mod forecast;
+pub mod harness;
 pub mod lease;
 pub mod precedence;
 pub mod promotion;
@@ -23,6 +24,10 @@ pub mod trace;
 pub use bench_audit::{BenchAuditPolicy, BenchGatedClaim, BenchTrustSummary, BENCH_AUDIT_ANCHOR};
 pub use decision::{PolicyDecision, PolicyDecisionKind};
 pub use engine::PolicyEngine;
+pub use harness::{
+    fold_status, HarnessSuggestion, SuggestionEvidence, SuggestionKind, SuggestionStatus,
+    HARNESS_ANCHOR,
+};
 pub use lease::{BudgetLease, LeaseError, SharedBudget, LEASE_ANCHOR};
 pub use precedence::{
     precedence_rank, resolve_conflicts, OverrideRecord, PolicyVerdict, ResolvedDecision,

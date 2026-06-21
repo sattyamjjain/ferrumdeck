@@ -144,6 +144,56 @@ impl AuditRepo {
         .await
     }
 
+    /// List every harness-suggestion audit event for one agent, newest-first.
+    ///
+    /// Matches all three lifecycle actions via the `harness.suggestion.%`
+    /// prefix (`created`, `approved`, `rejected`) and `resource_id = agent_id`.
+    /// The gateway read path groups by the suggestion id carried in `details`
+    /// and folds the `approved`/`rejected` chain into a status via
+    /// `fd_policy::harness::fold_status`. Standard `audit_events` table — no
+    /// parallel store; a suggestion is a proposal only, never auto-applied.
+    #[instrument(skip(self))]
+    pub async fn list_harness_suggestions(
+        &self,
+        agent_id: &str,
+        limit: i64,
+    ) -> Result<Vec<AuditEvent>, sqlx::Error> {
+        sqlx::query_as::<_, AuditEvent>(
+            r#"
+            SELECT * FROM audit_events
+            WHERE resource_id = $1 AND action LIKE 'harness.suggestion.%'
+            ORDER BY occurred_at DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(agent_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Fetch the single `harness.suggestion.created` event for a suggestion id
+    /// (the suggestion id lives in `details->>'id'`). Used by the resolve
+    /// endpoint to recover the target agent + project for the access check.
+    #[instrument(skip(self))]
+    pub async fn get_harness_suggestion_created(
+        &self,
+        suggestion_id: &str,
+    ) -> Result<Option<AuditEvent>, sqlx::Error> {
+        sqlx::query_as::<_, AuditEvent>(
+            r#"
+            SELECT * FROM audit_events
+            WHERE action = $1 AND details->>'id' = $2
+            ORDER BY occurred_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(crate::models::audit::action::HARNESS_SUGGESTION_CREATED)
+        .bind(suggestion_id)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
     /// List audit events by action
     #[instrument(skip(self))]
     pub async fn list_by_action(

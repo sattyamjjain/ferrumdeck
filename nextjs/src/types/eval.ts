@@ -79,6 +79,9 @@ export interface EvalTaskResult {
   // dashboard's `CostDecompositionPanel`; absent on legacy runs.
   cost_breakdown?: CostBreakdown;
   call_records?: CallRecord[];
+  // Gateway run id this task executed as. Optional/additive: drives the
+  // per-suite training-signal export. Absent on legacy/stub runs.
+  run_id?: string;
 }
 
 // Difference between expected and actual output
@@ -319,6 +322,10 @@ export interface EvalRun {
   // Run-level debt-vs-tax breakdown (§2605.27320). Aggregated from per-task
   // breakdowns by the runner; absent on legacy runs.
   cost_breakdown?: CostBreakdown;
+  // Agent the run targets. Optional/additive: when present, the run-detail
+  // page surfaces the audit-backed `HarnessSuggestionsPanel` for this agent.
+  // Absent on legacy/stub runs (the panel then renders null).
+  agent_id?: string;
 }
 
 // Breakdown of scores by scorer

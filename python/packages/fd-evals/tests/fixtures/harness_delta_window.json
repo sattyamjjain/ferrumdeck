@@ -1,0 +1,17 @@
+{
+  "agent_id": "agt_demo",
+  "per_run_cap_cents": 100,
+  "comment": "10 runs, 7 over the 100-cent per-run cap -> a budget delta should fire at breach_rate 0.7.",
+  "runs": [
+    {"run_id": "run_01", "total_cost_cents": 150, "total_tasks": 1, "passed_tasks": 1},
+    {"run_id": "run_02", "total_cost_cents": 220, "total_tasks": 1, "passed_tasks": 1},
+    {"run_id": "run_03", "total_cost_cents": 90,  "total_tasks": 1, "passed_tasks": 1},
+    {"run_id": "run_04", "total_cost_cents": 310, "total_tasks": 1, "passed_tasks": 0},
+    {"run_id": "run_05", "total_cost_cents": 80,  "total_tasks": 1, "passed_tasks": 1},
+    {"run_id": "run_06", "total_cost_cents": 140, "total_tasks": 1, "passed_tasks": 1},
+    {"run_id": "run_07", "total_cost_cents": 175, "total_tasks": 1, "passed_tasks": 1},
+    {"run_id": "run_08", "total_cost_cents": 60,  "total_tasks": 1, "passed_tasks": 1},
+    {"run_id": "run_09", "total_cost_cents": 200, "total_tasks": 1, "passed_tasks": 1},
+    {"run_id": "run_10", "total_cost_cents": 130, "total_tasks": 1, "passed_tasks": 1}
+  ]
+}

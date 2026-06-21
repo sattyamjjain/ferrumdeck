@@ -120,6 +120,16 @@ pub mod action {
     // when a completed run's grounding rate falls below the project's optional
     // `min_claim_grounding_rate`. A signal only — the run status is untouched.
     pub const CLAIM_GROUNDING_BELOW_THRESHOLD: &str = "reliability.claim_grounding_below_threshold";
+    // Eval-driven harness/policy suggestions (HarnessX trace→delta loop). The
+    // full HarnessSuggestion JSON lives in `audit_events.details` on the
+    // `created` event; `approved`/`rejected` are append-only resolution events
+    // carrying `{suggestion_id, approved, note}`. All three share the
+    // `harness.suggestion.` prefix so `AuditRepo::list_harness_suggestions`
+    // can fold the lifecycle. A suggestion is a PROPOSAL only — it never
+    // mutates a live policy/allowlist/budget.
+    pub const HARNESS_SUGGESTION_CREATED: &str = "harness.suggestion.created";
+    pub const HARNESS_SUGGESTION_APPROVED: &str = "harness.suggestion.approved";
+    pub const HARNESS_SUGGESTION_REJECTED: &str = "harness.suggestion.rejected";
 }
 
 /// Resource types
@@ -137,6 +147,11 @@ pub mod resource {
     /// Champion-challenger promotion decision — paired with
     /// `action::PROMOTION_DECIDED`. The `resource_id` is the agent id.
     pub const PROMOTION: &str = "promotion";
+    /// Eval-driven harness/policy suggestion — paired with the
+    /// `action::HARNESS_SUGGESTION_*` constants. The `resource_id` is the
+    /// agent id (so suggestions list per agent); the suggestion's own id
+    /// lives in `details`.
+    pub const HARNESS_SUGGESTION: &str = "harness_suggestion";
 }
 
 /// Audit event builder for ergonomic creation
