@@ -97,6 +97,11 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
 - **Schema-drift and behavioral-drift Airlock layers** are implemented and
   unit-tested but are **not activated** in the running gateway (they need
   `tool_version_id` / `agent_id` plumbed into the inspection context).
+- **Coherence-divergence monitor** (`airlock/coherence.rs`) is implemented and
+  unit-tested as a library primitive with a streaming API
+  (`CoherenceMonitor::observe_event`), but is **not yet wired** to the live
+  audit-event stream — a consumer must feed it run-trajectory events for it to
+  emit mid-run. See the [Airlock RASP](#airlock-rasp) section.
 - **Audit tamper-evidence.** The log is append-only at the application layer,
   but there is **no cryptographic hash-chain or DB-level write-once enforcement
   yet** — so it is not tamper-*evident* against a privileged database actor. A
@@ -1064,6 +1069,38 @@ violations to the [`/threats` dashboard page](#dashboard-nextjs).
 Configure via the gateway's `AirlockConfig` — each layer has independent
 `enabled`, thresholds, and risk-score defaults. See
 `rust/crates/fd-policy/src/airlock/config.rs`.
+
+#### Coherence-Divergence Monitor — a trajectory-level signal
+
+The five layers above each inspect a **single** tool call in isolation. The
+coherence-divergence monitor (`rust/crates/fd-policy/src/airlock/coherence.rs`)
+is different: it watches the agent run **trajectory** — the audit-trail event
+stream — for a sequential failure no per-call check can see. The agent **states
+a fact that should change its plan** ("tests still failing", "permission
+denied", "the file does not exist") and the very next *advancing* action
+proceeds **as if that fact were untrue** (marks the task done, commits, reports
+success). Each divergence is emitted as a structured `CoherenceSpan` carrying
+the stated-fact quote, the contradicting action, a confidence in `[0, 1]`, and
+a severity — and `CoherenceSpan::to_violation()` projects it onto the same
+`AirlockViolation` shape (`violation_type = coherence_divergence`) as every
+other layer, so it lands in the identical `audit_events.details` path.
+
+Motivation — **Strained Coherence**
+([arXiv:2606.07889](https://arxiv.org/abs/2606.07889)): in that study, coding-
+agent trajectories exhibiting this divergence failed **94%** of the time versus
+**46%** for trajectories without it (Fisher's exact p = 0.003). That is a
+pre-failure signal worth surfacing *before* the run finishes, so the monitor is
+**streaming**: `CoherenceMonitor::observe_event` consumes one trajectory event
+at a time and returns a span the instant a divergence appears, rather than only
+in a post-hoc autopsy. A false-positive guard keeps it honest — a run that
+**acknowledges and acts on** the blocking fact (remediates, states it resolved,
+or disclaims success in the action itself) does not fire.
+
+> **Status:** implemented and unit-tested as a library primitive. It is **not
+> yet wired** to the live audit-event stream — a worker/gateway consumer must
+> feed it run-trajectory events. Configured by `CoherenceConfig` (separate from
+> the per-call `AirlockConfig`, since it is driven by `CoherenceMonitor` rather
+> than `AirlockInspector::inspect`).
 
 #### Exfiltration Shield — credential & data-budget detail
 
