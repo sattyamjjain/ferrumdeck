@@ -352,10 +352,39 @@ function generateMockEvent(channelType: string, channelName: string): SSEEvent |
         "step_completed",
         "run.forecast.updated",
         "policy.decision.explained",
+        "policy.response.recorded",
         "routing.decision.recorded",
       ];
       const eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
       const runId = channelName.split(":")[1] || "run_demo";
+
+      if (eventType === "policy.response.recorded") {
+        // Reversibility-aware graduated response (DeepMind AI Control Roadmap
+        // R1-R3 ladder). The gateway picks a rung per tool call from the
+        // tool's reversibility + the run's budget headroom. This mock locks in
+        // the SSE wire shape; the console renders the rung from the polled run
+        // endpoint today (gateway -> BFF push deferred, same pattern as
+        // run.forecast.updated). See docs/runbooks/graduated-response-levels.md.
+        const variants = [
+          { reversibility: "reversible", response_level: "allow_and_log" },
+          { reversibility: "costly", response_level: "allow_under_budget" },
+          { reversibility: "irreversible", response_level: "require_approval" },
+        ] as const;
+        const pick = variants[Math.floor(Math.random() * variants.length)];
+        return {
+          id,
+          type: "policy.response.recorded",
+          channel: channelName,
+          timestamp,
+          payload: {
+            run_id: runId,
+            tool_name: "write_file",
+            response_level: pick.response_level,
+            reversibility: pick.reversibility,
+            at: timestamp,
+          },
+        };
+      }
 
       if (eventType === "policy.decision.explained") {
         // Policy-conflict resolution explanation trace. Emitted each time a

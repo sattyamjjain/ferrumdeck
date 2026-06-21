@@ -91,6 +91,10 @@ impl RunsRepo {
         }
         if update.error.is_some() {
             set_clauses.push(format!("error = ${}", param_idx));
+            param_idx += 1;
+        }
+        if update.response_level.is_some() {
+            set_clauses.push(format!("response_level = ${}", param_idx));
         }
 
         if set_clauses.is_empty() {
@@ -133,6 +137,9 @@ impl RunsRepo {
         }
         if let Some(error) = &update.error {
             q = q.bind(error);
+        }
+        if let Some(response_level) = &update.response_level {
+            q = q.bind(response_level);
         }
 
         q.fetch_optional(&self.pool).await

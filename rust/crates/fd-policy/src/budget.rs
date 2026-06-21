@@ -37,6 +37,21 @@ impl Default for Budget {
     }
 }
 
+impl Budget {
+    /// Whether spending `additional_cents` on top of the current `usage` would
+    /// still fit under the cost cap. `true` when no cost cap is configured.
+    ///
+    /// Used by the reversibility ladder's R2 rung: a `Costly` tool call is
+    /// allowed under budget while this returns `true`, and escalates to an
+    /// approval gate once it returns `false`.
+    pub fn has_cost_headroom(&self, usage: &BudgetUsage, additional_cents: u64) -> bool {
+        match self.max_cost_cents {
+            Some(cap) => usage.cost_cents.saturating_add(additional_cents) <= cap,
+            None => true,
+        }
+    }
+}
+
 /// Current usage against budget
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BudgetUsage {
@@ -154,5 +169,53 @@ impl std::fmt::Display for BudgetExceeded {
                 )
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cost_headroom_respects_cap() {
+        let budget = Budget {
+            max_cost_cents: Some(100),
+            ..Budget::default()
+        };
+        let usage = BudgetUsage {
+            cost_cents: 80,
+            ..BudgetUsage::default()
+        };
+        // 80 + 20 = 100 <= 100 → headroom.
+        assert!(budget.has_cost_headroom(&usage, 20));
+        // 80 + 21 = 101 > 100 → exhausted.
+        assert!(!budget.has_cost_headroom(&usage, 21));
+    }
+
+    #[test]
+    fn cost_headroom_true_when_no_cap() {
+        let budget = Budget {
+            max_cost_cents: None,
+            ..Budget::default()
+        };
+        let usage = BudgetUsage {
+            cost_cents: 10_000,
+            ..BudgetUsage::default()
+        };
+        assert!(budget.has_cost_headroom(&usage, u64::MAX));
+    }
+
+    #[test]
+    fn cost_headroom_saturates_on_overflow() {
+        let budget = Budget {
+            max_cost_cents: Some(u64::MAX),
+            ..Budget::default()
+        };
+        let usage = BudgetUsage {
+            cost_cents: u64::MAX,
+            ..BudgetUsage::default()
+        };
+        // Saturating add avoids a panic; u64::MAX <= u64::MAX holds.
+        assert!(budget.has_cost_headroom(&usage, 5));
     }
 }

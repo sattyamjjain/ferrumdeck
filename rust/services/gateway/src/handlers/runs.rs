@@ -100,6 +100,12 @@ pub struct RunResponse {
     /// When the latest forecast snapshot was computed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub forecast_at: Option<String>,
+    /// Graduated reversibility-aware response level last applied to a tool call
+    /// on this run (`allow_and_log` | `allow_under_budget` | `require_approval`,
+    /// the DeepMind R1–R3 ladder). `None` until the first policy check runs.
+    /// This is the field the run console renders (via the polled run endpoint).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_level: Option<String>,
 }
 
 /// Query parameters for listing runs
@@ -217,6 +223,7 @@ fn run_to_response(run: fd_storage::models::Run) -> RunResponse {
         budget_breach_projected: run.budget_breach_projected,
         breach_kind: run.breach_kind,
         forecast_at: run.forecast_at.map(|t| t.to_rfc3339()),
+        response_level: run.response_level,
     }
 }
 
@@ -1069,11 +1076,26 @@ pub struct CheckToolResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Object)]
     pub decision_trace: Option<fd_policy::trace::DecisionTrace>,
+
+    /// The tool's reversibility tier that drove the graduated response
+    /// (`reversible` | `costly` | `irreversible`).
+    #[serde(default)]
+    pub reversibility: String,
+    /// The chosen graduated response level (DeepMind R1–R3 ladder):
+    /// `allow_and_log` (R1) | `allow_under_budget` (R2) | `require_approval`
+    /// (R3). Folded with the allowlist decision, more-restrictive-wins.
+    #[serde(default)]
+    pub response_level: String,
 }
 
 /// Check if a tool call is allowed by policy and Airlock security inspection
 /// Workers should call this before executing tool steps
-#[instrument(skip(state, auth), fields(run_id = %run_id, tool_name = %request.tool_name))]
+#[instrument(skip(state, auth), fields(
+    run_id = %run_id,
+    tool_name = %request.tool_name,
+    ferrumdeck.policy.response_level = tracing::field::Empty,
+    ferrumdeck.policy.reversibility = tracing::field::Empty,
+))]
 pub async fn check_tool_policy(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
@@ -1099,19 +1121,52 @@ pub async fn check_tool_policy(
     // a process-global default — so each agent is held to exactly the tools it was
     // configured with. A run whose agent version is missing falls back to an empty
     // allowlist, i.e. deny-by-default.
-    let allowlist = repos
-        .agents()
-        .get_version(&run.agent_version_id)
-        .await?
+    let agent_version = repos.agents().get_version(&run.agent_version_id).await?;
+    let allowlist = agent_version
+        .as_ref()
         .map(|av| fd_policy::ToolAllowlist {
-            allowed_tools: av.allowed_tools,
-            approval_required: av.approval_required_tools,
-            denied_tools: av.denied_tools,
+            allowed_tools: av.allowed_tools.clone(),
+            approval_required: av.approval_required_tools.clone(),
+            denied_tools: av.denied_tools.clone(),
         })
         .unwrap_or_default();
     let decision = state
         .policy_engine
         .evaluate_tool_call_with(&allowlist, &request.tool_name);
+
+    // Step 1b: Reversibility-aware graduated response (DeepMind AI Control
+    // Roadmap R1–R3 ladder). Reversibility is orthogonal to the allowlist's
+    // risk tiers: a `Reversible` tool is allowed-and-logged (R1), a `Costly`
+    // one is allowed only while the run's cost budget has headroom and
+    // escalates to approval once exhausted (R2→R3), and an `Irreversible` one
+    // always requires approval (R3). An UNREGISTERED tool defaults to
+    // Irreversible (deny-by-default). The rung is folded into the allowlist
+    // decision more-restrictive-wins, so it can only ever *add* friction.
+    let reversibility = repos
+        .tools()
+        .find_by_name_or_slug(&request.tool_name)
+        .await?
+        .map(|t| fd_policy::Reversibility::parse(&t.reversibility))
+        .unwrap_or_default();
+    let effective_budget =
+        resolve_run_budget(&run.config, agent_version.as_ref(), &Budget::default());
+    let usage = fd_policy::budget::BudgetUsage {
+        input_tokens: run.input_tokens.max(0) as u64,
+        output_tokens: run.output_tokens.max(0) as u64,
+        tool_calls: run.tool_calls.max(0) as u32,
+        wall_time_ms: 0,
+        cost_cents: run.cost_cents.max(0) as u64,
+    };
+    let has_headroom =
+        effective_budget.has_cost_headroom(&usage, request.estimated_cost_cents.unwrap_or(0));
+    let response_level = fd_policy::graduated_response(reversibility, has_headroom);
+    let combined_kind = fd_policy::combine_response(decision.kind, response_level);
+
+    // Emit the chosen rung on the current OTel/GenAI span (mirrored to the
+    // audit trail + the polled RunResponse below).
+    let span = tracing::Span::current();
+    span.record("ferrumdeck.policy.response_level", response_level.as_str());
+    span.record("ferrumdeck.policy.reversibility", reversibility.as_str());
 
     // Step 2: Run Airlock inspection on the tool input payload
     let tool_input = request.tool_input.clone().unwrap_or(serde_json::json!({}));
@@ -1234,23 +1289,55 @@ pub async fn check_tool_policy(
         .details(serde_json::json!({
             "tool_name": request.tool_name,
             "decision": format!("{:?}", decision.kind),
+            "effective_decision": format!("{:?}", combined_kind),
             "reason": decision.reason,
+            "reversibility": reversibility.as_str(),
+            "response_level": response_level.as_str(),
+            "response_rung": response_level.rung(),
+            "budget_headroom": has_headroom,
             "airlock_risk_score": airlock_result.risk_score,
             "airlock_blocked": !airlock_result.allowed,
         }))
         .build();
     repos.spawn_audit(audit_event);
 
-    // Step 6: Determine final allowed status
-    // Tool is allowed if: policy allows AND (airlock allows OR airlock is in shadow mode)
-    let policy_allowed = decision.is_allowed();
+    // Step 6: Determine final allowed status, using the reversibility-folded
+    // decision (`combined_kind`) rather than the raw allowlist decision — so a
+    // tool the allowlist would `Allow` but whose reversibility demands a gate
+    // correctly reports `requires_approval` / not-immediately-allowed.
+    // Tool is allowed if: policy allows AND (airlock allows OR shadow mode).
+    let policy_allowed = matches!(
+        combined_kind,
+        fd_policy::PolicyDecisionKind::Allow | fd_policy::PolicyDecisionKind::AllowWithWarning
+    );
+    let requires_approval = matches!(
+        combined_kind,
+        fd_policy::PolicyDecisionKind::RequiresApproval
+    );
     let airlock_blocked = !airlock_result.allowed;
     let final_allowed = policy_allowed && !airlock_blocked;
 
-    // Step 7: If blocked by either policy or airlock, update run status
+    // Reason shown when the reversibility ladder (not the allowlist) is what
+    // gated the call, so the operator sees *why* approval is now required.
+    let ladder_upgraded = combined_kind != decision.kind;
+
+    // Step 7: Persist run state. Always record the chosen response level (so the
+    // polled run console can render it); additionally mark the run blocked when
+    // the call cannot proceed.
+    let response_level_str = response_level.as_str().to_string();
     if !final_allowed {
         let (status, reason) = if !policy_allowed {
-            (RunStatus::PolicyBlocked, decision.reason.clone())
+            let base = if ladder_upgraded {
+                format!(
+                    "reversibility ladder ({}, {}) requires approval: {}",
+                    reversibility.as_str(),
+                    response_level.rung(),
+                    decision.reason
+                )
+            } else {
+                decision.reason.clone()
+            };
+            (RunStatus::PolicyBlocked, base)
         } else {
             let violation_msg = airlock_result
                 .violation
@@ -1264,6 +1351,7 @@ pub async fn check_tool_policy(
             run_id = %run_id,
             tool_name = %request.tool_name,
             reason = %reason,
+            response_level = %response_level_str,
             "Tool call blocked"
         );
 
@@ -1275,6 +1363,19 @@ pub async fn check_tool_policy(
                     status: Some(status),
                     status_reason: Some(reason.clone()),
                     completed_at: Some(Utc::now()),
+                    response_level: Some(response_level_str.clone()),
+                    ..Default::default()
+                },
+            )
+            .await?;
+    } else {
+        // Allowed: still record the response level for the run console.
+        repos
+            .runs()
+            .update(
+                &run_id,
+                UpdateRun {
+                    response_level: Some(response_level_str.clone()),
                     ..Default::default()
                 },
             )
@@ -1295,7 +1396,7 @@ pub async fn check_tool_policy(
 
     Ok(Json(CheckToolResponse {
         allowed: final_allowed,
-        requires_approval: decision.needs_approval(),
+        requires_approval,
         decision_id: decision.id.to_string(),
         reason: if !final_allowed && airlock_blocked {
             airlock_result
@@ -1303,6 +1404,13 @@ pub async fn check_tool_policy(
                 .as_ref()
                 .map(|v| v.details.clone())
                 .unwrap_or(decision.reason)
+        } else if ladder_upgraded && requires_approval {
+            format!(
+                "reversibility ladder ({}, {}) requires approval: {}",
+                reversibility.as_str(),
+                response_level.rung(),
+                decision.reason
+            )
         } else {
             decision.reason
         },
@@ -1313,6 +1421,8 @@ pub async fn check_tool_policy(
         blocked_by_airlock: airlock_blocked,
         shadow_mode: airlock_result.shadow_mode,
         decision_trace,
+        reversibility: reversibility.as_str().to_string(),
+        response_level: response_level_str,
     }))
 }
 

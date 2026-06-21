@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/tooltip";
 import { RunStatusBadge } from "./run-status-badge";
 import { BudgetProjectionBadge } from "./budget-projection-badge";
+import { ResponseLevelBadge } from "./response-level-badge";
 import {
   formatCost,
   formatTokens,
@@ -161,6 +162,8 @@ export function RunHeader({ run, stepCount = 0 }: RunHeaderProps) {
                   breachKind={run.breach_kind}
                   forecastAt={run.forecast_at}
                 />
+
+                <ResponseLevelBadge responseLevel={run.response_level} />
               </div>
 
               {/* Context Row */}

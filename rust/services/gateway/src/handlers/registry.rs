@@ -99,6 +99,11 @@ pub struct CreateToolRequest {
     pub description: Option<String>,
     pub mcp_server: String,
     pub risk_level: String,
+    /// Reversibility tier (`reversible` | `costly` | `irreversible`) — an axis
+    /// orthogonal to `risk_level`. Optional; unknown / absent normalizes to
+    /// `irreversible` (deny-by-default) via `fd_policy::Reversibility::parse`.
+    #[serde(default)]
+    pub reversibility: Option<String>,
     pub input_schema: serde_json::Value,
     pub output_schema: Option<serde_json::Value>,
 }
@@ -113,6 +118,8 @@ pub struct ToolResponse {
     pub mcp_server: String,
     pub status: String,
     pub risk_level: String,
+    /// Reversibility tier — see `CreateToolRequest::reversibility`.
+    pub reversibility: String,
     pub created_at: String,
 }
 
@@ -163,6 +170,7 @@ fn tool_to_response(tool: fd_storage::models::Tool) -> ToolResponse {
         mcp_server: tool.mcp_server,
         status: format!("{:?}", tool.status).to_lowercase(),
         risk_level: format!("{:?}", tool.risk_level).to_lowercase(),
+        reversibility: tool.reversibility,
         created_at: tool.created_at.to_rfc3339(),
     }
 }
@@ -429,6 +437,13 @@ pub async fn create_tool(
         _ => return Err(ApiError::bad_request("Invalid risk_level")),
     };
 
+    // Normalize reversibility to a canonical tier; unknown / absent → the
+    // most-restrictive `irreversible` rung (deny-by-default).
+    let reversibility =
+        fd_policy::Reversibility::parse(request.reversibility.as_deref().unwrap_or("irreversible"))
+            .as_str()
+            .to_string();
+
     let tool_id = format!("tol_{}", Ulid::new());
     let version_id = format!("tlv_{}", Ulid::new());
 
@@ -440,6 +455,7 @@ pub async fn create_tool(
         description: request.description,
         mcp_server: request.mcp_server,
         risk_level,
+        reversibility,
     };
 
     let tool = repos.tools().create(create_tool).await?;

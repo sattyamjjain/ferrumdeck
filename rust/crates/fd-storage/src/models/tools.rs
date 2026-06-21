@@ -24,6 +24,13 @@ pub enum ToolRiskLevel {
     Destructive,
 }
 
+/// Default reversibility for a tool — deny-by-default: an unclassified tool is
+/// treated as `irreversible` (the most consequential rung). Mirrors
+/// `fd_policy::reversibility::Reversibility::default()`.
+pub fn default_reversibility() -> String {
+    "irreversible".to_string()
+}
+
 /// Tool entity
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Tool {
@@ -35,6 +42,12 @@ pub struct Tool {
     pub mcp_server: String,
     pub status: ToolStatus,
     pub risk_level: ToolRiskLevel,
+    /// Reversibility tier (`reversible` | `costly` | `irreversible`) — an
+    /// axis orthogonal to `risk_level`, consumed by the policy engine's
+    /// graduated-response ladder. Stored as TEXT; parsed by
+    /// `fd_policy::reversibility::Reversibility::parse` (unknown → irreversible).
+    #[serde(default = "default_reversibility")]
+    pub reversibility: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -49,6 +62,8 @@ pub struct CreateTool {
     pub description: Option<String>,
     pub mcp_server: String,
     pub risk_level: ToolRiskLevel,
+    #[serde(default = "default_reversibility")]
+    pub reversibility: String,
 }
 
 /// Update tool request
@@ -58,6 +73,7 @@ pub struct UpdateTool {
     pub description: Option<String>,
     pub status: Option<ToolStatus>,
     pub risk_level: Option<ToolRiskLevel>,
+    pub reversibility: Option<String>,
 }
 
 /// Tool version entity

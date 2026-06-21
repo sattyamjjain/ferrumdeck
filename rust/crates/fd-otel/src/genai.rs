@@ -72,6 +72,15 @@ pub mod attrs {
     pub const FERRUMDECK_ATTESTATION_SCHEME: &str = "ferrumdeck.attestation.scheme";
     pub const FERRUMDECK_ATTESTATION_SELF_REPORTED_UNVERIFIED: &str =
         "ferrumdeck.attestation.self_reported_unverified";
+
+    // Reversibility-aware graduated response (DeepMind AI Control Roadmap
+    // R1–R3 ladder). `response_level` is the chosen rung
+    // (`allow_and_log` | `allow_under_budget` | `require_approval`) and
+    // `reversibility` is the tool's recoverability tier that drove it. Set on
+    // the policy/tool-check span; mirrored to the audit trail + the polled
+    // `RunResponse`. See `fd_policy::reversibility`.
+    pub const FERRUMDECK_POLICY_RESPONSE_LEVEL: &str = "ferrumdeck.policy.response_level";
+    pub const FERRUMDECK_POLICY_REVERSIBILITY: &str = "ferrumdeck.policy.reversibility";
 }
 
 /// GenAI system values

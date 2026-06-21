@@ -79,6 +79,11 @@ pub struct Run {
     /// When the latest forecast snapshot was computed.
     #[serde(default)]
     pub forecast_at: Option<DateTime<Utc>>,
+    /// The graduated reversibility-aware response level last applied to a tool
+    /// call on this run (`allow_and_log` | `allow_under_budget` |
+    /// `require_approval`). `None` until the first policy check runs.
+    #[serde(default)]
+    pub response_level: Option<String>,
 }
 
 /// Create run request
@@ -106,6 +111,7 @@ pub struct UpdateRun {
     pub completed_at: Option<DateTime<Utc>>,
     pub output: Option<serde_json::Value>,
     pub error: Option<serde_json::Value>,
+    pub response_level: Option<String>,
 }
 
 /// Run with aggregated stats

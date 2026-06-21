@@ -20,8 +20,8 @@ impl ToolsRepo {
     pub async fn create(&self, tool: CreateTool) -> Result<Tool, sqlx::Error> {
         sqlx::query_as::<_, Tool>(
             r#"
-            INSERT INTO tools (id, project_id, name, slug, description, mcp_server, risk_level)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO tools (id, project_id, name, slug, description, mcp_server, risk_level, reversibility)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
             "#,
         )
@@ -32,7 +32,24 @@ impl ToolsRepo {
         .bind(&tool.description)
         .bind(&tool.mcp_server)
         .bind(tool.risk_level)
+        .bind(&tool.reversibility)
         .fetch_one(&self.pool)
+        .await
+    }
+
+    /// Find a tool by slug or name (best-effort), for reversibility lookup at
+    /// policy-check time. Returns the first match; `None` when unregistered
+    /// (the policy engine then treats it as `irreversible`, deny-by-default).
+    #[instrument(skip(self))]
+    pub async fn find_by_name_or_slug(
+        &self,
+        name_or_slug: &str,
+    ) -> Result<Option<Tool>, sqlx::Error> {
+        sqlx::query_as::<_, Tool>(
+            "SELECT * FROM tools WHERE slug = $1 OR name = $1 ORDER BY created_at ASC LIMIT 1",
+        )
+        .bind(name_or_slug)
+        .fetch_optional(&self.pool)
         .await
     }
 
@@ -74,6 +91,10 @@ impl ToolsRepo {
         }
         if update.risk_level.is_some() {
             set_clauses.push(format!("risk_level = ${}", param_idx));
+            param_idx += 1;
+        }
+        if update.reversibility.is_some() {
+            set_clauses.push(format!("reversibility = ${}", param_idx));
         }
 
         if set_clauses.is_empty() {
@@ -98,6 +119,9 @@ impl ToolsRepo {
         }
         if let Some(risk) = &update.risk_level {
             q = q.bind(risk);
+        }
+        if let Some(reversibility) = &update.reversibility {
+            q = q.bind(reversibility);
         }
 
         q.fetch_optional(&self.pool).await

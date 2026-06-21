@@ -33,6 +33,7 @@ mod run_tests {
             budget_breach_projected: false,
             breach_kind: None,
             forecast_at: None,
+            response_level: None,
         };
 
         let json = serde_json::to_string(&response).unwrap();
@@ -127,6 +128,8 @@ mod run_tests {
             blocked_by_airlock: false,
             shadow_mode: false,
             decision_trace: None,
+            reversibility: "reversible".to_string(),
+            response_level: "allow_and_log".to_string(),
         };
 
         let json = serde_json::to_string(&response).unwrap();
@@ -493,6 +496,7 @@ mod registry_tests {
             mcp_server: "http://localhost:3000".to_string(),
             status: "active".to_string(),
             risk_level: "write".to_string(),
+            reversibility: "costly".to_string(),
             created_at: "2024-01-01T00:00:00Z".to_string(),
         };
 

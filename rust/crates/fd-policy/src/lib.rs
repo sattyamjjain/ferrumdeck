@@ -15,6 +15,7 @@ pub mod forecast;
 pub mod lease;
 pub mod precedence;
 pub mod promotion;
+pub mod reversibility;
 pub mod routing;
 pub mod rules;
 pub mod trace;
@@ -30,6 +31,10 @@ pub use precedence::{
 pub use promotion::{
     MetricEvidence, MetricThreshold, PromotionDecision, PromotionGate, PromotionGateConfig,
     PromotionStatus, PROMOTION_ANCHOR,
+};
+pub use reversibility::{
+    combine as combine_response, graduated_response, ResponseLevel, Reversibility,
+    RESPONSE_LADDER_ANCHOR,
 };
 pub use routing::{
     RoutingCandidate, RoutingChoice, RoutingDecision, RoutingReason, RoutingReasonCode,

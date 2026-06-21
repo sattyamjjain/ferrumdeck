@@ -89,10 +89,28 @@ export interface StepCompletedEvent extends BaseSSEEvent {
   };
 }
 
+// Reversibility-aware graduated response (DeepMind AI Control Roadmap R1-R3).
+// Locks in the SSE wire shape so the dashboard can ship before the gateway ->
+// BFF push lands (same deferred pattern as `policy.decision.explained` /
+// `run.forecast.updated`). The console renders the rung from the polled run
+// endpoint today; this event mirrors that field on the realtime channel.
+export interface PolicyResponseRecordedEvent extends BaseSSEEvent {
+  type: "policy.response.recorded";
+  payload: {
+    run_id: string;
+    tool_name: string;
+    /** allow_and_log (R1) | allow_under_budget (R2) | require_approval (R3) */
+    response_level: "allow_and_log" | "allow_under_budget" | "require_approval";
+    reversibility: "reversible" | "costly" | "irreversible";
+    at: string;
+  };
+}
+
 export type RunChannelEvent =
   | StepCreatedEvent
   | StepStatusChangedEvent
-  | StepCompletedEvent;
+  | StepCompletedEvent
+  | PolicyResponseRecordedEvent;
 
 // Approvals channel events (approvals:{wsId})
 export interface ApprovalCreatedEvent extends BaseSSEEvent {

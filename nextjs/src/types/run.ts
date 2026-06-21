@@ -95,7 +95,19 @@ export interface Run {
   budget_breach_projected?: boolean;
   breach_kind?: BudgetBreachKind;
   forecast_at?: string;
+  // Reversibility-aware graduated response (DeepMind AI Control Roadmap R1-R3).
+  // The rung last applied to a tool call on this run; populated by the gateway's
+  // policy check and surfaced via the polled run endpoint. Absent on legacy runs.
+  response_level?: ResponseLevel;
 }
+
+// Graduated response level — the DeepMind R1-R3 control ladder. Mirrors
+// `fd_policy::reversibility::ResponseLevel` (snake_case wire form).
+//   allow_and_log (R1) · allow_under_budget (R2) · require_approval (R3)
+export type ResponseLevel =
+  | "allow_and_log"
+  | "allow_under_budget"
+  | "require_approval";
 
 // Axis that triggered a projected breach. Matches the Rust BreachKind enum
 // (serialized in snake_case).
