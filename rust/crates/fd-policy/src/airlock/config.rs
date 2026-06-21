@@ -235,6 +235,61 @@ fn default_behavioral_risk_score() -> u8 {
     65
 }
 
+/// Coherence-divergence monitor configuration.
+///
+/// Unlike the per-call layers above, the coherence monitor is *sequential* —
+/// it consumes a run trajectory and flags a stated blocking fact followed by
+/// a contradicting closure action (see [`super::coherence`]). It is driven by
+/// its own [`super::coherence::CoherenceMonitor`] rather than by
+/// [`super::inspector::AirlockInspector::inspect`], so this config is consumed
+/// directly by that monitor and is intentionally not a field of
+/// [`AirlockConfig`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoherenceConfig {
+    /// Enable coherence-divergence checking.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Max trajectory events between a stated blocking fact and a
+    /// contradicting closure action for them to be paired. Beyond this the
+    /// fact is treated as stale and dropped.
+    #[serde(default = "default_coherence_lookahead")]
+    pub lookahead: usize,
+
+    /// Risk score (0-100) assigned to coherence-divergence violations.
+    /// Clamped to 100.
+    #[serde(default = "default_coherence_risk_score")]
+    pub risk_score: u8,
+
+    /// Minimum confidence in `[0, 1]` required to surface a divergence —
+    /// guards the false-positive rate.
+    #[serde(default = "default_coherence_min_confidence")]
+    pub min_confidence: f64,
+}
+
+impl Default for CoherenceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            lookahead: default_coherence_lookahead(),
+            risk_score: default_coherence_risk_score(),
+            min_confidence: default_coherence_min_confidence(),
+        }
+    }
+}
+
+fn default_coherence_lookahead() -> usize {
+    8
+}
+
+fn default_coherence_risk_score() -> u8 {
+    70
+}
+
+fn default_coherence_min_confidence() -> f64 {
+    0.5
+}
+
 // =============================================================================
 // Default value functions for serde
 // =============================================================================

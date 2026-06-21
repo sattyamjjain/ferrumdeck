@@ -42,6 +42,10 @@ pub enum ViolationType {
     DataExfiltrationBudget,
     /// Per-agent rolling-window z-score exceeded for some scalar dimension
     BehavioralDrift,
+    /// Trajectory-level "strained coherence": the agent stated a blocking
+    /// fact that should change its plan, then took a contradicting closure
+    /// action as if the fact were untrue
+    CoherenceDivergence,
 }
 
 /// Risk level for violations

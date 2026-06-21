@@ -46,5 +46,6 @@ pub use trace::DecisionTrace;
 // Re-export Airlock types for convenience
 pub use airlock::{
     AirlockConfig, AirlockInspector, AirlockMode, AirlockResult, AirlockViolation,
-    InspectionContext, RiskLevel, ViolationType,
+    BlockingCategory, CoherenceConfig, CoherenceMonitor, CoherenceSpan, InspectionContext,
+    RiskLevel, TrajectoryEvent, ViolationType, COHERENCE_ANCHOR,
 };

@@ -57,6 +57,7 @@
 //! ```
 
 pub mod behavioral_drift;
+pub mod coherence;
 pub mod config;
 pub mod credential_dlp;
 pub mod exfiltration;
@@ -67,9 +68,12 @@ pub mod velocity;
 
 // Re-export main types for convenience
 pub use behavioral_drift::{BehavioralDriftDetails, BehavioralDriftMonitor, Observation};
+pub use coherence::{
+    BlockingCategory, CoherenceMonitor, CoherenceSpan, TrajectoryEvent, COHERENCE_ANCHOR,
+};
 pub use config::{
-    AirlockConfig, AirlockMode, BehavioralDriftConfig, ExfiltrationConfig, RceConfig,
-    SchemaDriftConfig, VelocityConfig,
+    AirlockConfig, AirlockMode, BehavioralDriftConfig, CoherenceConfig, ExfiltrationConfig,
+    RceConfig, SchemaDriftConfig, VelocityConfig,
 };
 pub use credential_dlp::{CredentialKind, CredentialMatch};
 pub use inspector::{
