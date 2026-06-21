@@ -2,6 +2,7 @@
 
 pub mod api_keys;
 pub mod approvals;
+pub mod harness_suggestions;
 pub mod health;
 pub mod orchestrator;
 pub mod policies;
@@ -9,6 +10,7 @@ pub mod promotions;
 pub mod registry;
 pub mod runs;
 pub mod security;
+pub mod training_signal;
 pub mod workflows;
 
 #[cfg(test)]

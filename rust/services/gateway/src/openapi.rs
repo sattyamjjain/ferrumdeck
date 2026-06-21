@@ -5,7 +5,7 @@
 
 use utoipa::OpenApi;
 
-use crate::handlers::{health, promotions, runs};
+use crate::handlers::{harness_suggestions, health, promotions, runs, training_signal};
 
 /// OpenAPI documentation for the FerrumDeck Gateway API
 #[derive(OpenApi)]
@@ -23,7 +23,8 @@ use crate::handlers::{health, promotions, runs};
     tags(
         (name = "health", description = "Health check endpoints"),
         (name = "runs", description = "Run management endpoints"),
-        (name = "promotions", description = "Champion-challenger promotion gate")
+        (name = "promotions", description = "Champion-challenger promotion gate"),
+        (name = "harness", description = "Eval-driven harness/policy suggestions (proposed, human-in-the-loop)")
     ),
     paths(
         // Health endpoints
@@ -39,6 +40,12 @@ use crate::handlers::{health, promotions, runs};
         // Promotion-gate endpoints
         promotions::evaluate_promotion,
         promotions::get_promotions,
+        // Harness-suggestion endpoints (trace→delta)
+        harness_suggestions::create_harness_suggestion,
+        harness_suggestions::get_harness_suggestions,
+        harness_suggestions::resolve_harness_suggestion,
+        // Training-signal export (trace→signal)
+        training_signal::export_training_signal,
     ),
     components(
         schemas(
@@ -60,6 +67,14 @@ use crate::handlers::{health, promotions, runs};
             promotions::MetricThresholdRequest,
             promotions::PromotionDecisionResponse,
             promotions::PromotionHistoryResponse,
+            // Harness-suggestion schemas (trace→delta)
+            harness_suggestions::CreateHarnessSuggestionRequest,
+            harness_suggestions::EvidenceRequest,
+            harness_suggestions::ResolveHarnessSuggestionRequest,
+            harness_suggestions::HarnessSuggestionResponse,
+            harness_suggestions::HarnessSuggestionsResponse,
+            // Training-signal export (trace→signal)
+            training_signal::TrainingSignalRequest,
         )
     )
 )]

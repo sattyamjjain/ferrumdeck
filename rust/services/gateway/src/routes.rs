@@ -68,6 +68,16 @@ pub fn build_router(state: AppState) -> Router {
                             "/promotions/evaluate",
                             post(handlers::promotions::evaluate_promotion),
                         )
+                        // Eval-driven harness suggestions (write: records a
+                        // proposal / its approval — never auto-applies)
+                        .route(
+                            "/harness-suggestions",
+                            post(handlers::harness_suggestions::create_harness_suggestion),
+                        )
+                        .route(
+                            "/harness-suggestions/{suggestion_id}/resolve",
+                            post(handlers::harness_suggestions::resolve_harness_suggestion),
+                        )
                         // Workflow creation
                         .route("/workflows", post(handlers::workflows::create_workflow))
                         .layer(middleware::from_fn(require_write())),
@@ -82,6 +92,12 @@ pub fn build_router(state: AppState) -> Router {
                 .route("/runs/{run_id}/cancel", post(handlers::runs::cancel_run))
                 .route("/runs/{run_id}/steps", get(handlers::runs::list_steps))
                 .route("/runs/{run_id}/routing", get(handlers::runs::get_routing))
+                // Training-signal export (read: projects the run's trace into
+                // a redacted JSONL; POST carries optional score overrides)
+                .route(
+                    "/runs/{run_id}/training-signal",
+                    post(handlers::training_signal::export_training_signal),
+                )
                 .route(
                     "/runs/{run_id}/steps/{step_id}",
                     post(handlers::runs::submit_step_result),
@@ -120,6 +136,12 @@ pub fn build_router(state: AppState) -> Router {
                 .route(
                     "/promotions/{agent_id}",
                     get(handlers::promotions::get_promotions),
+                )
+                // Harness suggestions (read): proposed harness/policy deltas +
+                // their folded review status, per agent
+                .route(
+                    "/harness-suggestions/agent/{agent_id}",
+                    get(handlers::harness_suggestions::get_harness_suggestions),
                 )
                 .route(
                     "/registry/tools/{tool_id}",
