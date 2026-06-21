@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 
+from fd_evals.claim_grounding import compute_from_run as compute_claim_grounding
 from fd_evals.harness import HarnessConfig
 from fd_evals.scorers.base import BaseScorer, CompositeScorer
 from fd_evals.task import EvalResult, EvalRunSummary, EvalTask, ScorerResult
@@ -177,6 +178,14 @@ class EvalRunner:
             passed = True
             total_score = 1.0
 
+        # Reliability signal (VeriGraph 2606.16603): claim-grounding rate over
+        # the final output vs the run's tool-output source nodes. Best-effort —
+        # absence of steps/output yields a no-claims (rate 1.0) reading, never
+        # an error. Does not gate scoring.
+        claim_grounding = None
+        if not error:
+            claim_grounding = compute_claim_grounding(actual_output, run_context.get("steps", []))
+
         return EvalResult(
             task_id=task.id,
             task_name=task.name,
@@ -190,6 +199,7 @@ class EvalRunner:
             cost_cents=cost_cents,
             error=error,
             trace_id=run_context.get("trace_id"),
+            claim_grounding=claim_grounding,
         )
 
     def _execute_run(

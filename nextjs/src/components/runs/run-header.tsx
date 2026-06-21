@@ -21,6 +21,7 @@ import {
   Cpu,
   GitBranch,
   Sparkles,
+  Anchor,
 } from "lucide-react";
 import Link from "next/link";
 import { useState, useCallback, useEffect } from "react";
@@ -403,10 +404,35 @@ function MetricsDashboard({
       color: run.cost_cents > 100 ? "yellow" as const : "default" as const,
       highlight: run.cost_cents > 100,
     },
+    // Claim Grounding Rate (VeriGraph 2606.16603) — reliability signal next to
+    // cost. Only shown once the run has a computed rate (null-for-legacy).
+    ...(run.claim_grounding_rate != null
+      ? [
+          {
+            icon: Anchor,
+            label: "Grounding",
+            value: `${(run.claim_grounding_rate * 100).toFixed(1)}%`,
+            sublabel: run.claim_grounding_flagged
+              ? "Below threshold"
+              : "per VeriGraph",
+            color: run.claim_grounding_flagged
+              ? ("yellow" as const)
+              : ("green" as const),
+            highlight: run.claim_grounding_flagged,
+          },
+        ]
+      : []),
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+    <div
+      className={cn(
+        "grid grid-cols-2 gap-3",
+        run.claim_grounding_rate != null
+          ? "md:grid-cols-3 lg:grid-cols-6"
+          : "md:grid-cols-5"
+      )}
+    >
       {metrics.map((metric, index) => (
         <MetricCard
           key={metric.label}

@@ -115,6 +115,11 @@ pub mod action {
     // `audit_events.details`; this constant is the immutable filter key used
     // by `AuditRepo::list_promotion_decisions`.
     pub const PROMOTION_DECIDED: &str = "promotion.decided";
+
+    // Claim-grounding reliability signal (VeriGraph, arXiv:2606.16603). Emitted
+    // when a completed run's grounding rate falls below the project's optional
+    // `min_claim_grounding_rate`. A signal only — the run status is untouched.
+    pub const CLAIM_GROUNDING_BELOW_THRESHOLD: &str = "reliability.claim_grounding_below_threshold";
 }
 
 /// Resource types

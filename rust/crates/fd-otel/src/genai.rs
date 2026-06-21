@@ -81,6 +81,17 @@ pub mod attrs {
     // `RunResponse`. See `fd_policy::reversibility`.
     pub const FERRUMDECK_POLICY_RESPONSE_LEVEL: &str = "ferrumdeck.policy.response_level";
     pub const FERRUMDECK_POLICY_REVERSIBILITY: &str = "ferrumdeck.policy.reversibility";
+
+    // Claim-grounding-rate reliability metric (VeriGraph, arXiv:2606.16603).
+    // Per-run fraction of output claims reachable from a tool-output source
+    // node. `*_flagged` carries the optional project-threshold flag (a
+    // reliability signal, never enforcement). See `fd_otel::claim_grounding`.
+    pub const FERRUMDECK_RELIABILITY_CLAIM_GROUNDING_RATE: &str =
+        "ferrumdeck.reliability.claim_grounding_rate";
+    pub const FERRUMDECK_RELIABILITY_CLAIM_GROUNDING_FLAGGED: &str =
+        "ferrumdeck.reliability.claim_grounding_below_threshold";
+    pub const FERRUMDECK_RELIABILITY_CLAIM_GROUNDING_THRESHOLD: &str =
+        "ferrumdeck.reliability.claim_grounding_threshold";
 }
 
 /// GenAI system values

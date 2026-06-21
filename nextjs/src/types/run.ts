@@ -99,6 +99,12 @@ export interface Run {
   // The rung last applied to a tool call on this run; populated by the gateway's
   // policy check and surfaced via the polled run endpoint. Absent on legacy runs.
   response_level?: ResponseLevel;
+  // Claim Grounding Rate (VeriGraph, arXiv:2606.16603): fraction of the final
+  // output's claims reachable from a tool-output source node. Reliability
+  // signal; `claim_grounding_flagged` is set when below a project's optional
+  // threshold (never blocks a run). Absent on legacy runs.
+  claim_grounding_rate?: number;
+  claim_grounding_flagged?: boolean;
 }
 
 // Graduated response level — the DeepMind R1-R3 control ladder. Mirrors

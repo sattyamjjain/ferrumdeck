@@ -76,6 +76,17 @@ FD_COST_TOKEN_CENTS = "ferrumdeck.cost.token_cents"
 FD_COST_TAX_CENTS = "ferrumdeck.cost.tax_cents"
 FD_COST_TAX_SHARE = "ferrumdeck.cost.tax_share"
 
+# Claim-grounding-rate reliability metric (VeriGraph, arXiv:2606.16603).
+# Mirror of the Rust `fd_otel::genai::attrs` constants; both planes write the
+# same OTel attribute keys so a single trace reads one schema.
+FD_RELIABILITY_CLAIM_GROUNDING_RATE = "ferrumdeck.reliability.claim_grounding_rate"
+FD_RELIABILITY_CLAIM_GROUNDING_FLAGGED = "ferrumdeck.reliability.claim_grounding_below_threshold"
+FD_RELIABILITY_CLAIM_GROUNDING_THRESHOLD = "ferrumdeck.reliability.claim_grounding_threshold"
+
+# Default opt-in minimum grounding rate; only flags when a project sets a
+# threshold (off by default). Mirror of Rust `DEFAULT_MIN_CLAIM_GROUNDING_RATE`.
+FD_RELIABILITY_CLAIM_GROUNDING_DEFAULT_THRESHOLD: float = 0.70
+
 # Model pricing per 1M tokens (as of Dec 2024)
 # https://www.anthropic.com/pricing#anthropic-api
 MODEL_PRICING: dict[str, dict[str, float]] = {

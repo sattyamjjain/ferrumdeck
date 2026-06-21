@@ -34,6 +34,8 @@ mod run_tests {
             breach_kind: None,
             forecast_at: None,
             response_level: None,
+            claim_grounding_rate: None,
+            claim_grounding_flagged: false,
         };
 
         let json = serde_json::to_string(&response).unwrap();

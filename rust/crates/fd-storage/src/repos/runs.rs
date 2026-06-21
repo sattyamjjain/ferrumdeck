@@ -95,6 +95,14 @@ impl RunsRepo {
         }
         if update.response_level.is_some() {
             set_clauses.push(format!("response_level = ${}", param_idx));
+            param_idx += 1;
+        }
+        if update.claim_grounding_rate.is_some() {
+            set_clauses.push(format!("claim_grounding_rate = ${}", param_idx));
+            param_idx += 1;
+        }
+        if update.claim_grounding_flagged.is_some() {
+            set_clauses.push(format!("claim_grounding_flagged = ${}", param_idx));
         }
 
         if set_clauses.is_empty() {
@@ -140,6 +148,12 @@ impl RunsRepo {
         }
         if let Some(response_level) = &update.response_level {
             q = q.bind(response_level);
+        }
+        if let Some(rate) = &update.claim_grounding_rate {
+            q = q.bind(rate);
+        }
+        if let Some(flagged) = &update.claim_grounding_flagged {
+            q = q.bind(flagged);
         }
 
         q.fetch_optional(&self.pool).await

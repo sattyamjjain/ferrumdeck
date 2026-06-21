@@ -106,6 +106,15 @@ pub struct RunResponse {
     /// This is the field the run console renders (via the polled run endpoint).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_level: Option<String>,
+    /// Per-run claim-grounding rate (VeriGraph, arXiv:2606.16603): fraction of
+    /// the final output's claims reachable from a tool-output source node.
+    /// `None` until the run completes. Rendered on the run console next to cost.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claim_grounding_rate: Option<f32>,
+    /// `true` when the grounding rate fell below the project's optional
+    /// `min_claim_grounding_rate` threshold (a reliability flag, not enforcement).
+    #[serde(default)]
+    pub claim_grounding_flagged: bool,
 }
 
 /// Query parameters for listing runs
@@ -224,6 +233,19 @@ fn run_to_response(run: fd_storage::models::Run) -> RunResponse {
         breach_kind: run.breach_kind,
         forecast_at: run.forecast_at.map(|t| t.to_rfc3339()),
         response_level: run.response_level,
+        claim_grounding_rate: run.claim_grounding_rate,
+        claim_grounding_flagged: run.claim_grounding_flagged,
+    }
+}
+
+/// Flatten a JSON value to plain text for claim-grounding tokenization. A
+/// string value is used verbatim; anything else is serialized (tokenization
+/// strips punctuation, so the formatting doesn't affect the token set). Mirrors
+/// the Python `claim_grounding._stringify`.
+fn value_to_text(value: &serde_json::Value) -> String {
+    match value.as_str() {
+        Some(s) => s.to_string(),
+        None => value.to_string(),
     }
 }
 
@@ -747,7 +769,13 @@ pub async fn get_routing(
 }
 
 /// Submit step result (from worker)
-#[instrument(skip(state, _auth), fields(run_id = %run_id, step_id = %step_id))]
+#[instrument(skip(state, _auth), fields(
+    run_id = %run_id,
+    step_id = %step_id,
+    ferrumdeck.reliability.claim_grounding_rate = tracing::field::Empty,
+    ferrumdeck.reliability.claim_grounding_below_threshold = tracing::field::Empty,
+    ferrumdeck.reliability.claim_grounding_threshold = tracing::field::Empty,
+))]
 pub async fn submit_step_result(
     State(state): State<AppState>,
     Extension(_auth): Extension<AuthContext>,
@@ -950,6 +978,60 @@ pub async fn submit_step_result(
     let pending_steps = repos.steps().get_pending_steps(&run_id).await?;
 
     if pending_steps.is_empty() && status == StepStatus::Completed {
+        // Reliability signal (VeriGraph, arXiv:2606.16603): the per-run
+        // claim-grounding rate — fraction of the final output's claims
+        // reachable from a tool-output source node. Computed here at the
+        // run-completion choke point from the final output + the run's
+        // tool-step outputs. Deterministic; never gates — an optional
+        // per-project threshold only *flags* the run.
+        let final_output_text = updated_step
+            .output
+            .as_ref()
+            .map(value_to_text)
+            .unwrap_or_default();
+        let all_steps = repos.steps().list_by_run(&run_id).await?;
+        let source_texts: Vec<String> = all_steps
+            .iter()
+            .filter(|s| matches!(s.step_type, StepType::Tool))
+            .filter_map(|s| s.output.as_ref().map(value_to_text))
+            .collect();
+        // Optional per-project threshold — absent ⇒ off ⇒ never flags.
+        let project_threshold = repos
+            .projects()
+            .get_settings(&run.project_id)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|s| {
+                s.get("min_claim_grounding_rate")
+                    .and_then(serde_json::Value::as_f64)
+            });
+        let grounding = fd_otel::ClaimGrounding::compute_from_texts(
+            &final_output_text,
+            &source_texts,
+            project_threshold.unwrap_or(fd_otel::DEFAULT_MIN_CLAIM_GROUNDING_RATE),
+        );
+        // Flag only when the project explicitly opted into a threshold.
+        let grounding_flagged = project_threshold.is_some() && grounding.below_threshold;
+        fd_otel::claim_grounding::record_on_span(&tracing::Span::current(), &grounding);
+
+        if grounding_flagged {
+            let audit_event =
+                AuditEventBuilder::new(action::CLAIM_GROUNDING_BELOW_THRESHOLD, resource::RUN)
+                    .actor(actor::SYSTEM, None)
+                    .resource_id(&run_id)
+                    .run(&run_id)
+                    .project(&run.project_id)
+                    .details(serde_json::json!({
+                        "claim_grounding_rate": grounding.rate,
+                        "threshold": grounding.threshold,
+                        "claims_total": grounding.claims_total,
+                        "claims_grounded": grounding.claims_grounded,
+                    }))
+                    .build();
+            repos.spawn_audit(audit_event);
+        }
+
         repos
             .runs()
             .update(
@@ -958,6 +1040,8 @@ pub async fn submit_step_result(
                     status: Some(RunStatus::Completed),
                     completed_at: Some(Utc::now()),
                     output: updated_step.output.clone(),
+                    claim_grounding_rate: Some(grounding.rate as f32),
+                    claim_grounding_flagged: Some(grounding_flagged),
                     ..Default::default()
                 },
             )

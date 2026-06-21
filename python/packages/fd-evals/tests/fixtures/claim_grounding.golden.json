@@ -1,0 +1,16 @@
+{
+  "comment": "Cross-plane golden fixture. The Rust fd_otel::claim_grounding golden test and the Python test below MUST produce the same numbers from this output+sources. 3 scored claims, 2 grounded (the banana claim is unsupported), rate 2/3, flagged at the 0.70 threshold.",
+  "output": "The capital of France is Paris. The Eiffel Tower is in Paris. Bananas are purple and fly to the distant moon.",
+  "sources": [
+    "Paris is the capital of France.",
+    "The Eiffel Tower stands in Paris, France."
+  ],
+  "threshold": 0.7,
+  "expected": {
+    "claims_total": 3,
+    "claims_grounded": 2,
+    "rate": 0.6666666666666666,
+    "below_threshold": true,
+    "threshold": 0.7
+  }
+}

@@ -84,6 +84,16 @@ pub struct Run {
     /// `require_approval`). `None` until the first policy check runs.
     #[serde(default)]
     pub response_level: Option<String>,
+    /// Per-run claim-grounding rate (VeriGraph, arXiv:2606.16603): fraction of
+    /// the final output's claims reachable from a tool-output source node.
+    /// `None` until the run completes.
+    #[serde(default)]
+    pub claim_grounding_rate: Option<f32>,
+    /// `true` when the run's grounding rate fell below the project's optional
+    /// `min_claim_grounding_rate` threshold. A reliability flag only — it does
+    /// not affect run status.
+    #[serde(default)]
+    pub claim_grounding_flagged: bool,
 }
 
 /// Create run request
@@ -112,6 +122,8 @@ pub struct UpdateRun {
     pub output: Option<serde_json::Value>,
     pub error: Option<serde_json::Value>,
     pub response_level: Option<String>,
+    pub claim_grounding_rate: Option<f32>,
+    pub claim_grounding_flagged: Option<bool>,
 }
 
 /// Run with aggregated stats

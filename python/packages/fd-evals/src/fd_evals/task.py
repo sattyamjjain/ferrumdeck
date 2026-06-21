@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from fd_evals.claim_grounding import ClaimGrounding
 from fd_evals.cost_decomposition import CallRecord, CostBreakdown, sum_breakdowns
 from fd_evals.harness import HarnessConfig
 
@@ -91,13 +92,18 @@ class EvalResult:
     # present so legacy readers are unaffected.
     call_records: list[CallRecord] | None = None
     cost_breakdown: CostBreakdown | None = None
+    # Claim-grounding-rate reliability metric (VeriGraph, arXiv:2606.16603).
+    # Additive Option-equivalent — populated when the run's output + steps are
+    # available; `to_dict` emits the key only when present so legacy readers
+    # are unaffected.
+    claim_grounding: ClaimGrounding | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization.
 
-        ``call_records`` and ``cost_breakdown`` are emitted only when
-        present so the wire shape stays byte-identical for runs that
-        predate the cost-decomposition rollout.
+        ``call_records``, ``cost_breakdown`` and ``claim_grounding`` are
+        emitted only when present so the wire shape stays byte-identical for
+        runs that predate each rollout.
         """
         out: dict[str, Any] = {
             "task_id": self.task_id,
@@ -127,6 +133,8 @@ class EvalResult:
             out["call_records"] = [c.to_dict() for c in self.call_records]
         if self.cost_breakdown is not None:
             out["cost_breakdown"] = self.cost_breakdown.to_dict()
+        if self.claim_grounding is not None:
+            out["claim_grounding"] = self.claim_grounding.to_dict()
         return out
 
 
