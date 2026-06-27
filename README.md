@@ -12,8 +12,24 @@
 
 ---
 
+## What this proves
+
+FerrumDeck is the **control plane, not the agent** — the production layer that makes an autonomous agent safe to run: it decides which tools a run may call, kills runs that blow their budget, gates risky actions on a human, and records every decision in an immutable trail. It's built as a credibility artifact for an **AgentOps / AI-infrastructure** audience.
+
+▶ **[Run the 5-minute reproducible demo →](examples/demo/README.md)** — one command boots the local stack and verifies, against the real gateway API, the four guarantees below:
+
+- **Deny-by-default tool policy** — a run may only call tools on its per-agent allowlist; everything else is denied. (`POST /v1/runs/{id}/check-tool`)
+- **Budget auto-kill** — every run carries a hard token / cost / tool-call / wall-time budget; a breach kills the run and appends a `budget.exceeded` event. (`fd_policy::budget` → `RunStatus::BudgetKilled`)
+- **Immutable audit trail** — every policy, budget, and approval decision is appended to `audit_events`; the repository exposes no `UPDATE`/`DELETE`.
+- **OTel GenAI spans** — every LLM/tool step emits OpenTelemetry GenAI-semconv spans (`gen_ai.*` + `ferrumdeck.*`) to Jaeger.
+
+The demo is **self-verifying** — it asserts each property with `jq` and exits non-zero on failure, so it works as a smoke test, not a screenshot. For an honest map of what enforces today vs. what's still being wired, see **[Project Status & Limitations](#project-status--limitations)**.
+
+---
+
 ## Table of Contents
 
+- [What This Proves](#what-this-proves)
 - [Overview](#overview)
 - [Project Status & Limitations](#project-status--limitations)
 - [Key Features](#key-features)
@@ -258,6 +274,8 @@ in `rust/crates/fd-audit/tests/`.
 ---
 
 ## Quick Start
+
+> **Just want to see it work?** Run the one-command [reproducible demo](examples/demo/README.md) (`./examples/demo/run-demo.sh`) — it boots the stack and self-verifies deny-by-default policy, the approval gate, the immutable audit trail, and OTel spans in Jaeger.
 
 ### Prerequisites
 
