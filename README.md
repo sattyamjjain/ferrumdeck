@@ -1,6 +1,10 @@
 # FerrumDeck
 
-**AgentOps Control Plane** — a platform for running agentic AI workflows with deterministic governance: deny-by-default tool policy, per-run budget enforcement, runtime (Airlock) inspection, approval gates, and an append-only audit trail.
+**FerrumDeck is a deterministic Rust *enforcement* plane for AI agents — it blocks the tool call in-process, it doesn't just chart it after the fact.** Deny-by-default tool policy, per-run budget enforcement, runtime (Airlock) inspection, approval gates, and an append-only audit trail — all in the request path, returning an allow/deny/approve decision *before* the agent acts.
+
+> **Enforce, don't just observe.** LangSmith, Phoenix, Galileo, and Fiddler *watch* your agent and tell you afterward what it did. FerrumDeck sits in the call path and *enforces* — it returns `allowed=false` and the tool never fires. Observability is a dashboard you read after the incident; enforcement is the gate that prevents it.
+
+▶ **[Run the 5-minute reproducible demo →](examples/demo/README.md)** — one command boots the local stack and, against the **real gateway API**, you watch a **budget-breach auto-kill** and a **denied tool call** happen in-process. It's self-verifying: each guarantee is asserted with `jq` and the script exits non-zero on failure, so you get a hard pass/fail, not a screenshot to trust.
 
 > **Status: early / alpha, built primarily by one maintainer.** The governance core — per-agent deny-by-default tool allowlists, per-run/per-agent budget enforcement, DB-backed tenant isolation, and Airlock RASP at the gateway tool-policy check — is implemented and tested. Several advertised layers are still being wired end-to-end. See **[Project Status & Limitations](#project-status--limitations)** for an honest map of what enforces today vs. what's on the roadmap before you rely on it.
 
