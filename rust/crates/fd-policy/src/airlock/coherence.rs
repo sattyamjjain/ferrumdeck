@@ -32,6 +32,7 @@
 
 use super::config::CoherenceConfig;
 use super::inspector::{AirlockViolation, RiskLevel, ViolationType};
+use crate::reversibility::ResponseLevel;
 use fd_core::RunId;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -149,6 +150,21 @@ impl CoherenceSpan {
             risk_level: self.risk_level,
             details,
             trigger: format!("coherence_divergence:{}", self.category.label()),
+        }
+    }
+
+    /// Map this divergence's severity onto the existing reversibility-ladder
+    /// [`ResponseLevel`] (the DeepMind R1–R3 rungs) — reusing the graduated
+    /// response type rather than inventing a new one. `Critical`/`High` → R3
+    /// `RequireApproval`, `Medium` → R2 `AllowUnderBudget`, `Low` → R1
+    /// `AllowAndLog`. The gateway consumer records this rung on every
+    /// divergence; in `enforce` mode an R3 rung gates the run for human review,
+    /// in `shadow` mode it is recorded only.
+    pub fn response_level(&self) -> ResponseLevel {
+        match self.risk_level {
+            RiskLevel::Critical | RiskLevel::High => ResponseLevel::RequireApproval,
+            RiskLevel::Medium => ResponseLevel::AllowUnderBudget,
+            RiskLevel::Low => ResponseLevel::AllowAndLog,
         }
     }
 }
@@ -814,6 +830,29 @@ mod tests {
     }
 
     // -- Diff-compatibility with the audit schema -----------------------------
+
+    #[test]
+    fn response_level_maps_severity_to_r_tier() {
+        let mut span = CoherenceMonitor::scan_trajectory(
+            "run_x",
+            &[
+                TrajectoryEvent::statement("tests still failing"),
+                TrajectoryEvent::action("set_status", "mark task complete"),
+            ],
+            &config(),
+        )
+        .remove(0);
+        // Default risk_score (70) → High → R3.
+        span.risk_score = 90;
+        span.risk_level = RiskLevel::from_score(90);
+        assert_eq!(span.response_level(), ResponseLevel::RequireApproval);
+        span.risk_level = RiskLevel::from_score(65);
+        assert_eq!(span.response_level(), ResponseLevel::RequireApproval);
+        span.risk_level = RiskLevel::from_score(45);
+        assert_eq!(span.response_level(), ResponseLevel::AllowUnderBudget);
+        span.risk_level = RiskLevel::from_score(10);
+        assert_eq!(span.response_level(), ResponseLevel::AllowAndLog);
+    }
 
     #[test]
     fn span_projects_onto_airlock_violation() {

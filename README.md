@@ -24,10 +24,35 @@ FerrumDeck is the **control plane, not the agent** — the production layer that
 
 - **Deny-by-default tool policy** — a run may only call tools on its per-agent allowlist; everything else is denied. (`POST /v1/runs/{id}/check-tool`)
 - **Budget auto-kill** — every run carries a hard token / cost / tool-call / wall-time budget; a breach kills the run and appends a `budget.exceeded` event. (`fd_policy::budget` → `RunStatus::BudgetKilled`)
+- **Coherence-divergence caught mid-run** — when an agent states a blocking fact ("tests failing", "permission denied") and then advances as if it were untrue, the live monitor catches it on the run stream and applies the reversibility ladder (R1–R3). (`fd_policy::airlock::coherence`)
 - **Immutable audit trail** — every policy, budget, and approval decision is appended to `audit_events`; the repository exposes no `UPDATE`/`DELETE`.
 - **OTel GenAI spans** — every LLM/tool step emits OpenTelemetry GenAI-semconv spans (`gen_ai.*` + `ferrumdeck.*`) to Jaeger.
 
 The demo is **self-verifying** — it asserts each property with `jq` and exits non-zero on failure, so it works as a smoke test, not a screenshot. For an honest map of what enforces today vs. what's still being wired, see **[Project Status & Limitations](#project-status--limitations)**.
+
+### Live-fire: a drifting run is caught and R-tiered (deterministic, no stack)
+
+`examples/demo/coherence-drift.py` feeds a deliberately drifting trajectory through the **same detection core the live gateway runs on each step**, and is self-verifying (exits non-zero if the drift is *not* caught). Real captured output:
+
+```
+▸ Drifting run — states a blocking fact, then advances as if it were untrue
+  ✗ DIVERGENCE [test_failure] confidence=1.00
+      stated:       '2 tests failed: assertion error in auth flow'
+      then did:     'git_commit: commit: fix auth flow'
+      response:     R3 (require_approval)   shadow → record + surface   enforce → GATE run → WaitingApproval
+      sse coherence.divergence.detected {category:test_failure, response_rung:R3, gated(enforce):True}
+  ✗ DIVERGENCE [permission_denied] confidence=1.00
+      stated:       'deploy blocked: permission denied on prod'
+      then did:     'deploy: shipping to production, reporting success'
+      response:     R3 (require_approval)   shadow → record + surface   enforce → GATE run → WaitingApproval
+
+▸ Coherent control — resolves the fact before advancing (must NOT fire)
+  ✓ no divergence — the resolved run is clean
+
+COHERENCE OK ✓  2 divergences fired (both R3), control clean. In enforce mode each R3 gates the run for review.
+```
+
+Against the live gateway the same divergence writes an `audit_events` row with `violation_type=coherence_divergence`, emits the `coherence.divergence.detected` SSE event, and surfaces on the run's **Coherence** card. It runs **shadow by default** (records + surfaces, never blocks); set `FERRUMDECK_COHERENCE_MODE=enforce` to gate an R3 divergence (run → `WaitingApproval`). This is the **enforce-not-observe** wedge: FerrumDeck acts on the drift, it doesn't just chart it.
 
 ---
 

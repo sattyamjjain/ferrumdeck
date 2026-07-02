@@ -354,6 +354,7 @@ function generateMockEvent(channelType: string, channelName: string): SSEEvent |
         "policy.decision.explained",
         "policy.response.recorded",
         "routing.decision.recorded",
+        "coherence.divergence.detected",
       ];
       const eventType = eventTypes[Math.floor(Math.random() * eventTypes.length)];
       const runId = channelName.split(":")[1] || "run_demo";
@@ -484,6 +485,63 @@ function generateMockEvent(channelType: string, channelName: string): SSEEvent |
             content_hash:
               "0000000000000000000000000000000000000000000000000000000000000000",
             anchor: "arXiv:2605.27466",
+            at: timestamp,
+          },
+        };
+      }
+
+      if (eventType === "coherence.divergence.detected") {
+        // Coherence-divergence signal (Strained Coherence, arXiv:2606.07889).
+        // Emitted by the gateway the instant the live monitor surfaces a
+        // stated-blocking-fact -> contradicting-closure-action divergence on the
+        // run trajectory. `response_level` is the reversibility-ladder rung the
+        // divergence maps to (severity -> R1/R2/R3); `gated` is true only in
+        // enforce mode when an R3 rung halts the run. This mock locks in the SSE
+        // wire shape; the console reads the persisted flag + rung from the polled
+        // run endpoint today (gateway -> BFF push deferred, same pattern as
+        // run.forecast.updated / routing.decision.recorded). See
+        // docs/runbooks/coherence-divergence.md for the contract.
+        const variants = [
+          {
+            category: "test_failure",
+            stated_fact: "tests still failing on CI",
+            contradicting_action: "set_status: mark task complete",
+            response_level: "require_approval",
+            response_rung: "R3",
+          },
+          {
+            category: "permission_denied",
+            stated_fact: "write failed: permission denied",
+            contradicting_action: "git_commit: commit the change",
+            response_level: "require_approval",
+            response_rung: "R3",
+          },
+          {
+            category: "missing_resource",
+            stated_fact: "config.yaml does not exist",
+            contradicting_action: "report: completed successfully",
+            response_level: "allow_under_budget",
+            response_rung: "R2",
+          },
+        ] as const;
+        const pick = variants[Math.floor(Math.random() * variants.length)];
+        // Mock is shadow-mode (never gated); enforce is opt-in server-side.
+        return {
+          id,
+          type: "coherence.divergence.detected",
+          channel: channelName,
+          timestamp,
+          payload: {
+            run_id: runId,
+            category: pick.category,
+            confidence: 0.9,
+            response_level: pick.response_level,
+            response_rung: pick.response_rung,
+            gated: false,
+            mode: "shadow",
+            stated_fact: pick.stated_fact,
+            contradicting_action: pick.contradicting_action,
+            anchor: "arxiv:2606.07889",
             at: timestamp,
           },
         };

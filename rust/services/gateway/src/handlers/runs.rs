@@ -11,6 +11,7 @@ use fd_core::RunId;
 use fd_otel::genai::pricing;
 use fd_policy::budget::{Budget, BudgetUsage};
 use fd_policy::forecast::{compute_forecast, ForecastInputs, ForecastSnapshot};
+use fd_policy::reversibility::ResponseLevel;
 use fd_policy::routing::RoutingDecision;
 use fd_policy::{CoherenceSpan, TrajectoryEvent};
 use fd_storage::{
@@ -289,13 +290,20 @@ fn step_trajectory_events(step: &fd_storage::models::Step) -> Vec<TrajectoryEven
 /// **same** `airlock.violation_detected` `audit_events` path every other
 /// Airlock layer uses — no parallel store, no parallel decision channel. The
 /// span is projected via [`CoherenceSpan::to_violation`] so `violation_type`,
-/// `trigger`, and the full evidence ride the identical `details` shape. It is
-/// recorded in shadow terms (`shadow_mode = true`, `blocked = false`): a
-/// reliability signal that never blocks a tool or kills a run.
+/// `trigger`, and the full evidence ride the identical `details` shape.
+///
+/// The chosen reversibility-ladder rung (`response_level` / `response_rung`,
+/// from [`CoherenceSpan::response_level`]) and the effective `mode`
+/// (`shadow` | `enforce`) ride the same `details`. `gated = true` only when
+/// `enforce` mode actually halts the run (R3); in `shadow` mode the rung is
+/// recorded but `gated = false` and the run is untouched.
 fn coherence_audit_event(
     run_id: &str,
     project_id: &str,
     span: &CoherenceSpan,
+    level: ResponseLevel,
+    enforce: bool,
+    gated: bool,
 ) -> fd_storage::models::CreateAuditEvent {
     let violation = span.to_violation();
     let coherence = serde_json::to_value(span).unwrap_or(serde_json::Value::Null);
@@ -309,11 +317,36 @@ fn coherence_audit_event(
             "trigger": violation.trigger,
             "risk_score": violation.risk_score,
             "risk_level": violation.risk_level.as_str(),
-            "shadow_mode": true,
-            "blocked": false,
+            "response_level": level.as_str(),
+            "response_rung": level.rung(),
+            "mode": if enforce { "enforce" } else { "shadow" },
+            "shadow_mode": !enforce,
+            "gated": gated,
+            "blocked": gated,
             "coherence": coherence,
         }))
         .build()
+}
+
+/// Emit the `coherence.divergence.detected` SSE event shape for the dashboard
+/// run stream. The gateway has no direct SSE push path yet — like every other
+/// run-channel event (`run.forecast.updated`, `routing.decision.recorded`),
+/// the gateway→BFF push is **deferred**; the BFF locks the wire shape via its
+/// mock generator and the console picks the persisted rung up on the next poll.
+/// This records the exact payload as a structured `event = "coherence.divergence.detected"`
+/// trace so the shape is defined + observable server-side.
+fn emit_coherence_sse(run_id: &str, span: &CoherenceSpan, level: ResponseLevel, gated: bool) {
+    info!(
+        event = "coherence.divergence.detected",
+        run_id = run_id,
+        category = span.category.label(),
+        confidence = span.confidence,
+        response_level = level.as_str(),
+        response_rung = level.rung(),
+        gated = gated,
+        anchor = span.anchor.as_str(),
+        "coherence divergence detected"
+    );
 }
 
 /// Convert a [`ForecastSnapshot`] into the storage-shape snapshot that the
@@ -939,10 +972,15 @@ pub async fn submit_step_result(
     // stream in. A divergence — a stated blocking fact followed by a
     // contradicting closure action — surfaces the instant it completes,
     // mid-run, through the same `airlock.violation_detected` audit path every
-    // other Airlock layer uses. It only SURFACES: no tool is blocked, no run
-    // is killed (mirrors the claim-grounding "flag, never block" posture).
+    // other Airlock layer uses. Each divergence maps onto the existing
+    // reversibility ladder (R1–R3) via `CoherenceSpan::response_level`; the
+    // rung is recorded + emitted (SSE `coherence.divergence.detected`). In
+    // `shadow` mode (default) the run is untouched; in `enforce` mode an R3
+    // rung gates the run (→ `WaitingApproval`) for human review.
     let coherence_run_id = RunId::parse(&run_id).unwrap_or_else(|_| RunId::new());
     let mut coherence_fired = false;
+    let mut coherence_gated = false;
+    let mut coherence_level: Option<ResponseLevel> = None;
     for event in step_trajectory_events(&updated_step) {
         if let Some(span) = state
             .coherence
@@ -950,24 +988,39 @@ pub async fn submit_step_result(
             .await
         {
             coherence_fired = true;
-            repos.spawn_audit(coherence_audit_event(&run_id, &run.project_id, &span));
+            let level = span.response_level();
+            coherence_level = Some(level);
+            let gate = state.coherence_enforce && level == ResponseLevel::RequireApproval;
+            coherence_gated |= gate;
+            repos.spawn_audit(coherence_audit_event(
+                &run_id,
+                &run.project_id,
+                &span,
+                level,
+                state.coherence_enforce,
+                gate,
+            ));
+            // Lock in the SSE wire shape (gateway→BFF push deferred, same as
+            // run.forecast.updated / routing.decision.recorded).
+            emit_coherence_sse(&run_id, &span, level, gate);
         }
     }
     if coherence_fired {
-        // Reflect the flag on the run row immediately so `GET /v1/runs/{id}`
-        // shows it live, before the run completes. Best-effort — a reliability
-        // signal, never gating.
-        if let Err(err) = repos
-            .runs()
-            .update(
-                &run_id,
-                UpdateRun {
-                    coherence_divergence_flagged: Some(true),
-                    ..Default::default()
-                },
-            )
-            .await
-        {
+        // Reflect the flag + the selected graduated-response rung on the run
+        // row immediately so `GET /v1/runs/{id}` shows it live, before the run
+        // completes. In enforce mode an R3 divergence also gates the run now.
+        let mut upd = UpdateRun {
+            coherence_divergence_flagged: Some(true),
+            response_level: coherence_level.map(|l| l.as_str().to_string()),
+            ..Default::default()
+        };
+        if coherence_gated {
+            upd.status = Some(RunStatus::WaitingApproval);
+            upd.status_reason =
+                Some("coherence divergence — human review required (enforce mode)".to_string());
+            warn!(run_id = %run_id, "Coherence divergence gated run (enforce mode, R3)");
+        }
+        if let Err(err) = repos.runs().update(&run_id, upd).await {
             warn!(run_id = %run_id, error = %err, "Failed to persist coherence flag");
         }
     }
@@ -1139,7 +1192,19 @@ pub async fn submit_step_result(
             .await
         {
             coherence_fired = true;
-            repos.spawn_audit(coherence_audit_event(&run_id, &run.project_id, &span));
+            let level = span.response_level();
+            coherence_level = Some(level);
+            let gate = state.coherence_enforce && level == ResponseLevel::RequireApproval;
+            coherence_gated |= gate;
+            repos.spawn_audit(coherence_audit_event(
+                &run_id,
+                &run.project_id,
+                &span,
+                level,
+                state.coherence_enforce,
+                gate,
+            ));
+            emit_coherence_sse(&run_id, &span, level, gate);
         }
         // Final flag: fired this invocation OR already persisted by an earlier
         // step submission. Coherent completed runs record `Some(false)` so the
@@ -1170,38 +1235,58 @@ pub async fn submit_step_result(
             repos.spawn_audit(audit_event);
         }
 
+        // In enforce mode an R3 coherence divergence gates the run instead of
+        // completing it: the run reported success while ignoring a blocking
+        // fact, so it halts for human review (→ WaitingApproval) rather than
+        // being marked Completed. In shadow mode (default) the rung is recorded
+        // but the run completes normally.
+        let (final_status, final_reason, final_completed_at) = if coherence_gated {
+            (
+                RunStatus::WaitingApproval,
+                Some("coherence divergence — human review required (enforce mode)".to_string()),
+                None,
+            )
+        } else {
+            (RunStatus::Completed, None, Some(Utc::now()))
+        };
         repos
             .runs()
             .update(
                 &run_id,
                 UpdateRun {
-                    status: Some(RunStatus::Completed),
-                    completed_at: Some(Utc::now()),
+                    status: Some(final_status),
+                    status_reason: final_reason,
+                    completed_at: final_completed_at,
                     output: updated_step.output.clone(),
                     claim_grounding_rate: Some(grounding.rate as f32),
                     claim_grounding_flagged: Some(grounding_flagged),
                     coherence_divergence_flagged: Some(coherence_flagged),
+                    response_level: coherence_level.map(|l| l.as_str().to_string()),
                     ..Default::default()
                 },
             )
             .await?;
 
-        // Audit: Run completed
-        let audit_event = AuditEventBuilder::new(action::RUN_COMPLETED, resource::RUN)
-            .actor(actor::SYSTEM, None)
-            .resource_id(&run_id)
-            .run(&run_id)
-            .project(&run.project_id)
-            .details(serde_json::json!({
-                "input_tokens": updated_run.input_tokens,
-                "output_tokens": updated_run.output_tokens,
-                "tool_calls": updated_run.tool_calls,
-                "cost_cents": updated_run.cost_cents,
-            }))
-            .build();
-        repos.spawn_audit(audit_event);
+        if coherence_gated {
+            info!(run_id = %run_id, "Run gated for human review (coherence divergence, enforce mode)");
+        } else {
+            // Audit: Run completed
+            let audit_event = AuditEventBuilder::new(action::RUN_COMPLETED, resource::RUN)
+                .actor(actor::SYSTEM, None)
+                .resource_id(&run_id)
+                .run(&run_id)
+                .project(&run.project_id)
+                .details(serde_json::json!({
+                    "input_tokens": updated_run.input_tokens,
+                    "output_tokens": updated_run.output_tokens,
+                    "tool_calls": updated_run.tool_calls,
+                    "cost_cents": updated_run.cost_cents,
+                }))
+                .build();
+            repos.spawn_audit(audit_event);
 
-        info!(run_id = %run_id, "Run completed successfully");
+            info!(run_id = %run_id, "Run completed successfully");
+        }
     } else if status == StepStatus::Failed {
         repos
             .runs()
@@ -1778,6 +1863,7 @@ mod coherence_live_consumer_tests {
     use super::{coherence_audit_event, step_trajectory_events};
     use chrono::Utc;
     use fd_core::RunId;
+    use fd_policy::reversibility::ResponseLevel;
     use fd_policy::{CoherenceConfig, CoherenceMonitor};
     use fd_storage::models::{Step, StepStatus, StepType};
 
@@ -1820,12 +1906,16 @@ mod coherence_live_consumer_tests {
             tool_step(2, "git_commit", "committing the change"),
         ];
 
-        // Mirror the handler's per-step loop exactly.
+        // Mirror the handler's per-step loop exactly (shadow mode: enforce=false).
         let mut audit_records = Vec::new();
         for step in &trajectory {
             for event in step_trajectory_events(step) {
                 if let Some(span) = monitor.observe_event(&run_id, &event, &config).await {
-                    audit_records.push(coherence_audit_event("run_x", project_id, &span));
+                    let level = span.response_level();
+                    // shadow mode → never gated
+                    audit_records.push(coherence_audit_event(
+                        "run_x", project_id, &span, level, false, false,
+                    ));
                 }
             }
         }
@@ -1851,6 +1941,41 @@ mod coherence_live_consumer_tests {
             record.details["coherence"]["category"], "test_failure",
             "the stated-fact category is preserved in the record"
         );
+        // The graduated-response rung rides the same record. Default severity
+        // (risk_score 70 → High) maps to R3; in shadow mode it is recorded but
+        // not gated.
+        assert_eq!(record.details["response_level"], "require_approval");
+        assert_eq!(record.details["response_rung"], "R3");
+        assert_eq!(record.details["mode"], "shadow");
+        assert_eq!(record.details["gated"], false);
+    }
+
+    /// In `enforce` mode the same divergence maps to R3 and the record is
+    /// `gated = true` (the run halts for human review) — the enforce wedge.
+    #[tokio::test]
+    async fn enforce_mode_gates_r3_divergence() {
+        let monitor = CoherenceMonitor::new();
+        let config = CoherenceConfig::default();
+        let run_id = RunId::parse("run_e").unwrap_or_else(|_| RunId::new());
+        let trajectory = [
+            tool_step(1, "run_tests", "2 tests failed: assertion error"),
+            tool_step(2, "git_commit", "committing the change"),
+        ];
+        let mut gated_any = false;
+        for step in &trajectory {
+            for event in step_trajectory_events(step) {
+                if let Some(span) = monitor.observe_event(&run_id, &event, &config).await {
+                    let level = span.response_level();
+                    let gate = level == ResponseLevel::RequireApproval; // enforce
+                    gated_any |= gate;
+                    let rec = coherence_audit_event("run_e", "prj_test", &span, level, true, gate);
+                    assert_eq!(rec.details["mode"], "enforce");
+                    assert_eq!(rec.details["gated"], true);
+                    assert_eq!(rec.details["blocked"], true);
+                }
+            }
+        }
+        assert!(gated_any, "an R3 divergence must gate in enforce mode");
     }
 
     /// A coherent run — states the failure, resolves it, then commits — must

@@ -47,34 +47,62 @@ instant a divergence completes, mid-run. At **completion**, a synthetic
 terminates with an unresolved blocking fact (and does not disclaim it) also
 flags; an honest disclaimer in the final output suppresses it.
 
-## Reliability signal, not a gate
+## Graduated response — R1–R3 (shadow default, opt-in enforce)
 
-A divergence **surfaces**; it never blocks a tool or changes run status —
-mirroring the claim-grounding "flag, never block" posture. The deny-by-default
-posture is for *tool permissions*, not for reliability scoring.
+A divergence is not just logged: it is mapped onto the existing **reversibility
+ladder** ([`fd_policy::reversibility`](graduated-response-levels.md)) via
+[`CoherenceSpan::response_level`], reusing the R1–R3 `ResponseLevel` rather than
+inventing a new shape. Severity → rung:
+
+| Severity (`risk_level`) | Rung | `ResponseLevel` |
+|---|---|---|
+| Critical / High (default `risk_score` 70 → High) | **R3** | `require_approval` |
+| Medium | **R2** | `allow_under_budget` |
+| Low | **R1** | `allow_and_log` |
+
+Two modes, mirroring the Airlock shadow/enforce convention:
+
+- **`shadow` (default)** — the chosen rung is **recorded + surfaced** (audit
+  details, SSE, the run's `response_level`), but the run is **never gated**.
+  Safe for the heuristic's false-positive rate.
+- **`enforce`** (`FERRUMDECK_COHERENCE_MODE=enforce`) — an **R3** divergence
+  **gates the run**: its status is set to `WaitingApproval` for human review
+  instead of `Completed`. R1/R2 are recorded but not gated.
+
+The deny-by-default posture for *tool permissions* is unchanged; this adds a
+graduated response for a *trajectory* signal.
 
 ## Where it surfaces
 
 - **Audit**: an `airlock.violation_detected` event with
   `details.violation_type = coherence_divergence` — the **same**
   `audit_events.details` path every other Airlock layer uses (no parallel
-  store). `details.coherence` carries the full `CoherenceSpan` (stated fact,
-  category, contradicting action, confidence, gap, anchor); `details.blocked`
-  is always `false`.
+  store). `details` also carries `response_level` / `response_rung`, `mode`
+  (`shadow` | `enforce`), and `gated`; `details.coherence` is the full
+  `CoherenceSpan`. `details.blocked` equals `gated`.
+- **SSE**: a `coherence.divergence.detected` event on the run stream
+  (`run:{run_id}`) carrying the category, confidence, `response_level` /
+  `response_rung`, `gated`, and the stated-fact / contradicting-action quotes.
+  Gateway→BFF push is deferred (same pattern as `run.forecast.updated` /
+  `routing.decision.recorded`); the BFF locks the wire shape and the console
+  reads the persisted flag + rung on the next poll.
 - **Run row**: `runs.coherence_divergence_flagged` (`true` when a divergence
-  fired, `false` for a coherent completed run, `NULL` for legacy runs that
-  predate the live consumer), returned on `GET /v1/runs/{id}`.
+  fired, `false` for a coherent completed run, `NULL` for legacy runs) and
+  `runs.response_level` (the selected rung), returned on `GET /v1/runs/{id}`.
 - **Span**: `ferrumdeck.reliability.coherence_divergence` (boolean) on the
   run-completion span.
 - **Dashboard**: a "Coherence" stat card on the run header — amber "Divergent"
   when flagged, green "Coherent" otherwise, hidden (null-for-legacy) when the
-  field is absent.
+  field is absent; the R-rung shows on the existing `ResponseLevelBadge`.
 
 ## Configuration
 
 `CoherenceConfig` (separate from the per-call `AirlockConfig`) — `enabled`,
-`lookahead` (default 8), `risk_score` (70), `min_confidence` (0.5). The gateway
-enables it by default; disable with `FERRUMDECK_COHERENCE_ENABLED=false`.
+`lookahead` (default 8), `risk_score` (70), `min_confidence` (0.5). Env toggles:
+
+- `FERRUMDECK_COHERENCE_ENABLED=false` — disable the monitor entirely.
+- `FERRUMDECK_COHERENCE_MODE=enforce` — gate R3 divergences (default `shadow`,
+  which records + surfaces but never gates).
 
 ## Limitation — single-process trajectory state
 
@@ -99,11 +127,25 @@ A shared golden fixture
 `TestGoldenParity` test, pinning that the two planes classify an identical
 trajectory identically.
 
+## Reproducible demo
+
+`examples/demo/coherence-drift.py` (section 8 of `examples/demo/run-demo.sh`)
+feeds a deliberately drifting trajectory through the same detection core and
+prints each divergence + its R-tier + the shadow/enforce action + the SSE shape.
+Pure, no stack, self-verifying (exits non-zero if the drift is not caught):
+
+```
+uv run python examples/demo/coherence-drift.py
+```
+
 ## Verifying
 
-- Rust unit + parity: `cargo test -p fd-policy coherence`.
+- Rust unit + parity: `cargo test -p fd-policy coherence` (incl.
+  `response_level_maps_severity_to_r_tier`).
 - Rust live-consumer integration:
-  `cargo test -p gateway coherence_live_consumer`.
+  `cargo test -p gateway coherence_live_consumer` (incl.
+  `enforce_mode_gates_r3_divergence`).
+- Demo: `uv run python examples/demo/coherence-drift.py`.
 - Python (CI-gated):
   `uv run pytest python/packages/fd-evals/tests/test_coherence.py`.
 - Cross-plane: the Rust `golden_fixture_matches_python` and Python

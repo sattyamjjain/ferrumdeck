@@ -120,6 +120,22 @@ hdr "7. Golden-trace replay (deterministic metric wire-contract regression — p
 uv run pytest python/packages/fd-evals/tests/test_tool_call_firing_rate_golden.py -q 2>&1 | tail -3
 
 # -----------------------------------------------------------------------------
+hdr "8. Coherence-divergence live-fire (deterministic — a drifting run is caught + R-tiered)"
+# Feeds a deliberately drifting trajectory through the SAME detection core the
+# live gateway runs on each step; shows the divergence, the R1-R3 rung, and the
+# shadow/enforce response + the coherence.divergence.detected SSE shape. Pure,
+# self-verifying (exits non-zero if the drift is NOT caught).
+if uv run python examples/demo/coherence-drift.py; then
+  ok "coherence divergence fired on the drifting run and mapped to an R-tier"
+else
+  bad "coherence-divergence proof failed"
+fi
+echo "  Live signal (Part B / real agentic run): a divergence writes an"
+echo "  audit_events row with violation_type=coherence_divergence, emits the SSE"
+echo "  event, and surfaces on the run's Coherence card. Set FERRUMDECK_COHERENCE_MODE=enforce"
+echo "  to gate an R3 divergence (run → WaitingApproval) instead of only recording it."
+
+# -----------------------------------------------------------------------------
 printf '\n%s\n' "$(c '1;36' '════════════════════════════════════════════')"
 if [ "$FAIL" -eq 0 ]; then
   printf '%s  %d governance assertions passed.\n' "$(c '1;32' 'DEMO OK ✓')" "$PASS"

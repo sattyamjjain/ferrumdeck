@@ -34,6 +34,12 @@ pub struct AppState {
     /// Config for the coherence monitor (enable flag, lookahead, confidence).
     pub coherence_config: CoherenceConfig,
 
+    /// When `true` (`FERRUMDECK_COHERENCE_MODE=enforce`), a coherence divergence
+    /// that maps to the R3 rung gates the run (→ `WaitingApproval`). Default
+    /// `false` (shadow): the R-tier response is recorded + surfaced but the run
+    /// is never gated. Mirrors the Airlock shadow/enforce convention.
+    pub coherence_enforce: bool,
+
     /// Queue client for job publishing (lock-free, uses multiplexed connection)
     pub queue: Arc<QueueClient>,
 
@@ -207,8 +213,12 @@ impl AppState {
                 .unwrap_or(true),
             ..CoherenceConfig::default()
         };
+        let coherence_enforce = std::env::var("FERRUMDECK_COHERENCE_MODE")
+            .map(|v| v.eq_ignore_ascii_case("enforce"))
+            .unwrap_or(false);
         tracing::info!(
             enabled = coherence_config.enabled,
+            enforce = coherence_enforce,
             "Coherence-divergence monitor initialized"
         );
         let coherence = Arc::new(CoherenceMonitor::new());
@@ -225,6 +235,7 @@ impl AppState {
             airlock,
             coherence,
             coherence_config,
+            coherence_enforce,
             queue: Arc::new(queue),
             rate_limiter,
             oauth2_validator,

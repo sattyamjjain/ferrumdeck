@@ -136,6 +136,34 @@ export interface RunForecastUpdatedPayload {
   at: string;
 }
 
+// Blocking-fact category for a coherence divergence (Strained Coherence,
+// arXiv:2606.07889). Matches the Rust BlockingCategory serde labels.
+export type CoherenceCategory =
+  | "test_failure"
+  | "permission_denied"
+  | "missing_resource"
+  | "build_error"
+  | "generic_error";
+
+// SSE event payload schema for `coherence.divergence.detected`. Emitted when
+// the live gateway monitor surfaces a stated-blocking-fact -> contradicting-
+// closure-action divergence. `response_level` is the reversibility-ladder rung
+// (R1-R3) the divergence maps to; `gated` is true only in enforce mode when an
+// R3 rung halts the run. See docs/runbooks/coherence-divergence.md.
+export interface CoherenceDivergenceDetectedPayload {
+  run_id: string;
+  category: CoherenceCategory;
+  confidence: number;
+  response_level: ResponseLevel;
+  response_rung: "R1" | "R2" | "R3";
+  gated: boolean;
+  mode: "shadow" | "enforce";
+  stated_fact: string;
+  contradicting_action: string;
+  anchor: string;
+  at: string;
+}
+
 // Run with statistics for list views
 export interface RunWithStats extends Run {
   step_count: number;

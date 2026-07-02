@@ -10,6 +10,7 @@ control plane rather than a wrapper:
 | 2 | **Approval gate (human-in-the-loop)** | a write tool returns `requires_approval=true` |
 | 3 | **Immutable audit trail** | every decision is read back from `audit_events` (append-only; the repo exposes no `UPDATE`/`DELETE`) |
 | 4 | **OTel / GenAI spans** | the `check-tool` spans land in Jaeger |
+| 5 | **Coherence-divergence caught mid-run** | a deliberately drifting run fires a divergence + an R1–R3 response (pure, no stack) |
 | + | **Golden-trace replay** | a deterministic metric wire-contract regression (pure, no stack) |
 
 ## Run it
@@ -75,7 +76,27 @@ DENY     exfiltrate_secrets_…  → allowed=false
 DEMO OK ✓  3 governance assertions passed.
 ```
 
+## Coherence-divergence live-fire
+
+Section 8 of the demo runs [`coherence-drift.py`](./coherence-drift.py) — a
+**pure, no-stack, self-verifying** proof that a deliberately drifting run (states
+"tests failing" / "permission denied", then commits / deploys anyway) is caught
+by the **same detection core the live gateway runs on each step**, and mapped
+onto the reversibility ladder (R1–R3). It exits non-zero if the drift is *not*
+caught, and asserts the coherent control run does **not** fire.
+
+Against the live gateway (Part B, a real agentic run) the same divergence:
+- writes an `audit_events` row with `violation_type=coherence_divergence` (the
+  identical Airlock `details` path),
+- emits the `coherence.divergence.detected` SSE event on the run stream, and
+- surfaces on the run's **Coherence** card.
+
+It runs **shadow by default** (records + surfaces, never blocks). Set
+`FERRUMDECK_COHERENCE_MODE=enforce` to gate an R3 divergence — the run halts at
+`WaitingApproval` for human review instead of being marked complete.
+
 ## Files
 
 - [`run-demo.sh`](./run-demo.sh) — the one-command, self-verifying demo.
+- [`coherence-drift.py`](./coherence-drift.py) — the pure coherence-divergence live-fire proof (section 8).
 - The example agent it governs: [`../safe-pr-agent/agent.yaml`](../safe-pr-agent/agent.yaml) (deny-by-default `allowed_tools`, `approval_required_tools: [write_file, create_pr]`, a per-agent `budget`).

@@ -206,6 +206,46 @@ _ABORT = (
 )
 
 
+# Graduated-response rungs (mirror the Rust `fd_policy::reversibility`
+# ResponseLevel + `CoherenceSpan::response_level`). A divergence's severity
+# (risk_score -> risk_level) maps onto an R-tier: Critical/High -> R3, Medium
+# -> R2, Low -> R1.
+ALLOW_AND_LOG = "allow_and_log"
+ALLOW_UNDER_BUDGET = "allow_under_budget"
+REQUIRE_APPROVAL = "require_approval"
+
+
+def risk_level_for_score(score: int) -> str:
+    """Mirror the Rust ``RiskLevel::from_score`` bucketing."""
+    if score >= 80:
+        return "critical"
+    if score >= 60:
+        return "high"
+    if score >= 40:
+        return "medium"
+    return "low"
+
+
+def response_level_for_score(score: int) -> str:
+    """Map a divergence severity onto the reversibility-ladder rung (R1-R3),
+    mirroring the Rust ``CoherenceSpan::response_level``."""
+    level = risk_level_for_score(score)
+    if level in ("critical", "high"):
+        return REQUIRE_APPROVAL
+    if level == "medium":
+        return ALLOW_UNDER_BUDGET
+    return ALLOW_AND_LOG
+
+
+def response_rung(response_level: str) -> str:
+    """The R-rung label (R1/R2/R3) for a response level."""
+    return {
+        ALLOW_AND_LOG: "R1",
+        ALLOW_UNDER_BUDGET: "R2",
+        REQUIRE_APPROVAL: "R3",
+    }.get(response_level, "R3")
+
+
 def _contains_any(haystack: str, needles: tuple[str, ...]) -> bool:
     return any(n in haystack for n in needles)
 
@@ -291,7 +331,17 @@ class CoherenceSpan:
     contradicting_action: str
     confidence: float
     gap: int
+    risk_score: int = DEFAULT_RISK_SCORE
     anchor: str = COHERENCE_ANCHOR
+
+    def response_level(self) -> str:
+        """The reversibility-ladder rung (R1-R3) this divergence maps to,
+        mirroring the Rust ``CoherenceSpan::response_level``."""
+        return response_level_for_score(self.risk_score)
+
+    def response_rung(self) -> str:
+        """R1/R2/R3 label for this divergence's response level."""
+        return response_rung(self.response_level())
 
 
 @dataclass
@@ -307,6 +357,7 @@ def scan_trajectory(
     *,
     lookahead: int = DEFAULT_LOOKAHEAD,
     min_confidence: float = DEFAULT_MIN_CONFIDENCE,
+    risk_score: int = DEFAULT_RISK_SCORE,
 ) -> list[CoherenceSpan]:
     """Replay a whole trajectory and collect every divergence. A verbatim port
     of the Rust stateless ``CoherenceMonitor::scan_trajectory`` - same detection
@@ -359,6 +410,7 @@ def scan_trajectory(
                 contradicting_action=_render_action(event.name, event.text),
                 confidence=confidence,
                 gap=gap,
+                risk_score=risk_score,
             )
         )
 
@@ -389,5 +441,8 @@ __all__ = [
     "CoherenceSpan",
     "TrajectoryEvent",
     "event_from_dict",
+    "response_level_for_score",
+    "response_rung",
+    "risk_level_for_score",
     "scan_trajectory",
 ]
