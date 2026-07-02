@@ -105,6 +105,12 @@ export interface Run {
   // threshold (never blocks a run). Absent on legacy runs.
   claim_grounding_rate?: number;
   claim_grounding_flagged?: boolean;
+  // Coherence divergence (Strained Coherence, arXiv:2606.07889): `true` when the
+  // live gateway monitor surfaced a stated-blocking-fact -> contradicting-
+  // closure-action divergence on this run, `false` for a coherent completed
+  // run. Reliability signal only (never blocks). Absent (undefined) on legacy
+  // runs that predate the live consumer — the console hides the card for them.
+  coherence_divergence_flagged?: boolean;
 }
 
 // Graduated response level — the DeepMind R1-R3 control ladder. Mirrors

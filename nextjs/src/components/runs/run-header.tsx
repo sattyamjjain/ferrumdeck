@@ -22,6 +22,7 @@ import {
   GitBranch,
   Sparkles,
   Anchor,
+  Split,
 } from "lucide-react";
 import Link from "next/link";
 import { useState, useCallback, useEffect } from "react";
@@ -422,15 +423,37 @@ function MetricsDashboard({
           },
         ]
       : []),
+    // Coherence divergence (Strained Coherence 2606.07889) — reliability signal
+    // next to Grounding. Only shown once the live monitor recorded a verdict
+    // (null-for-legacy). Amber "Divergent" when a stated blocking fact was
+    // ignored by a closure action; green "Coherent" otherwise.
+    ...(run.coherence_divergence_flagged != null
+      ? [
+          {
+            icon: Split,
+            label: "Coherence",
+            value: run.coherence_divergence_flagged ? "Divergent" : "Coherent",
+            sublabel: run.coherence_divergence_flagged
+              ? "Divergence detected"
+              : "per Strained Coherence",
+            color: run.coherence_divergence_flagged
+              ? ("yellow" as const)
+              : ("green" as const),
+            highlight: run.coherence_divergence_flagged,
+          },
+        ]
+      : []),
   ];
 
   return (
     <div
       className={cn(
         "grid grid-cols-2 gap-3",
-        run.claim_grounding_rate != null
-          ? "md:grid-cols-3 lg:grid-cols-6"
-          : "md:grid-cols-5"
+        metrics.length >= 7
+          ? "md:grid-cols-3 lg:grid-cols-7"
+          : metrics.length === 6
+            ? "md:grid-cols-3 lg:grid-cols-6"
+            : "md:grid-cols-5"
       )}
     >
       {metrics.map((metric, index) => (

@@ -87,6 +87,12 @@ FD_RELIABILITY_CLAIM_GROUNDING_THRESHOLD = "ferrumdeck.reliability.claim_groundi
 # threshold (off by default). Mirror of Rust `DEFAULT_MIN_CLAIM_GROUNDING_RATE`.
 FD_RELIABILITY_CLAIM_GROUNDING_DEFAULT_THRESHOLD: float = 0.70
 
+# Coherence-divergence signal (Strained Coherence, arXiv:2606.07889). `true`
+# when the live gateway CoherenceMonitor surfaced a stated-blocking-fact ->
+# contradicting-closure-action divergence on the run's trajectory. Mirror of
+# the Rust `fd_otel::genai::attrs::FERRUMDECK_RELIABILITY_COHERENCE_DIVERGENCE`.
+FD_RELIABILITY_COHERENCE_DIVERGENCE = "ferrumdeck.reliability.coherence_divergence"
+
 # Model pricing per 1M tokens (as of Dec 2024)
 # https://www.anthropic.com/pricing#anthropic-api
 MODEL_PRICING: dict[str, dict[str, float]] = {

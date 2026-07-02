@@ -36,6 +36,7 @@ mod run_tests {
             response_level: None,
             claim_grounding_rate: None,
             claim_grounding_flagged: false,
+            coherence_divergence_flagged: None,
         };
 
         let json = serde_json::to_string(&response).unwrap();

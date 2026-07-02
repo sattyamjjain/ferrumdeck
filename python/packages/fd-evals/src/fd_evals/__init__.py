@@ -14,6 +14,12 @@ from fd_evals.bench_audit import (
 from fd_evals.bench_audit import (
     save_report as save_bench_audit_report,
 )
+from fd_evals.coherence import (
+    COHERENCE_ANCHOR,
+    CoherenceSpan,
+    TrajectoryEvent,
+    scan_trajectory,
+)
 from fd_evals.delta import (
     CostDelta,
     DeltaReport,
@@ -56,8 +62,12 @@ from fd_evals.training_signal import score_overrides_from_results
 
 __all__ = [
     "BENCH_AUDIT_ANCHOR",
+    "COHERENCE_ANCHOR",
     "HARNESS_ANCHOR",
     "BaseScorer",
+    "CoherenceSpan",
+    "TrajectoryEvent",
+    "scan_trajectory",
     "BenchAuditReport",
     "BenchAuditor",
     "CompositeScorer",

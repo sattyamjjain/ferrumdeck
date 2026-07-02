@@ -105,6 +105,12 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
   mode.
 - **Append-only audit trail** for policy, budget, approval, routing, and
   promotion decisions (the repository exposes no `UPDATE`/`DELETE`).
+- **Coherence-divergence monitor**, wired live at the gateway run stream. As
+  each step is submitted, the run's trajectory is fed to the `CoherenceMonitor`;
+  a stated-blocking-fact → contradicting-closure-action divergence surfaces
+  mid-run through the same `airlock.violation_detected` audit path, is persisted
+  on the run row (`coherence_divergence_flagged`), and emitted on the completion
+  span. A reliability **signal** — it never blocks a tool or kills a run.
 
 **Scaffolded / not yet wired end-to-end — do not rely on these yet:**
 
@@ -117,11 +123,6 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
 - **Schema-drift and behavioral-drift Airlock layers** are implemented and
   unit-tested but are **not activated** in the running gateway (they need
   `tool_version_id` / `agent_id` plumbed into the inspection context).
-- **Coherence-divergence monitor** (`airlock/coherence.rs`) is implemented and
-  unit-tested as a library primitive with a streaming API
-  (`CoherenceMonitor::observe_event`), but is **not yet wired** to the live
-  audit-event stream — a consumer must feed it run-trajectory events for it to
-  emit mid-run. See the [Airlock RASP](#airlock-rasp) section.
 - **Trace→signal loop (HarnessX).** The harness-suggestion governance
   endpoints (`/v1/harness-suggestions*`) and the training-signal export
   (`POST /v1/runs/{id}/training-signal`, redacted server-side via the audit
@@ -1131,11 +1132,25 @@ in a post-hoc autopsy. A false-positive guard keeps it honest — a run that
 **acknowledges and acts on** the blocking fact (remediates, states it resolved,
 or disclaims success in the action itself) does not fire.
 
-> **Status:** implemented and unit-tested as a library primitive. It is **not
-> yet wired** to the live audit-event stream — a worker/gateway consumer must
-> feed it run-trajectory events. Configured by `CoherenceConfig` (separate from
-> the per-call `AirlockConfig`, since it is driven by `CoherenceMonitor` rather
-> than `AirlockInspector::inspect`).
+> **Status: wired live at the gateway run stream.** `submit_step_result`
+> projects each submitted step into trajectory events (a Tool step is an
+> advancing action followed by its observed output; a reasoning step is a
+> statement) and feeds them to a process-wide `CoherenceMonitor` keyed per run.
+> A divergence surfaces mid-run through the same `airlock.violation_detected`
+> `audit_events` path, is persisted on the run row
+> (`runs.coherence_divergence_flagged`, surfaced on `GET /v1/runs/{id}` and the
+> run console's **Coherence** card), and is emitted on the run-completion span
+> (`ferrumdeck.reliability.coherence_divergence`). At completion a synthetic
+> "reports success" closure action is fed so a run that terminates with an
+> unresolved blocking fact (and does not disclaim it) also flags. It is a
+> reliability **signal** — it never blocks a tool or changes run status,
+> mirroring the claim-grounding "flag, never block" posture. Toggle with
+> `FERRUMDECK_COHERENCE_ENABLED=false`. Configured by `CoherenceConfig`
+> (separate from the per-call `AirlockConfig`, since it is driven by
+> `CoherenceMonitor` rather than `AirlockInspector::inspect`). Single-process
+> today: the per-run trajectory state lives in gateway memory, so a
+> multi-instance deployment would track each run only within the instance that
+> receives its steps. See [`docs/runbooks/coherence-divergence.md`](docs/runbooks/coherence-divergence.md).
 
 #### Exfiltration Shield — credential & data-budget detail
 

@@ -94,6 +94,14 @@ pub struct Run {
     /// not affect run status.
     #[serde(default)]
     pub claim_grounding_flagged: bool,
+    /// Coherence-divergence signal (Strained Coherence, arXiv:2606.07889):
+    /// `Some(true)` when the live `CoherenceMonitor` surfaced at least one
+    /// stated-blocking-fact → contradicting-closure-action divergence on this
+    /// run's trajectory, `Some(false)` for a coherent completed run, `None`
+    /// for legacy runs that predate the live consumer. A reliability flag only
+    /// — it never blocks a tool or changes run status.
+    #[serde(default)]
+    pub coherence_divergence_flagged: Option<bool>,
 }
 
 /// Create run request
@@ -124,6 +132,7 @@ pub struct UpdateRun {
     pub response_level: Option<String>,
     pub claim_grounding_rate: Option<f32>,
     pub claim_grounding_flagged: Option<bool>,
+    pub coherence_divergence_flagged: Option<bool>,
 }
 
 /// Run with aggregated stats

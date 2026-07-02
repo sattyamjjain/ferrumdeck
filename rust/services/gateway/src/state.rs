@@ -1,6 +1,8 @@
 //! Application state
 
-use fd_policy::{AirlockConfig, AirlockInspector, AirlockMode, PolicyEngine};
+use fd_policy::{
+    AirlockConfig, AirlockInspector, AirlockMode, CoherenceConfig, CoherenceMonitor, PolicyEngine,
+};
 use fd_storage::{
     AgentsRepo, ApiKeysRepo, AuditRepo, DbPool, PoliciesRepo, ProjectsRepo, QueueClient, RunsRepo,
     StepsRepo, ThreatsRepo, ToolsRepo, WorkflowsRepo,
@@ -22,6 +24,15 @@ pub struct AppState {
 
     /// Airlock security inspector
     pub airlock: Arc<AirlockInspector>,
+
+    /// Coherence-divergence monitor (Strained Coherence, arXiv:2606.07889) —
+    /// a trajectory-level Airlock RASP signal fed live from the run's step
+    /// stream. One monitor shared across the process; it keys per-run state by
+    /// run id internally. Surfaces divergences (never blocks).
+    pub coherence: Arc<CoherenceMonitor>,
+
+    /// Config for the coherence monitor (enable flag, lookahead, confidence).
+    pub coherence_config: CoherenceConfig,
 
     /// Queue client for job publishing (lock-free, uses multiplexed connection)
     pub queue: Arc<QueueClient>,
@@ -187,6 +198,21 @@ impl AppState {
 
         let airlock = Arc::new(AirlockInspector::new(airlock_config));
 
+        // Coherence-divergence monitor — fed live from the step stream in
+        // `submit_step_result`. Enabled by default; disable via
+        // FERRUMDECK_COHERENCE_ENABLED=false (it only surfaces, never blocks).
+        let coherence_config = CoherenceConfig {
+            enabled: std::env::var("FERRUMDECK_COHERENCE_ENABLED")
+                .map(|v| !v.eq_ignore_ascii_case("false"))
+                .unwrap_or(true),
+            ..CoherenceConfig::default()
+        };
+        tracing::info!(
+            enabled = coherence_config.enabled,
+            "Coherence-divergence monitor initialized"
+        );
+        let coherence = Arc::new(CoherenceMonitor::new());
+
         // Create rate limiter
         let rate_limiter = create_rate_limiter();
 
@@ -197,6 +223,8 @@ impl AppState {
             db: db.clone(),
             policy_engine,
             airlock,
+            coherence,
+            coherence_config,
             queue: Arc::new(queue),
             rate_limiter,
             oauth2_validator,

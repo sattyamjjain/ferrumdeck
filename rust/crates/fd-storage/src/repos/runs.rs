@@ -103,6 +103,10 @@ impl RunsRepo {
         }
         if update.claim_grounding_flagged.is_some() {
             set_clauses.push(format!("claim_grounding_flagged = ${}", param_idx));
+            param_idx += 1;
+        }
+        if update.coherence_divergence_flagged.is_some() {
+            set_clauses.push(format!("coherence_divergence_flagged = ${}", param_idx));
         }
 
         if set_clauses.is_empty() {
@@ -153,6 +157,9 @@ impl RunsRepo {
             q = q.bind(rate);
         }
         if let Some(flagged) = &update.claim_grounding_flagged {
+            q = q.bind(flagged);
+        }
+        if let Some(flagged) = &update.coherence_divergence_flagged {
             q = q.bind(flagged);
         }
 

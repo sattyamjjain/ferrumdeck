@@ -7,10 +7,12 @@ use axum::{
     Extension, Json,
 };
 use chrono::Utc;
+use fd_core::RunId;
 use fd_otel::genai::pricing;
 use fd_policy::budget::{Budget, BudgetUsage};
 use fd_policy::forecast::{compute_forecast, ForecastInputs, ForecastSnapshot};
 use fd_policy::routing::RoutingDecision;
+use fd_policy::{CoherenceSpan, TrajectoryEvent};
 use fd_storage::{
     models::{
         action, actor, resource, AgentVersion, AuditEventBuilder, CreateRun, CreateStep, RunStatus,
@@ -115,6 +117,13 @@ pub struct RunResponse {
     /// `min_claim_grounding_rate` threshold (a reliability flag, not enforcement).
     #[serde(default)]
     pub claim_grounding_flagged: bool,
+    /// Coherence-divergence signal (Strained Coherence, arXiv:2606.07889):
+    /// `true` when the live monitor surfaced a stated-blocking-fact →
+    /// contradicting-closure-action divergence on this run, `false` for a
+    /// coherent completed run, `None` for legacy runs (renders null-for-legacy
+    /// on the console). A reliability flag only — never enforcement.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coherence_divergence_flagged: Option<bool>,
 }
 
 /// Query parameters for listing runs
@@ -235,6 +244,7 @@ fn run_to_response(run: fd_storage::models::Run) -> RunResponse {
         response_level: run.response_level,
         claim_grounding_rate: run.claim_grounding_rate,
         claim_grounding_flagged: run.claim_grounding_flagged,
+        coherence_divergence_flagged: run.coherence_divergence_flagged,
     }
 }
 
@@ -247,6 +257,63 @@ fn value_to_text(value: &serde_json::Value) -> String {
         Some(s) => s.to_string(),
         None => value.to_string(),
     }
+}
+
+/// Project a completed step into the trajectory events the [`CoherenceMonitor`]
+/// consumes, in observation order: a *Tool* step is an advancing **action**
+/// (the invocation — where a closure like `git_commit` lives) followed by a
+/// **statement** (its observed output/error — where a blocking fact like
+/// "tests failed" lives); a reasoning/other step contributes statements only.
+/// Feeding action-before-statement means a later step's closure action is
+/// checked against blocking facts opened by earlier steps' outputs — exactly
+/// the sequential pattern the monitor detects.
+///
+/// [`CoherenceMonitor`]: fd_policy::CoherenceMonitor
+fn step_trajectory_events(step: &fd_storage::models::Step) -> Vec<TrajectoryEvent> {
+    let mut events = Vec::new();
+    if matches!(step.step_type, StepType::Tool) {
+        if let Some(name) = step.tool_name.as_deref() {
+            events.push(TrajectoryEvent::action(name, value_to_text(&step.input)));
+        }
+    }
+    if let Some(output) = step.output.as_ref() {
+        events.push(TrajectoryEvent::statement(value_to_text(output)));
+    }
+    if let Some(error) = step.error.as_ref() {
+        events.push(TrajectoryEvent::statement(value_to_text(error)));
+    }
+    events
+}
+
+/// Build the audit event that surfaces a coherence divergence through the
+/// **same** `airlock.violation_detected` `audit_events` path every other
+/// Airlock layer uses — no parallel store, no parallel decision channel. The
+/// span is projected via [`CoherenceSpan::to_violation`] so `violation_type`,
+/// `trigger`, and the full evidence ride the identical `details` shape. It is
+/// recorded in shadow terms (`shadow_mode = true`, `blocked = false`): a
+/// reliability signal that never blocks a tool or kills a run.
+fn coherence_audit_event(
+    run_id: &str,
+    project_id: &str,
+    span: &CoherenceSpan,
+) -> fd_storage::models::CreateAuditEvent {
+    let violation = span.to_violation();
+    let coherence = serde_json::to_value(span).unwrap_or(serde_json::Value::Null);
+    AuditEventBuilder::new("airlock.violation_detected", resource::RUN)
+        .actor(actor::SYSTEM, None)
+        .resource_id(run_id)
+        .run(run_id)
+        .project(project_id)
+        .details(serde_json::json!({
+            "violation_type": "coherence_divergence",
+            "trigger": violation.trigger,
+            "risk_score": violation.risk_score,
+            "risk_level": violation.risk_level.as_str(),
+            "shadow_mode": true,
+            "blocked": false,
+            "coherence": coherence,
+        }))
+        .build()
 }
 
 /// Convert a [`ForecastSnapshot`] into the storage-shape snapshot that the
@@ -775,6 +842,7 @@ pub async fn get_routing(
     ferrumdeck.reliability.claim_grounding_rate = tracing::field::Empty,
     ferrumdeck.reliability.claim_grounding_below_threshold = tracing::field::Empty,
     ferrumdeck.reliability.claim_grounding_threshold = tracing::field::Empty,
+    ferrumdeck.reliability.coherence_divergence = tracing::field::Empty,
 ))]
 pub async fn submit_step_result(
     State(state): State<AppState>,
@@ -863,6 +931,46 @@ pub async fn submit_step_result(
         }))
         .build();
     repos.spawn_audit(audit_event);
+
+    // -----------------------------------------------------------------------
+    // Coherence-divergence monitor (Strained Coherence, arXiv:2606.07889)
+    // -----------------------------------------------------------------------
+    // Feed THIS step's trajectory events into the per-run monitor as they
+    // stream in. A divergence — a stated blocking fact followed by a
+    // contradicting closure action — surfaces the instant it completes,
+    // mid-run, through the same `airlock.violation_detected` audit path every
+    // other Airlock layer uses. It only SURFACES: no tool is blocked, no run
+    // is killed (mirrors the claim-grounding "flag, never block" posture).
+    let coherence_run_id = RunId::parse(&run_id).unwrap_or_else(|_| RunId::new());
+    let mut coherence_fired = false;
+    for event in step_trajectory_events(&updated_step) {
+        if let Some(span) = state
+            .coherence
+            .observe_event(&coherence_run_id, &event, &state.coherence_config)
+            .await
+        {
+            coherence_fired = true;
+            repos.spawn_audit(coherence_audit_event(&run_id, &run.project_id, &span));
+        }
+    }
+    if coherence_fired {
+        // Reflect the flag on the run row immediately so `GET /v1/runs/{id}`
+        // shows it live, before the run completes. Best-effort — a reliability
+        // signal, never gating.
+        if let Err(err) = repos
+            .runs()
+            .update(
+                &run_id,
+                UpdateRun {
+                    coherence_divergence_flagged: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await
+        {
+            warn!(run_id = %run_id, error = %err, "Failed to persist coherence flag");
+        }
+    }
 
     // Check budget after step completion
     let updated_run = repos.runs().get(&run_id).await?.unwrap();
@@ -970,6 +1078,9 @@ pub async fn submit_step_result(
             )
             .await?;
 
+        // Terminal — free the run's coherence trajectory state.
+        state.coherence.clear_run(&coherence_run_id).await;
+
         // Return the step result, but the run is now killed
         return Ok(Json(step_to_response(updated_step)));
     }
@@ -1015,6 +1126,33 @@ pub async fn submit_step_result(
         let grounding_flagged = project_threshold.is_some() && grounding.below_threshold;
         fd_otel::claim_grounding::record_on_span(&tracing::Span::current(), &grounding);
 
+        // Coherence-divergence: the run is terminating with a "reports success"
+        // outcome. Feed a synthetic terminal closure action carrying the final
+        // output text — so a run that ends with an unresolved blocking fact
+        // (and does not disclaim it) fires, while an honest disclaimer in the
+        // final output ("cannot complete, tests failing") is suppressed by the
+        // monitor's own guard. `mark_complete` is a recognized closure token.
+        let terminal_action = TrajectoryEvent::action("mark_complete", &final_output_text);
+        if let Some(span) = state
+            .coherence
+            .observe_event(&coherence_run_id, &terminal_action, &state.coherence_config)
+            .await
+        {
+            coherence_fired = true;
+            repos.spawn_audit(coherence_audit_event(&run_id, &run.project_id, &span));
+        }
+        // Final flag: fired this invocation OR already persisted by an earlier
+        // step submission. Coherent completed runs record `Some(false)` so the
+        // console shows a green "Coherent" card; only legacy runs stay `None`.
+        let coherence_flagged =
+            coherence_fired || updated_run.coherence_divergence_flagged.unwrap_or(false);
+        tracing::Span::current().record(
+            fd_otel::genai::attrs::FERRUMDECK_RELIABILITY_COHERENCE_DIVERGENCE,
+            coherence_flagged,
+        );
+        // Trajectory state for this run is no longer needed — free it.
+        state.coherence.clear_run(&coherence_run_id).await;
+
         if grounding_flagged {
             let audit_event =
                 AuditEventBuilder::new(action::CLAIM_GROUNDING_BELOW_THRESHOLD, resource::RUN)
@@ -1042,6 +1180,7 @@ pub async fn submit_step_result(
                     output: updated_step.output.clone(),
                     claim_grounding_rate: Some(grounding.rate as f32),
                     claim_grounding_flagged: Some(grounding_flagged),
+                    coherence_divergence_flagged: Some(coherence_flagged),
                     ..Default::default()
                 },
             )
@@ -1090,6 +1229,9 @@ pub async fn submit_step_result(
             }))
             .build();
         repos.spawn_audit(audit_event);
+
+        // Terminal — free the run's coherence trajectory state.
+        state.coherence.clear_run(&coherence_run_id).await;
 
         warn!(run_id = %run_id, step_id = %step_id, "Run failed due to step failure");
     } else if status == StepStatus::WaitingApproval {
@@ -1619,5 +1761,124 @@ mod budget_resolution_tests {
         let default = Budget::default();
         let budget = resolve_run_budget(&config, None, &default);
         assert_eq!(budget.max_cost_cents, default.max_cost_cents);
+    }
+}
+
+/// Integration test for the *live* coherence-divergence consumer: it drives a
+/// divergent multi-step trajectory through the exact functions the
+/// `submit_step_result` handler calls — `step_trajectory_events` (step →
+/// trajectory projection), the streaming `CoherenceMonitor::observe_event`, and
+/// `coherence_audit_event` (span → audit event) — and asserts the produced
+/// `audit_events` record carries `violation_type = coherence_divergence` on the
+/// shared `airlock.violation_detected` path. This exercises the wiring end-to-
+/// end at the audit-record boundary without a live Postgres (the DB write is a
+/// verbatim `AuditRepo::create` of the same record via `spawn_audit`).
+#[cfg(test)]
+mod coherence_live_consumer_tests {
+    use super::{coherence_audit_event, step_trajectory_events};
+    use chrono::Utc;
+    use fd_core::RunId;
+    use fd_policy::{CoherenceConfig, CoherenceMonitor};
+    use fd_storage::models::{Step, StepStatus, StepType};
+
+    fn tool_step(number: i32, name: &str, output: &str) -> Step {
+        Step {
+            id: format!("stp_{number}"),
+            run_id: "run_x".into(),
+            parent_step_id: None,
+            step_number: number,
+            step_type: StepType::Tool,
+            input: serde_json::json!({ "cmd": name }),
+            output: Some(serde_json::json!(output)),
+            tool_name: Some(name.to_string()),
+            tool_version: None,
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            status: StepStatus::Completed,
+            error: None,
+            created_at: Utc::now(),
+            started_at: None,
+            completed_at: Some(Utc::now()),
+            span_id: None,
+        }
+    }
+
+    /// The canonical divergence: a tool step reports "tests failing", the next
+    /// tool step commits. Fed step-by-step through the live consumer, it must
+    /// emit exactly one `airlock.violation_detected` audit record whose details
+    /// carry `violation_type = coherence_divergence`.
+    #[tokio::test]
+    async fn divergent_trajectory_produces_coherence_audit_record() {
+        let monitor = CoherenceMonitor::new();
+        let config = CoherenceConfig::default();
+        let run_id = RunId::parse("run_x").unwrap_or_else(|_| RunId::new());
+        let project_id = "prj_test";
+
+        let trajectory = [
+            tool_step(1, "run_tests", "2 tests failed: assertion error"),
+            tool_step(2, "git_commit", "committing the change"),
+        ];
+
+        // Mirror the handler's per-step loop exactly.
+        let mut audit_records = Vec::new();
+        for step in &trajectory {
+            for event in step_trajectory_events(step) {
+                if let Some(span) = monitor.observe_event(&run_id, &event, &config).await {
+                    audit_records.push(coherence_audit_event("run_x", project_id, &span));
+                }
+            }
+        }
+
+        assert_eq!(
+            audit_records.len(),
+            1,
+            "exactly one divergence audit record expected: {audit_records:?}"
+        );
+        let record = &audit_records[0];
+        assert_eq!(record.action, "airlock.violation_detected");
+        assert_eq!(record.resource_type, "run");
+        assert_eq!(record.run_id.as_deref(), Some("run_x"));
+        assert_eq!(record.project_id.as_deref(), Some(project_id));
+        assert_eq!(
+            record.details["violation_type"], "coherence_divergence",
+            "audit row must carry violation_type = coherence_divergence: {}",
+            record.details
+        );
+        // The full evidence rides the same `details` payload.
+        assert_eq!(record.details["blocked"], false, "surfaces, never blocks");
+        assert_eq!(
+            record.details["coherence"]["category"], "test_failure",
+            "the stated-fact category is preserved in the record"
+        );
+    }
+
+    /// A coherent run — states the failure, resolves it, then commits — must
+    /// produce NO coherence audit record through the same live consumer.
+    #[tokio::test]
+    async fn coherent_trajectory_produces_no_audit_record() {
+        let monitor = CoherenceMonitor::new();
+        let config = CoherenceConfig::default();
+        let run_id = RunId::parse("run_ok").unwrap_or_else(|_| RunId::new());
+
+        let trajectory = [
+            tool_step(1, "run_tests", "tests failing: 1 assertion"),
+            tool_step(2, "edit_file", "all tests pass now"),
+            tool_step(3, "git_commit", "commit the fix"),
+        ];
+
+        let mut count = 0usize;
+        for step in &trajectory {
+            for event in step_trajectory_events(step) {
+                if monitor
+                    .observe_event(&run_id, &event, &config)
+                    .await
+                    .is_some()
+                {
+                    count += 1;
+                }
+            }
+        }
+        assert_eq!(count, 0, "a resolved trajectory must not fire");
     }
 }

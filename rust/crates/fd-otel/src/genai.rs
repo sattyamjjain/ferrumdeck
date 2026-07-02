@@ -92,6 +92,14 @@ pub mod attrs {
         "ferrumdeck.reliability.claim_grounding_below_threshold";
     pub const FERRUMDECK_RELIABILITY_CLAIM_GROUNDING_THRESHOLD: &str =
         "ferrumdeck.reliability.claim_grounding_threshold";
+
+    // Coherence-divergence signal (Strained Coherence, arXiv:2606.07889). `true`
+    // when the run's trajectory exhibited at least one stated-blocking-fact →
+    // contradicting-closure-action divergence surfaced by the live
+    // `CoherenceMonitor`. A reliability signal only — never enforcement. See
+    // `fd_policy::airlock::coherence`.
+    pub const FERRUMDECK_RELIABILITY_COHERENCE_DIVERGENCE: &str =
+        "ferrumdeck.reliability.coherence_divergence";
 }
 
 /// GenAI system values

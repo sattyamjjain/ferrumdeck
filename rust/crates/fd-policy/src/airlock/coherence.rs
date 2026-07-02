@@ -855,4 +855,52 @@ mod tests {
         assert_eq!(spans[0].category, BlockingCategory::TestFailure);
         assert_eq!(spans[1].category, BlockingCategory::PermissionDenied);
     }
+
+    // -- Cross-plane parity ---------------------------------------------------
+
+    /// The Python eval-plane mirror (`fd_evals.coherence`) asserts this exact
+    /// same golden fixture in `test_coherence.py`. Feeding each case through
+    /// the Rust detection core must yield the same ordered divergence
+    /// categories the Python plane expects — so the two cores can never
+    /// silently drift.
+    #[test]
+    fn golden_fixture_matches_python() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../python/packages/fd-evals/tests/fixtures/coherence_divergence.golden.json"
+        );
+        let raw = std::fs::read_to_string(path).expect("read coherence golden fixture");
+        let data: serde_json::Value = serde_json::from_str(&raw).expect("parse fixture");
+        assert_eq!(data["anchor"], COHERENCE_ANCHOR);
+
+        let cfg = config();
+        for case in data["cases"].as_array().expect("cases array") {
+            let name = case["name"].as_str().unwrap_or("");
+            let events: Vec<TrajectoryEvent> = case["events"]
+                .as_array()
+                .expect("events array")
+                .iter()
+                .map(|e| {
+                    let text = e["text"].as_str().unwrap_or("").to_string();
+                    match e["kind"].as_str() {
+                        Some("action") => {
+                            TrajectoryEvent::action(e["name"].as_str().unwrap_or(""), text)
+                        }
+                        _ => TrajectoryEvent::statement(text),
+                    }
+                })
+                .collect();
+            let got: Vec<&str> = CoherenceMonitor::scan_trajectory(name, &events, &cfg)
+                .iter()
+                .map(|s| s.category.label())
+                .collect();
+            let expected: Vec<&str> = case["expected_categories"]
+                .as_array()
+                .expect("expected array")
+                .iter()
+                .map(|c| c.as_str().unwrap_or(""))
+                .collect();
+            assert_eq!(got, expected, "case {name}");
+        }
+    }
 }
