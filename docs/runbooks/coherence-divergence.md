@@ -72,6 +72,38 @@ Two modes, mirroring the Airlock shadow/enforce convention:
 The deny-by-default posture for *tool permissions* is unchanged; this adds a
 graduated response for a *trajectory* signal.
 
+## Operating at R3 vs R1 — when to flip `enforce`
+
+The `shadow`/`enforce` switch is exactly the DeepMind **AI Control Roadmap**
+(2026-06-18) Response-tier choice applied to the coherence signal:
+
+- **`shadow` (default) ≈ R1 (asynchronous).** The divergence and its R-tier are
+  recorded to the audit trail + surfaced (SSE, the Coherence card), and a human
+  reviews after the fact. The roadmap deems R1 acceptable for **low-risk,
+  easily reversible** actions — which is the right default here because the
+  detector is a lexical heuristic with a non-zero false-positive rate, so you
+  do not want it halting runs unattended.
+- **`enforce` ≈ R3 (synchronous).** An R3 divergence (default severity → R3)
+  **blocks before the run proceeds**: the run is set to `WaitingApproval` for
+  human review instead of `Completed`. The roadmap's guidance is that **R1 async
+  review is insufficient for critical-infrastructure agents** — a harmful,
+  irreversible action (a deploy, a spend, an external send) cannot be undone
+  after the fact, so it must be gated *synchronously*.
+
+**Rule of thumb.** Flip `FERRUMDECK_COHERENCE_MODE=enforce` for agents that can
+take irreversible, high-consequence actions (prod deploys, payments, data
+deletion, external comms) and where a false-positive gate (a run parked at
+`WaitingApproval` until a human clears it) is an acceptable cost. Keep the
+default `shadow` for exploratory / reversible workloads where you want the
+signal recorded but not the friction. Coverage and time-to-response are
+unchanged by the mode — only the *response* (record vs gate) differs.
+
+Reference: DeepMind, *An Approach to Technical AGI Safety — AI Control Roadmap*
+([blog](https://deepmind.google/blog/securing-the-future-of-ai-agents/),
+[PDF](https://storage.googleapis.com/deepmind-media/DeepMind.com/Blog/securing-the-future-of-ai-agents/gdm-ai-control-roadmap.pdf)).
+The response ladder is anchored in `fd_policy::reversibility`
+(`deepmind-ai-control-roadmap-r1-r3`).
+
 ## Where it surfaces
 
 - **Audit**: an `airlock.violation_detected` event with

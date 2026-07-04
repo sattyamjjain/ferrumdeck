@@ -54,11 +54,32 @@ COHERENCE OK ✓  2 divergences fired (both R3), control clean. In enforce mode 
 
 Against the live gateway the same divergence writes an `audit_events` row with `violation_type=coherence_divergence`, emits the `coherence.divergence.detected` SSE event, and surfaces on the run's **Coherence** card. It runs **shadow by default** (records + surfaces, never blocks); set `FERRUMDECK_COHERENCE_MODE=enforce` to gate an R3 divergence (run → `WaitingApproval`). This is the **enforce-not-observe** wedge: FerrumDeck acts on the drift, it doesn't just chart it.
 
+### Mapping to the DeepMind AI Control Roadmap (D1–D4 / R1–R3)
+
+Google DeepMind's [**AI Control Roadmap**](https://storage.googleapis.com/deepmind-media/DeepMind.com/Blog/securing-the-future-of-ai-agents/gdm-ai-control-roadmap.pdf) (2026-06-18, [blog](https://deepmind.google/blog/securing-the-future-of-ai-agents/)) frames agent security on two axes: **Detection tiers D1–D4** (set by the *model's detection-evasion capability* — how hard a misaligned agent is to catch) and **Prevention & Response tiers R1–R3** (set by the *model's attack-execution capability* — how strong the response must be). FerrumDeck already names this ladder in `fd_policy::reversibility` (anchor `deepmind-ai-control-roadmap-r1-r3`). To be precise and avoid overclaiming: **D1–D4 is an adversary-capability rating, not something a defense tool "is"** — FerrumDeck maps onto the **R-tier response axis** and the roadmap's operational **metrics**, not onto a self-assigned detection tier.
+
+**Response tier → FerrumDeck mechanism** (R3 = synchronous *block-before-execute*; R1 = asynchronous *review-after-the-fact*):
+
+| Roadmap tier | What the roadmap requires | FerrumDeck mechanism (today) |
+|---|---|---|
+| **R3 — synchronous** | block a harmful action *before* it executes | Deny-by-default tool-policy check (`POST /v1/runs/{id}/check-tool` returns `allowed=false`, tool never fires); budget auto-kill (`RunStatus::BudgetKilled`); **coherence divergence in `enforce` mode** — an R3 divergence gates the run → `WaitingApproval` |
+| **R2 — conditional** | proceed only while it stays within bounds | Reversibility ladder `allow_under_budget` — a costly action proceeds while the budget gate has headroom, else escalates to R3 |
+| **R1 — asynchronous** | record + review the transcript, remediate after | **coherence divergence in `shadow` mode** (default) records + surfaces the R-tier but does not gate; post-hoc `CoherenceMonitor::scan_trajectory`; the append-only `audit_events` trail |
+
+**Detection → the roadmap's live metrics.** DeepMind measures a control system by **coverage** (fraction of agent traffic monitored), **recall** (fraction of misaligned behaviors caught), and **time-to-response**:
+
+- **Coverage** — the `CoherenceMonitor` observes the run's trajectory event stream (each submitted step), so coverage is the fraction of the run stream it sees. (Honest limit: today it is fed at the gateway step-submission choke point, not the in-loop agentic executor — see [Project Status & Limitations](#project-status--limitations).)
+- **Recall** — the divergence pattern is the Strained-Coherence signal (`arxiv:2606.07889`); the shared cross-plane golden fixture pins detection so recall doesn't silently regress.
+- **Time-to-response** — `CoherenceMonitor::observe_event` fires **mid-run**, the instant a divergence completes, *before the run finishes* — not only in a post-hoc autopsy. That is what moves the same signal from R1 (async) to R3 (synchronous) when `enforce` is on.
+
+**Honest scope.** R3 enforcement of a coherence divergence is **opt-in** (`FERRUMDECK_COHERENCE_MODE=enforce`) and **shadow-by-default** — the heuristic is a lexical matcher with a non-zero false-positive rate, so gating is a deliberate choice for high-consequence agents (the roadmap's own point: R1 async review is insufficient for critical-infrastructure agents where a harmful action can't be undone after the fact). The mapping above is **machine-checked**: `examples/demo/coherence-drift.py` prints and asserts the `R3 → "DeepMind R3: synchronous block-before-execute"` label and that the `enforce` path gates it, exiting non-zero if that ever stops holding. Several advertised layers remain in-progress — see **[Project Status & Limitations](#project-status--limitations)** before relying on any tier.
+
 ---
 
 ## Table of Contents
 
 - [What This Proves](#what-this-proves)
+  - [Mapping to the DeepMind AI Control Roadmap (D1–D4 / R1–R3)](#mapping-to-the-deepmind-ai-control-roadmap-d1d4--r1r3)
 - [Overview](#overview)
 - [Project Status & Limitations](#project-status--limitations)
 - [Key Features](#key-features)

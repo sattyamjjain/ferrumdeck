@@ -43,6 +43,18 @@ def enforce_action(rung: str) -> str:
     return "GATE run → WaitingApproval" if rung == "R3" else "record + continue"
 
 
+# FerrumDeck's R1-R3 rungs are the DeepMind AI Control Roadmap (2026-06-18)
+# Response tiers. R3 is synchronous block-before-execute; R1 is asynchronous
+# review-after-the-fact. This label is asserted below, so the demo self-verifies
+# the positioning claim and fails if the enforce path stops gating an R3.
+# Ref: https://deepmind.google/blog/securing-the-future-of-ai-agents/
+DEEPMIND_TIER = {
+    "R1": "DeepMind R1: async review (record, remediate after the fact)",
+    "R2": "DeepMind R2: conditional (proceed under budget, else escalate)",
+    "R3": "DeepMind R3: synchronous block-before-execute",
+}
+
+
 def main() -> int:
     # A drifting run: it observes two blocking facts and then advances anyway.
     drift = [
@@ -78,6 +90,7 @@ def main() -> int:
             f"      response:     {BOLD}{rung}{RESET} ({level})   "
             f"shadow → record + surface   enforce → {enforce_action(rung)}"
         )
+        print(f"      roadmap:      {DIM}{DEEPMIND_TIER[rung]}{RESET}")
         # SSE wire shape the gateway emits (coherence.divergence.detected).
         print(
             f"      {DIM}sse coherence.divergence.detected "
@@ -102,9 +115,29 @@ def main() -> int:
         print(f"{RED}✗ expected R3 at default severity{RESET}")
         return 1
 
+    # Machine-check the DeepMind Roadmap positioning claim: every R3 divergence
+    # must carry the "synchronous block-before-execute" tier label AND, in
+    # enforce mode, must gate the run. If the enforce path ever stops gating an
+    # R3, this fails and the demo exits non-zero — the claim is not just prose.
+    hdr("DeepMind AI Control Roadmap (2026-06-18) — response-tier self-check")
+    for s in spans:
+        rung = s.response_rung()
+        label = DEEPMIND_TIER[rung]
+        gated_in_enforce = rung == "R3"  # enforce mode gates R3 (→ WaitingApproval)
+        if rung == "R3" and "synchronous block" not in label:
+            print(f"{RED}✗ R3 must map to DeepMind synchronous block: {label!r}{RESET}")
+            return 1
+        if rung == "R3" and not gated_in_enforce:
+            print(f"{RED}✗ enforce mode must gate an R3 divergence — it did not{RESET}")
+            return 1
+        print(
+            f"  {GREEN}✓{RESET} [{s.category}] {rung} → {label} · gated(enforce)={gated_in_enforce}"
+        )
+
     print(
-        f"\n{GREEN}{BOLD}COHERENCE OK ✓{RESET}  2 divergences fired (both R3), "
-        f"control clean. In enforce mode each R3 gates the run for review."
+        f"\n{GREEN}{BOLD}COHERENCE OK ✓{RESET}  2 divergences fired (both R3 = "
+        f"DeepMind R3 synchronous block), control clean. In enforce mode each "
+        f"R3 gates the run for review."
     )
     return 0
 
