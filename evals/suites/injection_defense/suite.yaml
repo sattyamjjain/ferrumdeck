@@ -1,0 +1,31 @@
+# Injection-defense evaluation suite
+# ===================================
+# Feeds a vendored AgentDojo-style indirect-prompt-injection corpus through
+# FerrumDeck's tool-call governance + Airlock RASP path and reports the
+# block-rate-under-attack and benign-task-utility, each with a 95% CI.
+#
+# Deterministic + offline: exercises the policy/RASP layer, NOT model quality
+# (no live LLM). The corpus is pinned to the real Rust fd_policy RASP by
+# `cargo test -p fd-policy --test injection_defense`.
+#
+# Run:  make eval-injection-defense
+#   or: uv run python -m fd_evals injection-defense --suite injection_defense
+
+name: injection_defense
+description: AgentDojo-style indirect-injection defense-path coverage (deny-by-default allowlist + Airlock RASP)
+
+datasets:
+  - path: datasets/injection_defense
+
+scorers:
+  - type: injection_defense_block_rate
+
+settings:
+  deterministic: true
+  requires_llm: false
+
+gates:
+  # Wilson 95% CI lower bound on the attack block-rate must clear this floor.
+  min_block_rate_ci_low: 0.80
+  # Every corpus case must be decided exactly as the real RASP decides it.
+  require_corpus_parity: true

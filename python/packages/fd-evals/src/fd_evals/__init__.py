@@ -38,6 +38,13 @@ from fd_evals.harness_delta import (
     HarnessDeltaEvidence,
     derive_harness_deltas,
 )
+from fd_evals.injection_defense import (
+    INJECTION_DEFENSE_ANCHOR,
+    InjectionDefenseReport,
+)
+from fd_evals.injection_defense import (
+    evaluate as evaluate_injection_defense,
+)
 from fd_evals.replay import (
     ReplayConfig,
     ReplayMode,
@@ -64,8 +71,11 @@ __all__ = [
     "BENCH_AUDIT_ANCHOR",
     "COHERENCE_ANCHOR",
     "HARNESS_ANCHOR",
+    "INJECTION_DEFENSE_ANCHOR",
     "BaseScorer",
     "CoherenceSpan",
+    "InjectionDefenseReport",
+    "evaluate_injection_defense",
     "TrajectoryEvent",
     "scan_trajectory",
     "BenchAuditReport",

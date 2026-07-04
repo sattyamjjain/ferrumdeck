@@ -46,6 +46,7 @@ help:
 	@echo "  make eval-run     - Run smoke evaluation suite"
 	@echo "  make eval-run-full- Run full regression suite"
 	@echo "  make eval-report  - Generate report from latest results"
+	@echo "  make eval-injection-defense - Run the offline injection-defense benchmark"
 	@echo ""
 	@echo "Clean:"
 	@echo "  make clean        - Clean build artifacts"
@@ -278,6 +279,10 @@ eval-report:
 	else \
 		echo "No eval results found in evals/reports/"; \
 	fi
+
+eval-injection-defense:
+	@echo "Running injection-defense benchmark (deterministic, offline, no LLM)..."
+	uv run python -m fd_evals injection-defense --suite injection_defense
 
 # =============================================================================
 # Clean

@@ -30,6 +30,23 @@ FerrumDeck is the **control plane, not the agent** — the production layer that
 
 The demo is **self-verifying** — it asserts each property with `jq` and exits non-zero on failure, so it works as a smoke test, not a screenshot. For an honest map of what enforces today vs. what's still being wired, see **[Project Status & Limitations](#project-status--limitations)**.
 
+### Reproduced: indirect-prompt-injection defense-path coverage
+
+Against a vendored **AgentDojo-style** ([arXiv:2406.13352](https://arxiv.org/abs/2406.13352)) indirect-injection corpus (25 cases: 17 attacks — off-allowlist tools, RCE payloads, data-exfil destinations — and 8 benign controls), FerrumDeck's deny-by-default tool allowlist + Airlock RASP block:
+
+| Metric | Value | 95% CI (Wilson) |
+|---|---|---|
+| **Block-rate under attack** | **100.0%** (17/17) | **[81.6%, 100%]** |
+| **Benign-task utility preserved** | 100.0% (8/8) | [67.6%, 100%] |
+
+One-command repro (deterministic, offline, **no LLM required**):
+
+```bash
+uv run python -m fd_evals injection-defense --suite injection_defense   # or: make eval-injection-defense
+```
+
+**Honest framing:** this measures **defense-path coverage on a fixed governance profile** — the fraction of injected malicious *tool calls* the policy/RASP layer blocks — **not** model robustness, and not a general "injection-proof" claim. The corpus is **pinned to the real Rust `fd_policy` RASP** by `cargo test -p fd-policy --test injection_defense` (which runs the actual `AirlockInspector` over every case), and the fd-evals mirror must agree with it. Small vendored corpus ⇒ a wide CI; the number moves as the corpus grows. No "first"/"best" claim.
+
 ### Live-fire: a drifting run is caught and R-tiered (deterministic, no stack)
 
 `examples/demo/coherence-drift.py` feeds a deliberately drifting trajectory through the **same detection core the live gateway runs on each step**, and is self-verifying (exits non-zero if the drift is *not* caught). Real captured output:
