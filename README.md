@@ -47,6 +47,29 @@ uv run python -m fd_evals injection-defense --suite injection_defense   # or: ma
 
 **Honest framing:** this measures **defense-path coverage on a fixed governance profile** — the fraction of injected malicious *tool calls* the policy/RASP layer blocks — **not** model robustness, and not a general "injection-proof" claim. The corpus is **pinned to the real Rust `fd_policy` RASP** by `cargo test -p fd-policy --test injection_defense` (which runs the actual `AirlockInspector` over every case), and the fd-evals mirror must agree with it. Small vendored corpus ⇒ a wide CI; the number moves as the corpus grows. No "first"/"best" claim.
 
+### Second axis: Agent Security Bench (ASB) + an EU AI Act Art. 50 transparency rule
+
+The `injection_defense` axis above is AgentDojo (*indirect* injection). The **`asb`** axis adds a second, complementary set: attack classes from **Agent Security Bench** ([arXiv:2410.02644](https://arxiv.org/abs/2410.02644)) that AgentDojo does **not** cover — the **Plan-of-Thought (PoT) backdoor**, **memory poisoning**, and **direct prompt injection** — run through the same governance path **plus the R1–R3 reversibility ladder**. The point of difference: a backdoored plan that reaches an *allowlisted-but-irreversible* action (a `deploy`, an `apply_migration`) is stopped not by the allowlist but by the **R3 rung** (`irreversible → require_approval`, so it never auto-executes). That is graduated enforcement catching an attack a static allowlist would wave through.
+
+| Metric | Value | 95% CI (Wilson) |
+|---|---|---|
+| **ASB block-rate under attack** | **100.0%** (13/13) | **[77.2%, 100%]** |
+| **Benign-task utility preserved** | 100.0% (8/8) | [67.6%, 100%] |
+| **Art. 50: non-compliant responses denied** | 100.0% (6/6) | [61.0%, 100%] |
+| **Art. 50: compliant responses preserved** | 100.0% (4/4) | [51.0%, 100%] |
+
+Of the 13 ASB attacks, **4 are stopped specifically by the R3 reversibility rung** (the PoT-backdoor class), the rest by deny-by-default, the anti-RCE matcher, and the exfiltration shield.
+
+The **EU AI Act Article 50** rule (`fd_policy::transparency_art50`) is a transparency *enforcement* rule on the same R1–R3 ladder: a governed generative response must carry a human-readable **AI disclosure** *and* a **machine-readable** synthetic-content marker; in `enforce` mode a response missing either is **denied before release** (R3), in `shadow` it is logged (R1).
+
+One-command repro (deterministic, offline, **seeded, no LLM**):
+
+```bash
+uv run python -m fd_evals asb --suite asb --seed 0   # or: make eval-asb
+```
+
+**Honest framing:** the ASB number measures whether the malicious *action* is stopped from auto-executing on a fixed governance profile — **not** that FerrumDeck detects the backdoor *trigger* or the poisoned *memory* semantically, and **not** model robustness (no LLM). The Art. 50 rule is a **structural** check (presence of a disclosure phrase + a machine-readable marker), not a truthfulness or standard-conformance (C2PA/SynthID) judgement. Both are **pinned to the real Rust enforcement** by `cargo test -p fd-policy --test asb_defense` — which runs the actual `ToolAllowlist` + `AirlockInspector` + reversibility ladder and the real `transparency_art50` rule over every case, and asserts the R3 rung is the *decisive* layer for the PoT class — and the `fd_evals.asb` mirror must agree. Small vendored corpus ⇒ wide CIs. No "first"/"best" claim.
+
 ### Live-fire: a drifting run is caught and R-tiered (deterministic, no stack)
 
 `examples/demo/coherence-drift.py` feeds a deliberately drifting trajectory through the **same detection core the live gateway runs on each step**, and is self-verifying (exits non-zero if the drift is *not* caught). Real captured output:

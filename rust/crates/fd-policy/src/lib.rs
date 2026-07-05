@@ -20,6 +20,7 @@ pub mod reversibility;
 pub mod routing;
 pub mod rules;
 pub mod trace;
+pub mod transparency_art50;
 
 pub use bench_audit::{BenchAuditPolicy, BenchGatedClaim, BenchTrustSummary, BENCH_AUDIT_ANCHOR};
 pub use decision::{PolicyDecision, PolicyDecisionKind};
@@ -47,6 +48,10 @@ pub use routing::{
 };
 pub use rules::{ToolAllowlist, ToolAllowlistResult, ToolRiskLevel};
 pub use trace::DecisionTrace;
+pub use transparency_art50::{
+    check as check_art50, enforce as enforce_art50, response_level as art50_response_level,
+    Art50Config, Art50Status, EU_AI_ACT_ART50_ANCHOR,
+};
 
 // Re-export Airlock types for convenience
 pub use airlock::{

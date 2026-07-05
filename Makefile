@@ -47,6 +47,7 @@ help:
 	@echo "  make eval-run-full- Run full regression suite"
 	@echo "  make eval-report  - Generate report from latest results"
 	@echo "  make eval-injection-defense - Run the offline injection-defense benchmark"
+	@echo "  make eval-asb     - Run the offline ASB + EU AI Act Art.50 benchmark"
 	@echo ""
 	@echo "Clean:"
 	@echo "  make clean        - Clean build artifacts"
@@ -283,6 +284,10 @@ eval-report:
 eval-injection-defense:
 	@echo "Running injection-defense benchmark (deterministic, offline, no LLM)..."
 	uv run python -m fd_evals injection-defense --suite injection_defense
+
+eval-asb:
+	@echo "Running ASB + EU AI Act Art.50 benchmark (deterministic, offline, seeded, no LLM)..."
+	uv run python -m fd_evals asb --suite asb --seed 0
 
 # =============================================================================
 # Clean

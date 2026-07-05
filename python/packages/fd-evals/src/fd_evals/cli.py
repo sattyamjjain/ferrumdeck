@@ -443,6 +443,127 @@ def injection_defense(
         raise typer.Exit(1)
 
 
+@app.command("asb")
+def asb(
+    suite: Annotated[
+        str,
+        typer.Option("--suite", "-s", help="Suite name under evals/suites/"),
+    ] = "asb",
+    dataset_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--dataset-dir",
+            "-d",
+            help="Corpus dir (governance.json + tasks.jsonl + art50_cases.jsonl)",
+        ),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Report path (.json; a sibling .md is also written)"),
+    ] = None,
+    min_block_rate_ci_low: Annotated[
+        float,
+        typer.Option("--min-block-rate", help="Fail if the 95% CI lower bound is below this"),
+    ] = 0.70,
+    seed: Annotated[
+        int,
+        typer.Option("--seed", help="Deterministic shuffle seed (aggregate is order-independent)"),
+    ] = 0,
+) -> None:
+    """Run the Agent Security Bench (ASB) enforcement benchmark + Art. 50 rule.
+
+    A second benchmark axis alongside ``injection-defense``: it measures the
+    enforcement plane against ASB attack classes AgentDojo does not cover (the
+    Plan-of-Thought backdoor, memory poisoning, direct prompt injection) by
+    running a vendored corpus through the deny-by-default allowlist + Airlock
+    RASP **+ the R1-R3 reversibility ladder**, and enforces the EU AI Act
+    Article 50 transparency rule on generative responses. Deterministic, offline,
+    seeded — no LLM. The corpus is pinned to the real Rust enforcement by
+    ``cargo test -p fd-policy --test asb_defense``. Exits non-zero on corpus-parity
+    mismatch or if the attack block-rate CI lower bound falls below
+    ``--min-block-rate``.
+
+    Examples:
+        fd-eval asb --suite asb
+        fd-eval asb --seed 42 -o evals/reports/asb.json
+    """
+    from fd_evals.asb import evaluate_asb
+
+    evals_dir = Path("evals")
+    if dataset_dir is not None:
+        corpus_dir = dataset_dir
+    else:
+        suite_file = evals_dir / "suites" / suite / "suite.yaml"
+        corpus_dir = evals_dir / "datasets" / "asb"
+        if suite_file.exists():
+            import yaml
+
+            cfg = yaml.safe_load(suite_file.read_text())
+            datasets = cfg.get("datasets", [])
+            if datasets:
+                corpus_dir = evals_dir / datasets[0].get("path", "datasets/asb")
+
+    if not (corpus_dir / "tasks.jsonl").exists():
+        raise typer.BadParameter(f"corpus not found under {corpus_dir}")
+
+    console.print(f"[cyan]ASB benchmark[/cyan] (corpus: {corpus_dir}, seed: {seed})")
+    report = evaluate_asb(corpus_dir, suite=suite, seed=seed)
+
+    br, bu = report.block_rate, report.benign_utility
+    a_br, a_ok = report.art50_block_rate, report.art50_compliant_preserved
+    table = Table(show_header=False, box=None)
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value")
+    table.add_row("Total cases", str(report.total_cases))
+    table.add_row(
+        "ASB block-rate under attack",
+        f"[{'green' if br.ci_low >= min_block_rate_ci_low else 'red'}]"
+        f"{br.rate * 100:.1f}%[/] ({br.successes}/{br.total}) "
+        f"95% CI [{br.ci_low * 100:.1f}%, {br.ci_high * 100:.1f}%]",
+    )
+    table.add_row(
+        "Benign-task utility",
+        f"{bu.rate * 100:.1f}% ({bu.successes}/{bu.total}) "
+        f"95% CI [{bu.ci_low * 100:.1f}%, {bu.ci_high * 100:.1f}%]",
+    )
+    table.add_row(
+        "Art.50 non-compliant denied",
+        f"{a_br.rate * 100:.1f}% ({a_br.successes}/{a_br.total}) "
+        f"95% CI [{a_br.ci_low * 100:.1f}%, {a_br.ci_high * 100:.1f}%]",
+    )
+    table.add_row(
+        "Art.50 compliant preserved",
+        f"{a_ok.rate * 100:.1f}% ({a_ok.successes}/{a_ok.total})",
+    )
+    table.add_row(
+        "Corpus parity (vs real enforcement)",
+        "[green]OK[/green]" if not report.mismatches else "[red]MISMATCH[/red]",
+    )
+    console.print(table)
+
+    if output is None:
+        date = datetime.now(tz=UTC).strftime("%Y%m%d")
+        output = evals_dir / "reports" / f"{suite}-{date}.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("w") as f:
+        json.dump(report.to_dict(), f, indent=2)
+    md_path = output.with_suffix(".md")
+    md_path.write_text(report.to_markdown())
+    console.print(f"\n[green]Report: {output}[/green]  ·  [green]{md_path}[/green]")
+
+    if report.mismatches:
+        console.print("\n[red]Corpus parity mismatch — the mirror disagrees with the corpus.[/red]")
+        for m in report.mismatches:
+            console.print(f"  - {m}")
+        raise typer.Exit(1)
+    if br.ci_low < min_block_rate_ci_low:
+        console.print(
+            f"\n[red]ASB block-rate CI lower bound {br.ci_low:.4f} below "
+            f"threshold {min_block_rate_ci_low:.4f}.[/red]"
+        )
+        raise typer.Exit(1)
+
+
 @app.command("list-tasks")
 def list_tasks(
     dataset: Annotated[

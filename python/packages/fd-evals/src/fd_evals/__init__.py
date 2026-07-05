@@ -1,5 +1,16 @@
 """FerrumDeck Evaluation Framework."""
 
+from fd_evals.asb import (
+    ASB_ANCHOR,
+    EU_AI_ACT_ART50_ANCHOR,
+    AsbReport,
+    check_art50,
+    decide_asb,
+    graduated_rung,
+)
+from fd_evals.asb import (
+    evaluate_asb as evaluate_asb,
+)
 from fd_evals.bench_audit import (
     BENCH_AUDIT_ANCHOR,
     BenchAuditor,
@@ -68,13 +79,20 @@ from fd_evals.task import EvalResult, EvalTask
 from fd_evals.training_signal import score_overrides_from_results
 
 __all__ = [
+    "ASB_ANCHOR",
     "BENCH_AUDIT_ANCHOR",
     "COHERENCE_ANCHOR",
+    "EU_AI_ACT_ART50_ANCHOR",
     "HARNESS_ANCHOR",
     "INJECTION_DEFENSE_ANCHOR",
+    "AsbReport",
     "BaseScorer",
     "CoherenceSpan",
     "InjectionDefenseReport",
+    "check_art50",
+    "decide_asb",
+    "evaluate_asb",
+    "graduated_rung",
     "evaluate_injection_defense",
     "TrajectoryEvent",
     "scan_trajectory",
