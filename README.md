@@ -4,6 +4,17 @@
 
 > **Enforce, don't just observe.** LangSmith, Phoenix, Galileo, and Fiddler *watch* your agent and tell you afterward what it did. FerrumDeck sits in the call path and *enforces* — it returns `allowed=false` and the tool never fires. Observability is a dashboard you read after the incident; enforcement is the gate that prevents it.
 
+**"But won't in-path enforcement slow my agent down?"** No — the decision is sub-millisecond. Measured CPU cost of the governance decision itself (Apple M4, `--release`, decision path only — excludes DB / queue / LLM):
+
+| Enforcement layer | p50 | p95 |
+|---|---|---|
+| Deny-by-default allowlist check | **183 ns** | 192 ns |
+| Airlock RASP inspection (benign call) | **437 ns** | 503 ns |
+| R1–R3 reversibility ladder | **0.54 ns** | 0.63 ns |
+| EU AI Act Art. 50 transparency rule | **222 ns** | 257 ns |
+
+An LLM step costs hundreds of ms to seconds; ~1 µs of in-path governance is ~6 orders of magnitude smaller than the call it gates. Reproduce with `make bench-enforcement`; methodology + full table (incl. deny / RCE-blocked cases) in [`docs/benchmarks/enforcement-latency.md`](docs/benchmarks/enforcement-latency.md). This is the added decision cost, not end-to-end latency — no "fastest"/"first" claim.
+
 ▶ **[Run the 5-minute reproducible demo →](examples/demo/README.md)** — one command boots the local stack and, against the **real gateway API**, you watch a **budget-breach auto-kill** and a **denied tool call** happen in-process. It's self-verifying: each guarantee is asserted with `jq` and the script exits non-zero on failure, so you get a hard pass/fail, not a screenshot to trust.
 
 > **Status: early / alpha, built primarily by one maintainer.** The governance core — per-agent deny-by-default tool allowlists, per-run/per-agent budget enforcement, DB-backed tenant isolation, and Airlock RASP at the gateway tool-policy check — is implemented and tested. Several advertised layers are still being wired end-to-end. See **[Project Status & Limitations](#project-status--limitations)** for an honest map of what enforces today vs. what's on the roadmap before you rely on it.

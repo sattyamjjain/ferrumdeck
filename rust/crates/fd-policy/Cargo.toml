@@ -38,3 +38,8 @@ hex = { workspace = true }
 [dev-dependencies]
 tokio-test = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "enforcement_latency"
+harness = false

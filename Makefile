@@ -48,6 +48,7 @@ help:
 	@echo "  make eval-report  - Generate report from latest results"
 	@echo "  make eval-injection-defense - Run the offline injection-defense benchmark"
 	@echo "  make eval-asb     - Run the offline ASB + EU AI Act Art.50 benchmark"
+	@echo "  make bench-enforcement - Benchmark the enforcement decision-path latency (criterion)"
 	@echo ""
 	@echo "Clean:"
 	@echo "  make clean        - Clean build artifacts"
@@ -288,6 +289,10 @@ eval-injection-defense:
 eval-asb:
 	@echo "Running ASB + EU AI Act Art.50 benchmark (deterministic, offline, seeded, no LLM)..."
 	uv run python -m fd_evals asb --suite asb --seed 0
+
+bench-enforcement:
+	@echo "Running enforcement decision-path latency benchmark (criterion, offline)..."
+	./scripts/bench-enforcement.sh
 
 # =============================================================================
 # Clean
