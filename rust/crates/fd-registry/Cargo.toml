@@ -7,7 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-fd-core = { path = "../fd-core" }
+fd-core = { path = "../fd-core", package = "ferrumdeck-core" }
 
 # Serialization
 serde = { workspace = true }

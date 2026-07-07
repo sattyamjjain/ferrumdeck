@@ -6,11 +6,11 @@ members = [
 ]
 
 [workspace.package]
-version = "0.7.3"
+version = "0.7.4"
 edition = "2021"
 rust-version = "1.80"
 license = "Apache-2.0"
-repository = "https://github.com/ferrumdeck/ferrumdeck"
+repository = "https://github.com/sattyamjjain/ferrumdeck"
 
 [workspace.dependencies]
 # Async runtime

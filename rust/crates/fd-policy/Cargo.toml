@@ -1,13 +1,22 @@
 [package]
-name = "fd-policy"
-description = "FerrumDeck policy engine: allowlists, budgets, approvals, Airlock security"
+name = "ferrumdeck-policy"
+description = "FerrumDeck enforcement engine: deny-by-default tool allowlists, Airlock RASP, the R1-R3 reversibility ladder, budgets, and an EU AI Act Art.50 transparency rule"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage = "https://github.com/sattyamjjain/ferrumdeck"
+keywords = ["agent", "security", "policy", "enforcement", "mcp"]
+categories = ["development-tools"]
+readme = "README.md"
+
+# Published as `ferrumdeck-policy`; the Rust import path stays `fd_policy`.
+[lib]
+name = "fd_policy"
 
 [dependencies]
-fd-core = { path = "../fd-core" }
+fd-core = { path = "../fd-core", version = "0.7.4", package = "ferrumdeck-core" }
 
 # Serialization
 serde = { workspace = true }

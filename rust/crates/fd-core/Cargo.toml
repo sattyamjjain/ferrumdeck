@@ -1,10 +1,20 @@
 [package]
-name = "fd-core"
-description = "FerrumDeck core primitives: IDs, errors, config, time helpers"
+name = "ferrumdeck-core"
+description = "FerrumDeck core primitives: ULID-based typed IDs, errors, config, and time helpers"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage = "https://github.com/sattyamjjain/ferrumdeck"
+keywords = ["agent", "security", "policy", "enforcement", "mcp"]
+categories = ["development-tools"]
+readme = "README.md"
+
+# Published as `ferrumdeck-core` (the plain `fd-core` name is taken on crates.io
+# by an unrelated crate); the Rust import path stays `fd_core` via the lib name.
+[lib]
+name = "fd_core"
 
 [dependencies]
 # IDs

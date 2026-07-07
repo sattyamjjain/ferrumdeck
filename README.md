@@ -27,6 +27,28 @@ An LLM step costs hundreds of ms to seconds; ~1 µs of in-path governance is ~6 
 
 ---
 
+## Install from crates.io
+
+The enforcement engine is published — you can depend on it, not just clone it. One dependency via the umbrella crate:
+
+```bash
+cargo add ferrumdeck
+```
+
+```rust
+use ferrumdeck::{PolicyEngine, ToolAllowlist};
+
+let engine = PolicyEngine::default();
+let allowlist = ToolAllowlist { allowed_tools: vec!["read_file".into()], approval_required: vec![], denied_tools: vec!["delete_repo".into()] };
+assert!(engine.evaluate_tool_call_with(&allowlist, "read_file").is_allowed()); // allowed
+assert!(engine.evaluate_tool_call_with(&allowlist, "delete_repo").is_denied()); // denied
+assert!(engine.evaluate_tool_call_with(&allowlist, "unknown").is_denied());     // deny-by-default
+```
+
+Prefer the engine directly (no umbrella)? `cargo add ferrumdeck-policy` — the import path is still `use fd_policy::…`. Primitives only: `ferrumdeck-core` (`use fd_core::…`). All three are Apache-2.0. (Published as `ferrumdeck*` because the bare `fd-core` name is taken on crates.io by an unrelated crate; the Rust import paths are unchanged.)
+
+---
+
 ## What this proves
 
 FerrumDeck is the **control plane, not the agent** — the production layer that makes an autonomous agent safe to run: it decides which tools a run may call, kills runs that blow their budget, gates risky actions on a human, and records every decision in an immutable trail. It's built as a credibility artifact for an **AgentOps / AI-infrastructure** audience.

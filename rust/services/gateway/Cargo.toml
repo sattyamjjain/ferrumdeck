@@ -12,9 +12,9 @@ path = "src/main.rs"
 
 [dependencies]
 # Workspace crates
-fd-core = { path = "../../crates/fd-core" }
+fd-core = { path = "../../crates/fd-core", package = "ferrumdeck-core" }
 fd-storage = { path = "../../crates/fd-storage" }
-fd-policy = { path = "../../crates/fd-policy" }
+fd-policy = { path = "../../crates/fd-policy", package = "ferrumdeck-policy" }
 fd-registry = { path = "../../crates/fd-registry" }
 fd-audit = { path = "../../crates/fd-audit" }
 fd-otel = { path = "../../crates/fd-otel" }

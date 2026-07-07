@@ -1,0 +1,16 @@
+[package]
+name = "ferrumdeck"
+description = "FerrumDeck: a deterministic, in-path enforcement engine for AI agents — deny-by-default tool policy, Airlock RASP, the R1-R3 reversibility ladder, and an EU AI Act Art.50 transparency rule. Umbrella crate re-exporting the policy engine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage = "https://github.com/sattyamjjain/ferrumdeck"
+keywords = ["agent", "security", "policy", "enforcement", "mcp"]
+categories = ["development-tools"]
+readme = "README.md"
+
+[dependencies]
+# Re-exports the enforcement decision path; import path stays `fd_policy`.
+fd-policy = { path = "../fd-policy", version = "0.7.4", package = "ferrumdeck-policy" }
