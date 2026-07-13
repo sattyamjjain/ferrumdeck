@@ -22,10 +22,12 @@ from fd_runtime import (
     StepStatus,
     StepType,
     create_artifact_store,
+    decision_label_from_response,
     set_llm_response_attributes,
     trace_llm_call,
     trace_step_execution,
     trace_tool_call,
+    trace_tool_decision,
 )
 from fd_worker.agentic import AgenticExecutor
 from fd_worker.exceptions import AirlockBlockedError
@@ -534,6 +536,23 @@ class StepExecutor:
         # This also runs Airlock inspection on the tool_input payload
         logger.info(f"Checking policy for tool: {tool_name}")
         airlock_response = await self.client.check_tool_policy(run_id, tool_name, tool_input)
+
+        # Emit the control-plane enforcement decision as an OTel GenAI span so
+        # the data plane's trace agrees with the gateway's (both planes write
+        # one schema; see fd_otel::decision). Additive — never changes control
+        # flow; the existing block/shadow handling below is unchanged.
+        with trace_tool_decision(
+            tool_name,
+            decision=decision_label_from_response(
+                airlock_response.allowed, airlock_response.requires_approval
+            ),
+            reason=airlock_response.reason,
+            rung=airlock_response.rung,
+            call_id=airlock_response.decision_id or None,
+            run_id=run_id,
+            step_id=step_id,
+        ):
+            pass
 
         # Handle Airlock violations
         if airlock_response.is_security_violation:

@@ -3,6 +3,7 @@
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
+from enum import Enum
 
 from opentelemetry import trace
 from opentelemetry.context import Context
@@ -92,6 +93,99 @@ FD_RELIABILITY_CLAIM_GROUNDING_DEFAULT_THRESHOLD: float = 0.70
 # contradicting-closure-action divergence on the run's trajectory. Mirror of
 # the Rust `fd_otel::genai::attrs::FERRUMDECK_RELIABILITY_COHERENCE_DIVERGENCE`.
 FD_RELIABILITY_COHERENCE_DIVERGENCE = "ferrumdeck.reliability.coherence_divergence"
+
+# Enforcement-decision GenAI span. Mirror of the Rust `fd_otel::decision`
+# contract: FerrumDeck returns allow/deny/approval/kill BEFORE a tool runs, and
+# the data plane emits that verdict as a queryable OTel GenAI span (not just a
+# log line) so both planes write one schema. The span name + `gen_ai.*` keys
+# follow the GenAI semconv and flip under OTEL_SEMCONV_STABILITY_OPT_IN; the
+# `ferrumdeck.*` decision attrs are stable across both conventions.
+OTEL_SEMCONV_STABILITY_OPT_IN = "OTEL_SEMCONV_STABILITY_OPT_IN"
+GEN_AI_LATEST_EXPERIMENTAL = "gen_ai_latest_experimental"
+
+GEN_AI_TOOL_NAME = "gen_ai.tool.name"
+GEN_AI_TOOL_CALL_ID = "gen_ai.tool.call_id"
+GEN_AI_OPERATION_NAME = "gen_ai.operation.name"
+FD_DECISION = "ferrumdeck.decision"
+FD_DECISION_REASON = "ferrumdeck.reason"
+FD_DECISION_RUNG = "ferrumdeck.rung"
+FD_BUDGET_REMAINING = "ferrumdeck.budget_remaining"
+
+# Stable wire labels for `ferrumdeck.decision`. Mirror of the Rust
+# `fd_otel::decision::DecisionOutcome`. The data plane only ever emits
+# allow/deny/approval; `kill` is the control-plane budget circuit breaker.
+DECISION_ALLOW = "allow"
+DECISION_DENY = "deny"
+DECISION_APPROVAL = "approval"
+DECISION_KILL = "kill"
+
+
+class GenAiSemconv(str, Enum):
+    """Resolved OTel GenAI semconv naming mode.
+
+    Mirror of the Rust ``fd_otel::decision::GenAiSemconv``. The presence of
+    ``gen_ai_latest_experimental`` in ``OTEL_SEMCONV_STABILITY_OPT_IN`` flips
+    the span name and the ``gen_ai.*`` attribute keys; unset/other keeps the
+    current stable names.
+    """
+
+    DEFAULT = "default"
+    LATEST_EXPERIMENTAL = "latest_experimental"
+
+    @classmethod
+    def from_opt_in(cls, raw: str | None) -> "GenAiSemconv":
+        """Resolve from a raw opt-in string (comma-separated). Pure — no env."""
+        if raw and any(tok.strip() == GEN_AI_LATEST_EXPERIMENTAL for tok in raw.split(",")):
+            return cls.LATEST_EXPERIMENTAL
+        return cls.DEFAULT
+
+    @classmethod
+    def from_env(cls) -> "GenAiSemconv":
+        """Resolve from ``OTEL_SEMCONV_STABILITY_OPT_IN`` in the environment."""
+        return cls.from_opt_in(os.getenv(OTEL_SEMCONV_STABILITY_OPT_IN))
+
+    def tool_span_name(self) -> str:
+        """Span name for the tool-execution decision span."""
+        return "execute_tool" if self is GenAiSemconv.LATEST_EXPERIMENTAL else "gen_ai.tool.call"
+
+    def operation_name(self) -> str | None:
+        """``gen_ai.operation.name`` value (absent under the stable default)."""
+        return "execute_tool" if self is GenAiSemconv.LATEST_EXPERIMENTAL else None
+
+    def tool_call_id_key(self) -> str:
+        """Attribute key for the tool call id (renamed under the latest set)."""
+        return (
+            "gen_ai.tool.call.id"
+            if self is GenAiSemconv.LATEST_EXPERIMENTAL
+            else GEN_AI_TOOL_CALL_ID
+        )
+
+
+def decision_label_from_status(status: str) -> str:
+    """Map an allowlist status to the stable ``ferrumdeck.decision`` label.
+
+    ``"allowed"`` -> ``allow``, ``"requires_approval"`` -> ``approval``,
+    anything else (``"denied"`` / unknown) -> ``deny`` (deny-by-default).
+    """
+    return {
+        "allowed": DECISION_ALLOW,
+        "requires_approval": DECISION_APPROVAL,
+        "denied": DECISION_DENY,
+    }.get(status, DECISION_DENY)
+
+
+def decision_label_from_response(allowed: bool, requires_approval: bool) -> str:
+    """Map a control-plane check-tool response to the decision label.
+
+    Approval takes precedence over allowed (an approval-gated tool is not yet
+    allowed); a blocked tool (policy deny or Airlock) is ``deny``.
+    """
+    if requires_approval:
+        return DECISION_APPROVAL
+    if allowed:
+        return DECISION_ALLOW
+    return DECISION_DENY
+
 
 # Model pricing per 1M tokens (as of Dec 2024)
 # https://www.anthropic.com/pricing#anthropic-api
@@ -282,6 +376,61 @@ def trace_tool_call(
         except Exception as e:
             span.set_status(Status(StatusCode.ERROR, str(e)))
             span.set_attribute(TOOL_STATUS, "error")
+            span.record_exception(e)
+            raise
+
+
+@contextmanager
+def trace_tool_decision(
+    tool_name: str,
+    decision: str,
+    reason: str,
+    *,
+    rung: str | None = None,
+    budget_remaining: int | None = None,
+    call_id: str | None = None,
+    run_id: str | None = None,
+    step_id: str | None = None,
+    semconv: GenAiSemconv | None = None,
+) -> Generator[Span, None, None]:
+    """Emit an enforcement decision as an OTel GenAI span.
+
+    Data-plane mirror of the Rust ``fd_otel::decision::emit_tool_decision_span``:
+    makes the in-path allow/deny/approval/kill verdict a queryable GenAI span so
+    the worker's trace agrees with the gateway's. ``tool_name`` + ``decision``
+    (a ``ferrumdeck.decision`` label) + ``reason`` are always set; ``rung``
+    (R1/R2/R3), ``budget_remaining`` (cents), and ``call_id`` are set when known.
+
+    The span name and ``gen_ai.*`` keys follow the resolved :class:`GenAiSemconv`
+    (defaulting to ``OTEL_SEMCONV_STABILITY_OPT_IN``); the ``ferrumdeck.*`` attrs
+    are stable across both conventions.
+    """
+    tracer = get_tracer()
+    mode = semconv or GenAiSemconv.from_env()
+
+    with tracer.start_as_current_span(mode.tool_span_name()) as span:
+        operation = mode.operation_name()
+        if operation is not None:
+            span.set_attribute(GEN_AI_OPERATION_NAME, operation)
+        span.set_attribute(GEN_AI_TOOL_NAME, tool_name)
+        span.set_attribute(FD_DECISION, decision)
+        span.set_attribute(FD_DECISION_REASON, reason)
+
+        if rung is not None:
+            span.set_attribute(FD_DECISION_RUNG, rung)
+        if budget_remaining is not None:
+            span.set_attribute(FD_BUDGET_REMAINING, budget_remaining)
+        if call_id:
+            span.set_attribute(mode.tool_call_id_key(), call_id)
+        if run_id:
+            span.set_attribute(FD_RUN_ID, run_id)
+        if step_id:
+            span.set_attribute(FD_STEP_ID, step_id)
+
+        try:
+            yield span
+        except Exception as e:
+            span.set_status(Status(StatusCode.ERROR, str(e)))
             span.record_exception(e)
             raise
 

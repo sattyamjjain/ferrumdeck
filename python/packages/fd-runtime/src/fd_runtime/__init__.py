@@ -31,8 +31,11 @@ from fd_runtime.models import (
     StepType,
 )
 from fd_runtime.tracing import (
+    GenAiSemconv,
     apply_attestation,
     calculate_cost,
+    decision_label_from_response,
+    decision_label_from_status,
     extract_context,
     get_tracer,
     init_tracing,
@@ -41,6 +44,7 @@ from fd_runtime.tracing import (
     trace_llm_call,
     trace_step_execution,
     trace_tool_call,
+    trace_tool_decision,
 )
 from fd_runtime.workflow import (
     Workflow,
@@ -60,6 +64,7 @@ __all__ = [
     "Budget",
     "BudgetUsage",
     "ControlPlaneClient",
+    "GenAiSemconv",
     "LocalFilesystemStore",
     "ReceiptVerifier",
     "RiskLevel",
@@ -77,6 +82,8 @@ __all__ = [
     "apply_attestation",
     "calculate_cost",
     "create_artifact_store",
+    "decision_label_from_response",
+    "decision_label_from_status",
     "extract_context",
     "get_tracer",
     "init_tracing",
@@ -86,4 +93,5 @@ __all__ = [
     "trace_llm_call",
     "trace_step_execution",
     "trace_tool_call",
+    "trace_tool_decision",
 ]

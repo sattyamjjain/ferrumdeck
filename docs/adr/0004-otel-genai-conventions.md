@@ -64,6 +64,41 @@ Run (root span)
     └── Code Execution
 ```
 
+### Enforcement-decision spans (`fd_otel::decision`)
+
+FerrumDeck is in the call path, so every allow/deny/approval/kill verdict is
+emitted as its own **GenAI tool-execution span** — the enforcement decision *is*
+a queryable span, not just an audit-log row. The gateway emits it at the
+tool-policy check (`check_tool_policy`) and at the budget circuit breaker
+(`RunStatus::BudgetKilled`); the Python worker mirrors the verdict it receives
+(`fd_runtime.trace_tool_decision`). Both planes write one schema.
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `gen_ai.tool.name` | string | The tool the decision is about |
+| `ferrumdeck.decision` | string | `allow` \| `deny` \| `approval` \| `kill` |
+| `ferrumdeck.reason` | string | Human-readable explanation of the verdict |
+| `ferrumdeck.rung` | string | R1/R2/R3 reversibility rung (when applicable) |
+| `ferrumdeck.budget_remaining` | int | Cost headroom in cents at decision time |
+
+#### Semconv stability opt-in
+
+The GenAI conventions are still *Development* status and rename attributes
+between releases, so the span name + `gen_ai.*` keys follow the standard
+`OTEL_SEMCONV_STABILITY_OPT_IN` migration knob. When its comma-separated value
+contains `gen_ai_latest_experimental`, the latest experimental names are used;
+unset/other keeps the current stable names (the safe default):
+
+| aspect | default (unset) | `gen_ai_latest_experimental` |
+|--------|-----------------|------------------------------|
+| span name | `gen_ai.tool.call` | `execute_tool` |
+| operation attr | *(absent)* | `gen_ai.operation.name = execute_tool` |
+| tool-call-id key | `gen_ai.tool.call_id` | `gen_ai.tool.call.id` |
+
+The `ferrumdeck.*` decision attributes are stable across both conventions. This
+is the standard OTel migration pattern — pin to the current names, opt into the
+next set intentionally.
+
 ### Metrics
 
 | Metric | Type | Unit | Description |

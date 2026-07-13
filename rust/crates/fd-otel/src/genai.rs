@@ -100,6 +100,19 @@ pub mod attrs {
     // `fd_policy::airlock::coherence`.
     pub const FERRUMDECK_RELIABILITY_COHERENCE_DIVERGENCE: &str =
         "ferrumdeck.reliability.coherence_divergence";
+
+    // Enforcement-decision GenAI span. FerrumDeck returns an
+    // allow/deny/approval/kill verdict *before* a tool executes; this makes
+    // that verdict a first-class, queryable OTel GenAI span (not just an
+    // after-the-fact log). The span name + the `gen_ai.*` keys follow the
+    // OpenTelemetry GenAI semconv and flip under `OTEL_SEMCONV_STABILITY_OPT_IN`
+    // — see `fd_otel::decision`. The `ferrumdeck.*` decision attrs below are
+    // stable across both conventions. Python mirror: `fd_runtime.tracing`.
+    pub const GEN_AI_OPERATION_NAME: &str = "gen_ai.operation.name";
+    pub const FERRUMDECK_DECISION: &str = "ferrumdeck.decision";
+    pub const FERRUMDECK_DECISION_REASON: &str = "ferrumdeck.reason";
+    pub const FERRUMDECK_DECISION_RUNG: &str = "ferrumdeck.rung";
+    pub const FERRUMDECK_BUDGET_REMAINING: &str = "ferrumdeck.budget_remaining";
 }
 
 /// GenAI system values

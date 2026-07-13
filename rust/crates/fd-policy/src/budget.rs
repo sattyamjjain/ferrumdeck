@@ -50,6 +50,17 @@ impl Budget {
             None => true,
         }
     }
+
+    /// Cost headroom remaining under the cap, in cents. `None` when no cost cap
+    /// is configured (unbounded). Saturates at 0 once the cap is met/exceeded.
+    ///
+    /// Emitted as `ferrumdeck.budget_remaining` on the enforcement-decision
+    /// GenAI span (see `fd_otel::decision`) so an operator can see how close a
+    /// run was to the budget circuit breaker at the moment of each decision.
+    pub fn cost_remaining_cents(&self, usage: &BudgetUsage) -> Option<u64> {
+        self.max_cost_cents
+            .map(|cap| cap.saturating_sub(usage.cost_cents))
+    }
 }
 
 /// Current usage against budget
@@ -217,5 +228,31 @@ mod tests {
         };
         // Saturating add avoids a panic; u64::MAX <= u64::MAX holds.
         assert!(budget.has_cost_headroom(&usage, 5));
+    }
+
+    #[test]
+    fn cost_remaining_reports_headroom_and_saturates() {
+        let budget = Budget {
+            max_cost_cents: Some(500),
+            ..Budget::default()
+        };
+        // Below the cap → remaining is the difference.
+        let usage = BudgetUsage {
+            cost_cents: 200,
+            ..BudgetUsage::default()
+        };
+        assert_eq!(budget.cost_remaining_cents(&usage), Some(300));
+        // At/over the cap → saturates at 0, never underflows.
+        let spent = BudgetUsage {
+            cost_cents: 600,
+            ..BudgetUsage::default()
+        };
+        assert_eq!(budget.cost_remaining_cents(&spent), Some(0));
+        // No cap configured → unbounded (None).
+        let uncapped = Budget {
+            max_cost_cents: None,
+            ..Budget::default()
+        };
+        assert_eq!(uncapped.cost_remaining_cents(&usage), None);
     }
 }

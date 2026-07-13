@@ -75,6 +75,11 @@ class AirlockResponse:
     violation_details: str | None = None
     blocked_by_airlock: bool = False
     shadow_mode: bool = False
+    # Reversibility-ladder rung the control plane chose (R1-R3 ladder). Carried
+    # so the data plane's enforcement-decision GenAI span can report the same
+    # rung the gateway did. `allow_and_log` (R1) | `allow_under_budget` (R2) |
+    # `require_approval` (R3); None for older gateways that omit it.
+    response_level: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AirlockResponse":
@@ -90,7 +95,20 @@ class AirlockResponse:
             violation_details=data.get("violation_details"),
             blocked_by_airlock=data.get("blocked_by_airlock", False),
             shadow_mode=data.get("shadow_mode", False),
+            response_level=data.get("response_level"),
         )
+
+    @property
+    def rung(self) -> str | None:
+        """The R1/R2/R3 label for the chosen reversibility rung, or None.
+
+        Mirrors ``ResponseLevel::rung`` on the Rust side.
+        """
+        return {
+            "allow_and_log": "R1",
+            "allow_under_budget": "R2",
+            "require_approval": "R3",
+        }.get(self.response_level or "")
 
     @property
     def is_security_violation(self) -> bool:
@@ -115,4 +133,5 @@ class AirlockResponse:
             "violation_details": self.violation_details,
             "blocked_by_airlock": self.blocked_by_airlock,
             "shadow_mode": self.shadow_mode,
+            "response_level": self.response_level,
         }

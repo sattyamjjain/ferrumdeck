@@ -2,7 +2,7 @@
 
 **FerrumDeck is a deterministic Rust *enforcement* plane for AI agents — it blocks the tool call in-process, it doesn't just chart it after the fact.** Deny-by-default tool policy, per-run budget enforcement, runtime (Airlock) inspection, approval gates, and an append-only audit trail — all in the request path, returning an allow/deny/approve decision *before* the agent acts.
 
-> **Enforce, don't just observe.** LangSmith, Phoenix, Galileo, and Fiddler *watch* your agent and tell you afterward what it did. FerrumDeck sits in the call path and *enforces* — it returns `allowed=false` and the tool never fires. Observability is a dashboard you read after the incident; enforcement is the gate that prevents it.
+> **Enforce, don't just observe.** LangSmith, Phoenix, Galileo, and Fiddler *watch* your agent and tell you afterward what it did. FerrumDeck sits in the call path and *enforces* — it returns `allowed=false` and the tool never fires. Observability is a dashboard you read after the incident; enforcement is the gate that prevents it. And because the gate sits in the trace, **every decision it makes is itself a queryable OTel GenAI span** (`ferrumdeck.decision = allow|deny|approval|kill`) — you enforce and observe in one pass, not two tools.
 
 **"But won't in-path enforcement slow my agent down?"** No — the decision is sub-millisecond. Measured CPU cost of the governance decision itself (Apple M4, `--release`, decision path only — excludes DB / queue / LLM):
 
@@ -59,7 +59,7 @@ FerrumDeck is the **control plane, not the agent** — the production layer that
 - **Budget auto-kill** — every run carries a hard token / cost / tool-call / wall-time budget; a breach kills the run and appends a `budget.exceeded` event. (`fd_policy::budget` → `RunStatus::BudgetKilled`)
 - **Coherence-divergence caught mid-run** — when an agent states a blocking fact ("tests failing", "permission denied") and then advances as if it were untrue, the live monitor catches it on the run stream and applies the reversibility ladder (R1–R3). (`fd_policy::airlock::coherence`)
 - **Immutable audit trail** — every policy, budget, and approval decision is appended to `audit_events`; the repository exposes no `UPDATE`/`DELETE`.
-- **OTel GenAI spans** — every LLM/tool step emits OpenTelemetry GenAI-semconv spans (`gen_ai.*` + `ferrumdeck.*`) to Jaeger.
+- **OTel GenAI spans — and every enforce decision is one** — every LLM/tool step emits OpenTelemetry GenAI-semconv spans to Jaeger, and so does every enforcement decision: the tool-policy check writes a `gen_ai.tool.call` span carrying `ferrumdeck.decision = allow|deny|approval|kill`, `ferrumdeck.reason`, `ferrumdeck.rung` (R1–R3), and `ferrumdeck.budget_remaining`, so the allow/deny you enforce is the span you query. Naming follows the GenAI-semconv stability opt-in (`OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental` → `execute_tool` + `gen_ai.operation.name`); Rust gateway and Python worker write one schema. (`fd_otel::decision` · `fd_runtime.tracing`)
 
 The demo is **self-verifying** — it asserts each property with `jq` and exits non-zero on failure, so it works as a smoke test, not a screenshot. For an honest map of what enforces today vs. what's still being wired, see **[Project Status & Limitations](#project-status--limitations)**.
 

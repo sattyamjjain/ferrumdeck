@@ -1131,6 +1131,22 @@ pub async fn submit_step_result(
             )
             .await?;
 
+        // Emit the budget circuit-breaker kill as an OTel GenAI decision span
+        // (`ferrumdeck.decision=kill`), the run-level counterpart to the
+        // per-tool allow/deny/approval spans. A budget kill is not tied to a
+        // single tool call, so the tool name is the `budget_gate` sentinel and
+        // no reversibility rung applies; remaining headroom is 0 by definition.
+        let kill_call_id = budget_decision.id.to_string();
+        fd_otel::emit_tool_decision_span(
+            fd_otel::GenAiSemconv::from_env(),
+            "budget_gate",
+            fd_otel::DecisionOutcome::Kill,
+            &budget_decision.reason,
+            None,
+            effective_budget.cost_remaining_cents(&usage),
+            Some(kill_call_id.as_str()),
+        );
+
         // Terminal — free the run's coherence trajectory state.
         state.coherence.clear_run(&coherence_run_id).await;
 
@@ -1631,6 +1647,46 @@ pub async fn check_tool_policy(
     // Reason shown when the reversibility ladder (not the allowlist) is what
     // gated the call, so the operator sees *why* approval is now required.
     let ladder_upgraded = combined_kind != decision.kind;
+
+    // Emit the effective enforcement decision as an OTel GenAI span so every
+    // allow/deny/approval is queryable in Jaeger, not just logged. The span
+    // name + `gen_ai.*` keys follow the GenAI semconv and flip under
+    // `OTEL_SEMCONV_STABILITY_OPT_IN`; the `ferrumdeck.*` decision attrs are
+    // stable. This is a sibling signal to the audit event above — the audit
+    // trail is the immutable record, the span is the trace-queryable one.
+    let decision_outcome = if requires_approval {
+        fd_otel::DecisionOutcome::Approval
+    } else if final_allowed {
+        fd_otel::DecisionOutcome::Allow
+    } else {
+        fd_otel::DecisionOutcome::Deny
+    };
+    let decision_span_reason: String = if !final_allowed && airlock_blocked {
+        airlock_result
+            .violation
+            .as_ref()
+            .map(|v| v.details.clone())
+            .unwrap_or_else(|| decision.reason.clone())
+    } else if ladder_upgraded && requires_approval {
+        format!(
+            "reversibility ladder ({}, {}) requires approval: {}",
+            reversibility.as_str(),
+            response_level.rung(),
+            decision.reason
+        )
+    } else {
+        decision.reason.clone()
+    };
+    let decision_call_id = decision.id.to_string();
+    fd_otel::emit_tool_decision_span(
+        fd_otel::GenAiSemconv::from_env(),
+        &request.tool_name,
+        decision_outcome,
+        &decision_span_reason,
+        Some(response_level.rung()),
+        effective_budget.cost_remaining_cents(&usage),
+        Some(decision_call_id.as_str()),
+    );
 
     // Step 7: Persist run state. Always record the chosen response level (so the
     // polled run console can render it); additionally mark the run blocked when

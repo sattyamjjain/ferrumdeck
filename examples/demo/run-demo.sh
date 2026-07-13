@@ -8,7 +8,7 @@
 #   1. Deny-by-default tool policy   (an un-allowlisted tool is DENIED)
 #   2. Approval gate                 (a write tool REQUIRES human approval)
 #   3. Immutable audit trail         (every decision is appended, never mutated)
-#   4. OTel / GenAI spans            (traces land in Jaeger)
+#   4. OTel / GenAI spans            (every enforce decision lands in Jaeger)
 #   + a deterministic golden-trace replay (the metric wire-contract regression)
 #
 # Part A (below) is fully deterministic and needs NO LLM key — it drives the
@@ -111,9 +111,29 @@ api "$GATEWAY/v1/runs/$RUN" | jq '{status, cost_cents, tool_calls, response_leve
 echo "  (budget auto-kill fires on step submission over the cap — see Part B / submit_step_result)"
 
 # -----------------------------------------------------------------------------
-hdr "6. OTel / GenAI spans"
-echo "  Jaeger UI:  http://localhost:16686   (service: \"gateway\" — open it to see the check-tool spans)"
+hdr "6. OTel / GenAI spans — every enforce decision is one"
+echo "  Jaeger UI:  http://localhost:16686   (service: \"gateway\")"
 echo "  Dashboard:  http://localhost:8000"
+# The denied tool call above is emitted as a GenAI decision span carrying
+# ferrumdeck.decision=deny (see fd_otel::decision). Span export is async/batched,
+# so confirm it with a short retry — this is a soft check (it reports, it never
+# fails the demo; open the UI and filter tag ferrumdeck.decision=deny to see it).
+JAEGER="${JAEGER:-http://localhost:16686}"
+found_decision=""
+for _ in $(seq 1 12); do
+  if curl -fsS "$JAEGER/api/traces?service=gateway&lookback=1h&limit=50" 2>/dev/null \
+       | jq -e '[.data[].spans[].tags[]?
+                 | select(.key=="ferrumdeck.decision" and .value=="deny")]
+                 | length > 0' >/dev/null 2>&1; then
+    found_decision=1; break
+  fi
+  sleep 1
+done
+if [ -n "$found_decision" ]; then
+  ok "denied tool call surfaced as a GenAI span with ferrumdeck.decision=deny"
+else
+  echo "  (decision spans still flushing — open Jaeger and filter tag ferrumdeck.decision=deny)"
+fi
 
 # -----------------------------------------------------------------------------
 hdr "7. Golden-trace replay (deterministic metric wire-contract regression — pure, no stack)"
