@@ -65,6 +65,9 @@ pub struct ListPoliciesQuery {
     pub status: Option<String>,
 }
 
+// Only referenced by `ListPoliciesQuery` (itself `#[allow(dead_code)]`, pending
+// wiring), so rustc 1.97's transitive dead-code analysis flags it too.
+#[allow(dead_code)]
 fn default_limit() -> i64 {
     50
 }

@@ -203,7 +203,7 @@ impl DagScheduler {
 
         if self.on_error == "fail" {
             // Cancel all pending steps
-            for (_id, status) in self.step_status.iter_mut() {
+            for status in self.step_status.values_mut() {
                 if *status == StepStatus::Pending || *status == StepStatus::Ready {
                     *status = StepStatus::Cancelled;
                 }
