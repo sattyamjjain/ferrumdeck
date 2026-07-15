@@ -4,6 +4,8 @@
 
 > **Enforce, don't just observe.** LangSmith, Phoenix, Galileo, and Fiddler *watch* your agent and tell you afterward what it did. FerrumDeck sits in the call path and *enforces* — it returns `allowed=false` and the tool never fires. Observability is a dashboard you read after the incident; enforcement is the gate that prevents it. And because the gate sits in the trace, **every decision it makes is itself a queryable OTel GenAI span** (`ferrumdeck.decision = allow|deny|approval|kill`) — you enforce and observe in one pass, not two tools.
 
+**See the blind spot for yourself.** [`docs/benchmarks/enforce-vs-observe.md`](docs/benchmarks/enforce-vs-observe.md) runs one AgentDojo-style injection trace two ways over the *same* governance profile: a record-only stack that emits a span *after* the unsafe `send_email` already ran, versus the in-path gate that emits `ferrumdeck.decision=deny` on the same span and the call never fires. Deterministic, offline, no LLM — spans captured with an in-memory exporter so the output is real telemetry, not a mock. Reproduce with `make bench-enforce-vs-observe`.
+
 **"But won't in-path enforcement slow my agent down?"** No — the decision is sub-millisecond. Measured CPU cost of the governance decision itself (Apple M4, `--release`, decision path only — excludes DB / queue / LLM):
 
 | Enforcement layer | p50 | p95 |

@@ -564,6 +564,58 @@ def asb(
         raise typer.Exit(1)
 
 
+@app.command("enforce-vs-observe")
+def enforce_vs_observe(
+    dataset_dir: Annotated[
+        Path | None,
+        typer.Option("--dataset-dir", "-d", help="Corpus dir (governance.json + tasks.jsonl)"),
+    ] = None,
+    case_id: Annotated[
+        str,
+        typer.Option("--case", "-c", help="Corpus case id to run through both lanes"),
+    ] = "atk_unauth_01",
+) -> None:
+    """Observability blind-spot benchmark: record-only vs in-path enforcement.
+
+    Runs ONE public injection trace (AgentDojo-style) two ways over the same
+    governance profile: (a) an observability-only stack that only *records* the
+    tool call — the unsafe call has already run by the time its span exists — and
+    (b) ferrumdeck's in-path gate, which *decides* before execution and emits
+    ``ferrumdeck.decision=deny`` on the same GenAI span so the call never runs.
+    Both spans are captured with an in-memory exporter, so the printed output is
+    real emitted telemetry. The gate verdict reuses the corpus-pinned
+    ``injection_defense.decide`` (mirrors the Rust ``fd_policy`` contract).
+    Deterministic, offline, no LLM. Exits non-zero if the blind-spot contrast
+    does not hold. This is the reproducible artifact behind the enforce-don't-
+    observe wedge (docs/benchmarks/enforce-vs-observe.md).
+
+    Examples:
+        fd-eval enforce-vs-observe
+        fd-eval enforce-vs-observe -d evals/datasets/injection_defense
+    """
+    from fd_evals.enforce_vs_observe import assert_contrast, render_report, run_comparison
+
+    corpus_dir = dataset_dir or Path("evals") / "datasets" / "injection_defense"
+    if not (corpus_dir / "tasks.jsonl").exists():
+        raise typer.BadParameter(f"corpus not found under {corpus_dir}")
+
+    console.print(
+        f"[cyan]Enforce-vs-observe benchmark[/cyan] (corpus: {corpus_dir}, case: {case_id})\n"
+    )
+    cmp = run_comparison(corpus_dir, case_id)
+    console.print(render_report(cmp))
+
+    try:
+        assert_contrast(cmp)
+    except AssertionError as e:
+        console.print(f"\n[red]Blind-spot contrast failed: {e}[/red]")
+        raise typer.Exit(1) from e
+    console.print(
+        "\n[green]OK[/green] — record-only observed the breach; the in-path gate blocked it "
+        "pre-execution on the same span."
+    )
+
+
 @app.command("list-tasks")
 def list_tasks(
     dataset: Annotated[

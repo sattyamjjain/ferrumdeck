@@ -49,6 +49,7 @@ help:
 	@echo "  make eval-injection-defense - Run the offline injection-defense benchmark"
 	@echo "  make eval-asb     - Run the offline ASB + EU AI Act Art.50 benchmark"
 	@echo "  make bench-enforcement - Benchmark the enforcement decision-path latency (criterion)"
+	@echo "  make bench-enforce-vs-observe - Observability blind-spot: record-only vs in-path gate"
 	@echo ""
 	@echo "Clean:"
 	@echo "  make clean        - Clean build artifacts"
@@ -293,6 +294,10 @@ eval-asb:
 bench-enforcement:
 	@echo "Running enforcement decision-path latency benchmark (criterion, offline)..."
 	./scripts/bench-enforcement.sh
+
+bench-enforce-vs-observe:
+	@echo "Running observability blind-spot benchmark (record-only vs in-path gate, offline)..."
+	uv run python evals/enforce_vs_observe.py
 
 # =============================================================================
 # Clean

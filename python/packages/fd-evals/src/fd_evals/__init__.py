@@ -42,6 +42,14 @@ from fd_evals.delta import (
     load_report,
     save_report,
 )
+from fd_evals.enforce_vs_observe import (
+    ENFORCE_VS_OBSERVE_ANCHOR,
+    Comparison,
+    LaneResult,
+    assert_contrast,
+    render_report,
+    run_comparison,
+)
 from fd_evals.harness_delta import (
     HARNESS_ANCHOR,
     HarnessDelta,
@@ -82,12 +90,18 @@ __all__ = [
     "ASB_ANCHOR",
     "BENCH_AUDIT_ANCHOR",
     "COHERENCE_ANCHOR",
+    "ENFORCE_VS_OBSERVE_ANCHOR",
     "EU_AI_ACT_ART50_ANCHOR",
     "HARNESS_ANCHOR",
     "INJECTION_DEFENSE_ANCHOR",
     "AsbReport",
     "BaseScorer",
     "CoherenceSpan",
+    "Comparison",
+    "LaneResult",
+    "assert_contrast",
+    "render_report",
+    "run_comparison",
     "InjectionDefenseReport",
     "check_art50",
     "decide_asb",
