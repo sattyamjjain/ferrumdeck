@@ -1145,6 +1145,7 @@ pub async fn submit_step_result(
             None,
             effective_budget.cost_remaining_cents(&usage),
             Some(kill_call_id.as_str()),
+            None, // no Colorado ADMT context on the budget circuit breaker
         );
 
         // Terminal — free the run's coherence trajectory state.
@@ -1686,6 +1687,9 @@ pub async fn check_tool_policy(
         Some(response_level.rung()),
         effective_budget.cost_remaining_cents(&usage),
         Some(decision_call_id.as_str()),
+        // Colorado SB 26-189 ADMT rule is a library-level enforcement rule (like
+        // Art.50) and is not wired into this tool-policy path; no flag here.
+        None,
     );
 
     // Step 7: Persist run state. Always record the chosen response level (so the

@@ -127,10 +127,26 @@ impl GenAiSemconv {
 /// resolved [`GenAiSemconv`].
 ///
 /// `tool_name` + `outcome` + `reason` are always recorded; `rung` (R1/R2/R3),
-/// `budget_remaining` (cents of cost headroom), and `call_id` are recorded when
-/// known (the data plane, for instance, knows the outcome but not the
-/// control-plane rung/budget). The span is a short child of the current span so
-/// it inherits the run/step trace context and is exported on close.
+/// `budget_remaining` (cents of cost headroom), `call_id`, and `admt_disclosure`
+/// are recorded when known (the data plane, for instance, knows the outcome but
+/// not the control-plane rung/budget). The span is a short child of the current
+/// span so it inherits the run/step trace context and is exported on close.
+///
+/// `admt_disclosure` carries the Colorado SB 26-189 (2026) ADMT-disclosure flag
+/// for a covered consequential decision (see
+/// `fd_policy::colorado_sb26_189`): `Some(true)` when the decision is covered
+/// and the disclosure obligation applies, `Some(false)` when the rule was
+/// evaluated and the decision is exempt, `None` when the rule was not evaluated.
+/// It rides the same span as the enforcement verdict rather than a parallel
+/// emitter.
+///
+/// Naming caveat: the OTel **GenAI semantic conventions are still
+/// *Development*-status** in the semconv repo (zero stable releases as of
+/// 2026-07), so the `gen_ai.*` names may still move between semconv versions.
+/// They are kept behind the [`GenAiSemconv`] resolver so a rename stays a
+/// one-line change here; the `ferrumdeck.*` attributes (including
+/// `ferrumdeck.admt_disclosure`) are our own and stable across both conventions.
+#[allow(clippy::too_many_arguments)]
 pub fn emit_tool_decision_span(
     semconv: GenAiSemconv,
     tool_name: &str,
@@ -139,6 +155,7 @@ pub fn emit_tool_decision_span(
     rung: Option<&str>,
     budget_remaining: Option<u64>,
     call_id: Option<&str>,
+    admt_disclosure: Option<bool>,
 ) {
     // `tracing` span names must be `'static` literals, so we branch on the
     // resolved mode rather than interpolating. Mode-dependent keys
@@ -156,6 +173,7 @@ pub fn emit_tool_decision_span(
             ferrumdeck.reason = reason,
             ferrumdeck.rung = tracing::field::Empty,
             ferrumdeck.budget_remaining = tracing::field::Empty,
+            ferrumdeck.admt_disclosure = tracing::field::Empty,
         ),
         GenAiSemconv::Default => tracing::info_span!(
             target: "ferrumdeck::decision",
@@ -166,6 +184,7 @@ pub fn emit_tool_decision_span(
             ferrumdeck.reason = reason,
             ferrumdeck.rung = tracing::field::Empty,
             ferrumdeck.budget_remaining = tracing::field::Empty,
+            ferrumdeck.admt_disclosure = tracing::field::Empty,
         ),
     };
 
@@ -178,6 +197,9 @@ pub fn emit_tool_decision_span(
     }
     if let Some(id) = call_id {
         span.record(semconv.tool_call_id_key(), id);
+    }
+    if let Some(disclosure) = admt_disclosure {
+        span.record(attrs::FERRUMDECK_ADMT_DISCLOSURE, disclosure);
     }
 
     // Materialize + close the span so it is exported even though we never run
@@ -342,6 +364,7 @@ mod span_tests {
                 Some("R3"),
                 Some(0),
                 Some("pdc_deny"),
+                None,
             );
         });
         let s = spans
@@ -373,6 +396,7 @@ mod span_tests {
                 Some("R1"),
                 None,
                 Some("pdc_allow"),
+                None,
             );
         });
         let s = spans
@@ -388,6 +412,49 @@ mod span_tests {
         assert_eq!(s.fields.get("ferrumdeck.decision").unwrap(), "allow");
         // budget_remaining was None → the field stays unset.
         assert!(!s.fields.contains_key("ferrumdeck.budget_remaining"));
+    }
+
+    #[test]
+    fn admt_disclosure_flag_is_recorded_when_present_and_absent_when_none() {
+        // Colorado SB 26-189: a covered consequential decision carries
+        // ferrumdeck.admt_disclosure=true on the same decision span.
+        let spans = capture(|| {
+            emit_tool_decision_span(
+                GenAiSemconv::Default,
+                "approve_loan",
+                DecisionOutcome::Approval,
+                "colorado_sb26_189: covered ADMT decision missing disclosure",
+                Some("R3"),
+                None,
+                None,
+                Some(true),
+            );
+        });
+        let s = spans
+            .iter()
+            .find(|s| s.name == "gen_ai.tool.call")
+            .expect("decision span");
+        assert_eq!(s.fields.get("ferrumdeck.admt_disclosure").unwrap(), "true");
+        assert_eq!(s.fields.get("ferrumdeck.decision").unwrap(), "approval");
+
+        // When the flag is None (rule not evaluated) the attribute stays unset.
+        let spans = capture(|| {
+            emit_tool_decision_span(
+                GenAiSemconv::Default,
+                "read_file",
+                DecisionOutcome::Allow,
+                "allowlisted",
+                None,
+                None,
+                None,
+                None,
+            );
+        });
+        let s = spans
+            .iter()
+            .find(|s| s.name == "gen_ai.tool.call")
+            .expect("decision span");
+        assert!(!s.fields.contains_key("ferrumdeck.admt_disclosure"));
     }
 
     #[test]
@@ -409,6 +476,7 @@ mod span_tests {
                     "some_tool",
                     outcome,
                     reason,
+                    None,
                     None,
                     None,
                     None,

@@ -16,7 +16,7 @@ readme = "README.md"
 name = "fd_policy"
 
 [dependencies]
-fd-core = { path = "../fd-core", version = "0.7.6", package = "ferrumdeck-core" }
+fd-core = { path = "../fd-core", version = "0.7.7", package = "ferrumdeck-core" }
 
 # Serialization
 serde = { workspace = true }
@@ -48,6 +48,11 @@ hex = { workspace = true }
 tokio-test = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 criterion = { version = "0.5", features = ["html_reports"] }
+# Path-only dev-deps (stripped from the published manifest) for the end-to-end
+# test that the Colorado ADMT decision's disclosure flag reaches the OTel span.
+fd-otel = { path = "../fd-otel" }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 
 [[bench]]
 name = "enforcement_latency"

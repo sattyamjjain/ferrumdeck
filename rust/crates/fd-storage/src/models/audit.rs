@@ -130,6 +130,14 @@ pub mod action {
     pub const HARNESS_SUGGESTION_CREATED: &str = "harness.suggestion.created";
     pub const HARNESS_SUGGESTION_APPROVED: &str = "harness.suggestion.approved";
     pub const HARNESS_SUGGESTION_REJECTED: &str = "harness.suggestion.rejected";
+
+    // Colorado SB 26-189 (2026) ADMT consequential-decision record. The full
+    // `fd_policy::colorado_sb26_189::ColoradoAdmtRecord` JSON ("what decided
+    // this, when, on what inputs") lives in `audit_events.details`; this
+    // constant is the immutable filter key used by
+    // `AuditRepo::list_admt_decisions`. These records carry the statutory
+    // 3-year retention floor (see `crate::retention`).
+    pub const COLORADO_ADMT_DECIDED: &str = "compliance.colorado_admt.decided";
 }
 
 /// Resource types
@@ -152,6 +160,9 @@ pub mod resource {
     /// agent id (so suggestions list per agent); the suggestion's own id
     /// lives in `details`.
     pub const HARNESS_SUGGESTION: &str = "harness_suggestion";
+    /// Colorado SB 26-189 ADMT consequential-decision record — paired with
+    /// `action::COLORADO_ADMT_DECIDED`. The `resource_id` is the run id.
+    pub const COLORADO_ADMT_DECISION: &str = "colorado_admt_decision";
 }
 
 /// Audit event builder for ergonomic creation

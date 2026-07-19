@@ -194,6 +194,65 @@ impl AuditRepo {
         .await
     }
 
+    /// List the Colorado SB 26-189 ADMT consequential-decision records for one
+    /// run, oldest-first.
+    ///
+    /// Filters [`AuditRepo::list_by_run`] down to events whose `action` is
+    /// [`crate::models::audit::action::COLORADO_ADMT_DECIDED`] — the standard
+    /// append-only `audit_events` table is the source of truth, no parallel
+    /// store. Each event's `details` column round-trips through
+    /// `fd_policy::colorado_sb26_189::ColoradoAdmtRecord::from_audit_details` on
+    /// the read path ("what decided this, when, on what inputs"). These records
+    /// are protected by the 3-year retention floor (see [`crate::retention`]).
+    #[instrument(skip(self))]
+    pub async fn list_admt_decisions(&self, run_id: &str) -> Result<Vec<AuditEvent>, sqlx::Error> {
+        sqlx::query_as::<_, AuditEvent>(
+            r#"
+            SELECT * FROM audit_events
+            WHERE run_id = $1 AND action = $2
+            ORDER BY occurred_at ASC
+            "#,
+        )
+        .bind(run_id)
+        .bind(crate::models::audit::action::COLORADO_ADMT_DECIDED)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Prune ADMT audit records older than `retention_years`, refusing any
+    /// request below the Colorado SB 26-189 statutory floor.
+    ///
+    /// This is the **only** prune entry point for `audit_events`, and it is
+    /// gated twice: [`crate::retention::check_retention_floor`] rejects a
+    /// sub-floor request *before* any SQL runs, and the database trigger from
+    /// `20260719000001_add_audit_retention_floor` independently rejects a delete
+    /// of any row younger than the floor. A retention floor that lived only in a
+    /// policy struct would not be a retention floor — this makes it real.
+    ///
+    /// Returns the number of rows deleted.
+    #[instrument(skip(self))]
+    pub async fn prune_admt_expired(
+        &self,
+        retention_years: i64,
+    ) -> Result<u64, crate::retention::PruneError> {
+        // Gate 1 (application): refuse an early prune before touching the DB.
+        let years = crate::retention::check_retention_floor(retention_years)?;
+        // Gate 2 (database): the trigger also rejects deletes within the floor,
+        // so even a row that slipped past `years` (clock skew) is protected.
+        let result = sqlx::query(
+            r#"
+            DELETE FROM audit_events
+            WHERE action = $1
+              AND occurred_at < NOW() - ($2 || ' years')::INTERVAL
+            "#,
+        )
+        .bind(crate::models::audit::action::COLORADO_ADMT_DECIDED)
+        .bind(years.to_string())
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     /// List audit events by action
     #[instrument(skip(self))]
     pub async fn list_by_action(

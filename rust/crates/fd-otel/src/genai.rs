@@ -113,6 +113,10 @@ pub mod attrs {
     pub const FERRUMDECK_DECISION_REASON: &str = "ferrumdeck.reason";
     pub const FERRUMDECK_DECISION_RUNG: &str = "ferrumdeck.rung";
     pub const FERRUMDECK_BUDGET_REMAINING: &str = "ferrumdeck.budget_remaining";
+    // Colorado SB 26-189 (2026): whether an ADMT-use disclosure is required on a
+    // covered consequential decision. A stable `ferrumdeck.*` attribute — like
+    // the other decision attrs it is unaffected by the `gen_ai.*` semconv rename.
+    pub const FERRUMDECK_ADMT_DISCLOSURE: &str = "ferrumdeck.admt_disclosure";
 }
 
 /// GenAI system values

@@ -9,6 +9,7 @@
 pub mod airlock;
 pub mod bench_audit;
 pub mod budget;
+pub mod colorado_sb26_189;
 pub mod decision;
 pub mod engine;
 pub mod forecast;
@@ -23,6 +24,12 @@ pub mod trace;
 pub mod transparency_art50;
 
 pub use bench_audit::{BenchAuditPolicy, BenchGatedClaim, BenchTrustSummary, BENCH_AUDIT_ANCHOR};
+pub use colorado_sb26_189::{
+    check as check_colorado_admt, enforce as enforce_colorado_admt,
+    response_level as colorado_admt_response_level, AdmtDecisionContext, AutomationRole,
+    ColoradoAdmtConfig, ColoradoAdmtRecord, ColoradoAdmtStatus, ConsequentialDomain,
+    COLORADO_SB26_189_ANCHOR, RETENTION_FLOOR_YEARS,
+};
 pub use decision::{PolicyDecision, PolicyDecisionKind};
 pub use engine::PolicyEngine;
 pub use harness::{

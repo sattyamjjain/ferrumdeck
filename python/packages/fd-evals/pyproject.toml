@@ -1,6 +1,6 @@
 [project]
 name = "fd-evals"
-version = "0.7.6"
+version = "0.7.7"
 description = "FerrumDeck Evaluation Framework - Deterministic eval harness for agent workflows"
 readme = "README.md"
 requires-python = ">=3.11"
