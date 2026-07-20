@@ -1,82 +1,56 @@
 # AgentAuditKit configuration for FerrumDeck.
 #
-# Curates the static agent/MCP security scan run in CI
-# (.github/workflows/agent-security.yml) and locally (`agent-audit-kit scan .`).
-# Every suppression below is a TRIAGED false-positive (or false-positive-by-design
-# for this repo's threat model) with a rationale. Real findings are fixed, not
-# suppressed — e.g. the litellm CVE (AAK-MCP-LITELLM-CVE-2026-59822-001) was fixed
-# by bumping the dependency, and AAK-GHA-IMMUTABLE-001 (unpinned actions) is left
-# ON so it keeps flagging until the actions are SHA-pinned.
+# Curates the static agent/MCP scan run in CI (.github/workflows/agent-security.yml)
+# and locally (`agent-audit-kit scan .`). Suppression is deliberately MINIMAL:
+# prefer path-scoped `ignore-paths` (a rule stays live for new code) over global
+# `exclude-rules`. Every entry is a triaged false-positive with a rationale.
 #
-# Suppression strategy: prefer path-scoped `ignore-paths` (keeps the rule active
-# for NEW code) over global `exclude-rules`; the latter is used only where a rule
-# is systematically mismatched to this repo (dev docs, a React codebase, eval
-# tasks) and has no real variant here.
+# This was slimmed once AgentAuditKit's own rule-scoping fixes (PRs #477/#478)
+# landed: the old broad exclusions for AAK-AGENT-001 / -HOOK-RCE-001 /
+# -MCP-STDIO-CMD-INJ-001 / -TASKS-002 / -INDIA-PII-001 / -HEALTHCARE-AI-004/005
+# and the litellm-CVE exclusion are all GONE — those rules no longer fire on
+# benign patterns here. Real findings were fixed, not suppressed (the litellm and
+# mcp-SDK CVEs were resolved by bumping the dependencies). AAK-GHA-IMMUTABLE-001
+# (unpinned actions, medium) is intentionally left ON as a visible to-do.
 
 severity: low
-fail-on: high # local default; CI passes its own --fail-on to control the gate
+fail-on: high # local default; CI passes its own --fail-on
 
 ignore-paths:
-  # --- generated / local / vendored state (not product code) ---
+  # --- generated / local / gitignored (belt-and-suspenders; CI scans tracked files) ---
   - node_modules/
   - target/
   - .next/
-  - .claude-flow/ # local orchestration metrics (gitignored)
-  - .idea/ # IDE state (gitignored)
-  - .env # local dev secrets (gitignored, never committed)
-  - deploy/docker/.env # local dev secrets (gitignored)
+  - .claude-flow/
+  - .idea/
+  - .env
+  - deploy/docker/.env
+  - .claude/settings.local.json
 
   # --- FerrumDeck's OWN secret-detection source ---
   # AAK-SECRET-* matches these files' detection *regex patterns*, not real
-  # secrets. Ignoring the files (rather than disabling AAK-SECRET-* globally)
-  # keeps secret detection live everywhere else in the repo.
+  # secrets. Path-scoped so secret detection stays live everywhere else.
   - rust/crates/fd-audit/src/redaction.rs
   - rust/crates/fd-policy/src/airlock/credential_dlp.rs
   - rust/crates/fd-policy/src/airlock/exfiltration.rs
   - rust/services/gateway/src/handlers/training_signal.rs
 
-  # --- MCP STDIO construction: false-positive-by-design (see triage) ---
-  # StdioServerParameters is built from a TRUSTED MCPServerConfig (admin/gateway
-  # registry), not network input; the tool servers use the safe argv pattern
-  # (subprocess.run([...]) without shell=True) inside a sandboxed,
-  # path-traversal-validated workspace, gated upstream by the deny-by-default
-  # allowlist + Airlock. Path-scoped so AAK-STDIO-001 / -CMD-INJ stay active for
-  # any NEW MCP server file. (Follow-up hardening: allowlist git subcommands/flags.)
-  - python/packages/fd-mcp-router/src/fd_mcp_router/router.py
-  - python/packages/fd-worker/src/fd_worker/agentic.py
-  - python/packages/fd-mcp-tools/src/fd_mcp_tools/git_server.py
-  - python/packages/fd-mcp-tools/src/fd_mcp_tools/test_runner_server.py
-
   # --- injection payloads that are documentation / test fixtures, not live ---
-  # AAK-IPI-WILD-CORPUS-001 correctly matches indirect-prompt-injection payloads,
-  # but here they are: a doc discussing injection, a test plan, and a security
-  # test whose whole job is to hold injection fixtures. Path-scoped so the rule
-  # stays live for product code.
-  - CLAUDE.md
+  - CLAUDE.md # a `$(...)` command example in a dev-doc bullet (AGENT-001 / IPI)
   - nextjs/TEST_PLAN.md
   - tests/security/test_input_validation.py
 
-  # --- other confirmed local / demo false-positives ---
-  - .claude/settings.local.json # AAK-TRUST-004: local Claude Code config (gitignored)
-  - examples/demo/run-demo.sh # AAK-SECRET-004: `${FD_API_KEY:-fd_dev_...}` seeded
-    # local-stack dev key (documented), not a real credential.
+  # --- other confirmed false-positives ---
+  - examples/demo/run-demo.sh # `${FD_API_KEY:-fd_dev_...}` seeded local-stack dev key
+  # test-runner tool server uses the safe argv pattern (subprocess.run([...]) no
+  # shell=True), gated upstream by the deny-by-default allowlist + Airlock.
+  - python/packages/fd-mcp-tools/src/fd_mcp_tools/test_runner_server.py
 
 exclude-rules:
-  # Systematically mismatched to this repo — no real variant here.
-  - AAK-AGENT-001 # "shell directives in agent instruction file": our CLAUDE.md /
-    # AGENTS.md docs legitimately list cargo/make build commands.
-  - AAK-AGENT-005 # "hidden content in agent instruction file": markdown in docs.
-  - AAK-HOOK-RCE-001 # fires on nextjs use-audit.ts — a React hook (`${event}` JSX),
-    # not a Claude Code / shell hook. Keyword collision in a React codebase.
-  - AAK-TASKS-002 # fire on fd_evals eval-run "tasks" (test/benchmark cases), not
-  - AAK-TASKS-003 # credential-bearing or long-lived MCP tasks.
-  - AAK-INDIA-PII-001 # "Aadhaar in source": only hit gitignored .claude-flow metrics;
-    # no Indian-PII surface in the product.
-  - AAK-HEALTHCARE-AI-004 # healthcare-AI compliance rules firing on ops runbooks
-  - AAK-HEALTHCARE-AI-005 # (incident-response / migration docs use words like
-    # "critical"/"emergency"). FerrumDeck is not a healthcare-AI product.
-  - AAK-MCP-LITELLM-CVE-2026-59822-001 # FIXED: litellm bumped to >=1.84.0 (resolves
-    # 1.93.0); the rule flags the reference regardless of the patched resolved
-    # version. Remove this exclusion if the rule learns to read the lockfile pin.
+  # The only rules still systematically mismatched to this repo (both medium,
+  # non-gating; excluded to keep the Security tab focused on real findings).
+  - AAK-AGENT-005 # "hidden content in agent instruction file": markdown in dev docs.
+  - AAK-TASKS-003 # fires on fd_evals eval-run "tasks" (test/benchmark cases), not
+    # credential-bearing or long-lived MCP tasks.
 
 include-user-config: false
