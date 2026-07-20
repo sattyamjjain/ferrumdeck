@@ -7,7 +7,10 @@ dependencies = [
     "fd-runtime",
     "fd-mcp-router",
     "redis>=5.0",
-    "litellm>=1.50",
+    # >=1.84.0: CVE-2026-59822 / CVE-2026-59820 (LiteLLM MCP auth bypass) are
+    # fixed in 1.84.0; the previous `>=1.50` floor resolved to a vulnerable
+    # 1.80.11. Flagged by AgentAuditKit AAK-MCP-LITELLM-CVE-2026-59822-001.
+    "litellm>=1.84.0",
     "opentelemetry-api>=1.28",
     "opentelemetry-sdk>=1.28",
     "opentelemetry-exporter-otlp>=1.28",
