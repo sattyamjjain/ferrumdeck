@@ -5,7 +5,7 @@ description = "FerrumDeck MCP Tool Servers - Git and Test Runner"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "mcp>=1.0.0",
+    "mcp>=1.28.1",
 ]
 
 # For GitHub operations, use the official GitHub MCP server:
