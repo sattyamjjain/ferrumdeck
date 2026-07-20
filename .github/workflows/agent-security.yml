@@ -1,0 +1,59 @@
+name: Agent Security Scan (AgentAuditKit)
+
+# Static (shift-left) security scan of FerrumDeck's own MCP / agent configs —
+# the SAST companion to the runtime Airlock enforcement plane. AgentAuditKit
+# scans `.claude/`, `config/mcp-config.json`, `examples/safe-pr-agent/`,
+# `evals/agents/`, etc. for misconfigurations, tool poisoning, trust-boundary
+# gaps, and hardcoded secrets, and uploads SARIF to the Security tab.
+#
+# POSTURE: report-only. Findings are visible (Security tab + PR comment) but the
+# build does NOT fail. There is a known pre-existing false-positive backlog to
+# triage first:
+#   * ~146 AAK-AGENT-001 ("shell command directives") on our own CLAUDE.md /
+#     AGENTS.md docs, which legitimately list cargo/make build commands.
+#   * SECRET false-positives inside our OWN secret-detection code
+#     (fd-audit/redaction.rs, fd-policy/airlock/{credential_dlp,exfiltration}.rs)
+#     — the scanner is matching our detection regex patterns, not real secrets.
+#   * All .env / .idea / .claude-flow hits are gitignored local files that do not
+#     exist in a CI checkout.
+# The one genuinely actionable class today is AAK-GHA-IMMUTABLE-001 (pin actions
+# to a commit SHA). Once the backlog is triaged/suppressed, flip `fail-on: none`
+# to `fail-on: high` (and drop `continue-on-error`) to turn this into a real gate.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  security-events: write # upload SARIF to the Security / Code Scanning tab
+  pull-requests: write # sticky PR comment summarising findings
+
+concurrency:
+  group: agent-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  agent-audit:
+    name: AgentAuditKit MCP scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # SHA-pinned to AgentAuditKit v0.3.52 — dogfoods the scanner's own
+      # AAK-GHA-IMMUTABLE-001 rule (pin third-party actions to an immutable
+      # commit SHA, not a mutable tag). Update the SHA + comment together.
+      - name: Scan agent + MCP configs
+        uses: sattyamjjain/agent-audit-kit@fb60194a91d1328027abdd48b033d9a67563b501 # v0.3.52
+        continue-on-error: true # report-only: never break CI on findings or upload hiccups
+        with:
+          path: .
+          severity: low # surface everything in the Security tab
+          fail-on: none # report-only — change to `high` to gate once the backlog is triaged
+          format: sarif
+          upload-sarif: true
+          comment-on-pr: true
+          # Generated / local dirs (belt-and-suspenders; CI checks out tracked files only).
+          ignore-paths: node_modules,target,.next,.claude-flow,.idea,dist,build
