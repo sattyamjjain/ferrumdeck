@@ -39,3 +39,7 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
+# Path-only dev-dep (stripped from any published manifest) for the end-to-end
+# test that an extracted W3C trace-id lands on the persisted decision record.
+fd-otel = { path = "../fd-otel" }
+serde_json = { workspace = true }

@@ -146,6 +146,14 @@ impl GenAiSemconv {
 /// They are kept behind the [`GenAiSemconv`] resolver so a rename stays a
 /// one-line change here; the `ferrumdeck.*` attributes (including
 /// `ferrumdeck.admt_disclosure`) are our own and stable across both conventions.
+///
+/// `parent` carries a W3C trace context extracted from the caller's MCP `_meta`
+/// (MCP SEP-414; see [`crate::trace_context`]). When `Some`, the decision span is
+/// re-parented onto that remote context so the trace reads end-to-end
+/// (host → client SDK → MCP server → ferrumdeck decision → downstream). When
+/// `None`, the span keeps today's behaviour exactly — a child of the current
+/// span, or a root span if there is none. This is a pure extension: a caller who
+/// sends no trace context is unaffected.
 #[allow(clippy::too_many_arguments)]
 pub fn emit_tool_decision_span(
     semconv: GenAiSemconv,
@@ -156,6 +164,7 @@ pub fn emit_tool_decision_span(
     budget_remaining: Option<u64>,
     call_id: Option<&str>,
     admt_disclosure: Option<bool>,
+    parent: Option<&crate::trace_context::ExtractedTraceContext>,
 ) {
     // `tracing` span names must be `'static` literals, so we branch on the
     // resolved mode rather than interpolating. Mode-dependent keys
@@ -200,6 +209,15 @@ pub fn emit_tool_decision_span(
     }
     if let Some(disclosure) = admt_disclosure {
         span.record(attrs::FERRUMDECK_ADMT_DISCLOSURE, disclosure);
+    }
+
+    // Re-parent onto the caller's extracted W3C trace context so the decision
+    // span joins their distributed trace (MCP SEP-414). No-op without the OTel
+    // layer installed (e.g. in unit tests), and skipped entirely when the caller
+    // sent no trace context — a pure extension of today's behaviour.
+    if let Some(parent) = parent {
+        use tracing_opentelemetry::OpenTelemetrySpanExt;
+        span.set_parent(parent.otel_parent_context());
     }
 
     // Materialize + close the span so it is exported even though we never run
@@ -365,6 +383,7 @@ mod span_tests {
                 Some(0),
                 Some("pdc_deny"),
                 None,
+                None,
             );
         });
         let s = spans
@@ -397,6 +416,7 @@ mod span_tests {
                 None,
                 Some("pdc_allow"),
                 None,
+                None,
             );
         });
         let s = spans
@@ -428,6 +448,7 @@ mod span_tests {
                 None,
                 None,
                 Some(true),
+                None,
             );
         });
         let s = spans
@@ -448,6 +469,7 @@ mod span_tests {
                 None,
                 None,
                 None,
+                None,
             );
         });
         let s = spans
@@ -455,6 +477,35 @@ mod span_tests {
             .find(|s| s.name == "gen_ai.tool.call")
             .expect("decision span");
         assert!(!s.fields.contains_key("ferrumdeck.admt_disclosure"));
+    }
+
+    #[test]
+    fn extracted_parent_does_not_disturb_decision_attributes() {
+        // Passing a W3C trace parent re-parents the span (a no-op without the
+        // OTel layer installed) but must not drop or change the decision attrs.
+        let meta = serde_json::json!({
+            "traceparent": "00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01"
+        });
+        let parent = crate::trace_context::extract_from_meta(&meta).expect("valid");
+        let spans = capture(|| {
+            emit_tool_decision_span(
+                GenAiSemconv::Default,
+                "read_file",
+                DecisionOutcome::Allow,
+                "allowlisted",
+                Some("R1"),
+                None,
+                Some("pdc_x"),
+                None,
+                Some(&parent),
+            );
+        });
+        let s = spans
+            .iter()
+            .find(|s| s.name == "gen_ai.tool.call")
+            .expect("decision span still emitted");
+        assert_eq!(s.fields.get("ferrumdeck.decision").unwrap(), "allow");
+        assert_eq!(s.fields.get("ferrumdeck.reason").unwrap(), "allowlisted");
     }
 
     #[test]
@@ -476,6 +527,7 @@ mod span_tests {
                     "some_tool",
                     outcome,
                     reason,
+                    None,
                     None,
                     None,
                     None,

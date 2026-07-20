@@ -121,6 +121,7 @@ fn covered_decision_disclosure_flag_reaches_the_span() {
             None,
             None,
             Some(status.disclosure_required()),
+            None,
         );
     });
 
@@ -156,6 +157,7 @@ fn exempt_decision_emits_disclosure_false_not_missing() {
             None,
             None,
             Some(status.disclosure_required()),
+            None,
         );
     });
 

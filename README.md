@@ -290,6 +290,7 @@ Found a gap not listed here? Please open an issue — accurate status is a featu
 
 ### Observability
 - **OpenTelemetry Integration**: Full distributed tracing with GenAI semantic conventions
+- **Cross-MCP trace correlation (MCP SEP-414)**: When a caller propagates W3C trace context in the tool-call request `_meta` (`traceparent`/`tracestate`/`baggage`), ferrumdeck parents its enforcement decision span on that context — so the decision joins your trace end-to-end (host → client SDK → MCP server → ferrumdeck decision → downstream) and the trace-id lands on the persisted decision record. Malformed `traceparent` is rejected (never propagated); off unless the OTel semconv opt-in is set. **Targets** the 2026-07-28 MCP revision (a Release Candidate) and implements the SEP-414 conventions — *not* a conformance claim. See [`docs/mcp-trace-conformance.md`](docs/mcp-trace-conformance.md).
 - **Cost Tracking**: Real-time token counting and cost calculation per run
 - **Jaeger UI**: Visual trace exploration and debugging
 - **Audit Trail**: Immutable logging of every action for compliance

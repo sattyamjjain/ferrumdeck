@@ -16,6 +16,18 @@ pub struct AuditEvent {
     pub action: String,
     pub outcome: AuditOutcome,
     pub metadata: serde_json::Value,
+
+    /// W3C trace-id linking this record to the caller's distributed trace, when
+    /// one was propagated via the MCP request `_meta` (MCP SEP-414). `None` for
+    /// records with no propagated trace (the common case), so the receipts wire
+    /// shape is unchanged unless a trace was actually carried. Lets a receipts
+    /// consumer join a decision to its trace without a separate store.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+
+    /// The W3C `sampled` flag from that trace context, when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_sampled: Option<bool>,
 }
 
 /// The kind of audit event
@@ -157,11 +169,22 @@ impl AuditEvent {
             action: action.into(),
             outcome,
             metadata: serde_json::Value::Null,
+            trace_id: None,
+            trace_sampled: None,
         }
     }
 
     pub fn with_metadata(mut self, metadata: serde_json::Value) -> Self {
         self.metadata = metadata;
+        self
+    }
+
+    /// Link this record to the caller's distributed trace (MCP SEP-414 W3C
+    /// trace context extracted from the request `_meta`). Additive — a record
+    /// with no link serializes exactly as before.
+    pub fn with_trace_link(mut self, trace_id: impl Into<String>, sampled: bool) -> Self {
+        self.trace_id = Some(trace_id.into());
+        self.trace_sampled = Some(sampled);
         self
     }
 }

@@ -1146,6 +1146,7 @@ pub async fn submit_step_result(
             effective_budget.cost_remaining_cents(&usage),
             Some(kill_call_id.as_str()),
             None, // no Colorado ADMT context on the budget circuit breaker
+            None, // no MCP `_meta` trace context on the budget circuit breaker
         );
 
         // Terminal — free the run's coherence trajectory state.
@@ -1365,6 +1366,15 @@ pub struct CheckToolRequest {
     /// Estimated cost in cents for this tool call (for velocity tracking)
     #[serde(default)]
     pub estimated_cost_cents: Option<u64>,
+
+    /// MCP request metadata (`_meta`). Per MCP **SEP-414**, a caller may carry
+    /// W3C trace context here under the unprefixed keys `traceparent` /
+    /// `tracestate` / `baggage`, so the enforcement decision joins the caller's
+    /// distributed trace. Read only when the OTel semconv stability opt-in is
+    /// enabled; ignored otherwise. Passed through untouched by the SDK.
+    #[serde(rename = "_meta", default)]
+    #[schema(value_type = Object, nullable = true)]
+    pub meta: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -1436,6 +1446,24 @@ pub async fn check_tool_policy(
     use sha2::{Digest, Sha256};
 
     let repos = state.repos();
+
+    // MCP SEP-414: when the OTel semconv stability opt-in is enabled, extract W3C
+    // trace context from the request `_meta` (`traceparent`/`tracestate`/
+    // `baggage`) so the enforcement decision span joins the caller's distributed
+    // trace and the persisted decision record can be joined to the trace. Gated
+    // behind the SAME opt-in as the GenAI span naming
+    // (`OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`); a malformed or
+    // absent context yields `None`, and everything below behaves exactly as
+    // before — a pure extension for callers who send nothing.
+    let semconv = fd_otel::GenAiSemconv::from_env();
+    let mcp_trace_parent = if semconv.is_latest_experimental() {
+        request
+            .meta
+            .as_ref()
+            .and_then(fd_otel::extract_trace_context)
+    } else {
+        None
+    };
 
     let run = repos
         .runs()
@@ -1609,25 +1637,46 @@ pub async fn check_tool_policy(
         action::POLICY_DENIED
     };
 
-    let audit_event = AuditEventBuilder::new(audit_action, resource::RUN)
+    let mut audit_details = serde_json::json!({
+        "tool_name": request.tool_name,
+        "decision": format!("{:?}", decision.kind),
+        "effective_decision": format!("{:?}", combined_kind),
+        "reason": decision.reason,
+        "reversibility": reversibility.as_str(),
+        "response_level": response_level.as_str(),
+        "response_rung": response_level.rung(),
+        "budget_headroom": has_headroom,
+        "airlock_risk_score": airlock_result.risk_score,
+        "airlock_blocked": !airlock_result.allowed,
+    });
+    // MCP SEP-414: record the extracted W3C trace linkage on the persisted
+    // decision record so an audit query can join this policy decision to its
+    // distributed trace. The trace-id + parent span-id also go on the dedicated
+    // `audit_events.trace_id`/`span_id` columns (below) for a first-class join.
+    if let Some(tc) = &mcp_trace_parent {
+        if let Some(obj) = audit_details.as_object_mut() {
+            obj.insert(
+                "trace_context".to_string(),
+                serde_json::json!({
+                    "trace_id": tc.trace_id,
+                    "parent_span_id": tc.parent_id,
+                    "sampled": tc.sampled,
+                    "dropped": tc.dropped,
+                    "anchor": fd_otel::MCP_TRACE_CONTEXT_ANCHOR,
+                }),
+            );
+        }
+    }
+    let mut audit_builder = AuditEventBuilder::new(audit_action, resource::RUN)
         .actor(actor::SYSTEM, None)
         .resource_id(&run_id)
         .run(&run_id)
         .project(&run.project_id)
-        .details(serde_json::json!({
-            "tool_name": request.tool_name,
-            "decision": format!("{:?}", decision.kind),
-            "effective_decision": format!("{:?}", combined_kind),
-            "reason": decision.reason,
-            "reversibility": reversibility.as_str(),
-            "response_level": response_level.as_str(),
-            "response_rung": response_level.rung(),
-            "budget_headroom": has_headroom,
-            "airlock_risk_score": airlock_result.risk_score,
-            "airlock_blocked": !airlock_result.allowed,
-        }))
-        .build();
-    repos.spawn_audit(audit_event);
+        .details(audit_details);
+    if let Some(tc) = &mcp_trace_parent {
+        audit_builder = audit_builder.trace(tc.trace_id.clone(), tc.parent_id.clone());
+    }
+    repos.spawn_audit(audit_builder.build());
 
     // Step 6: Determine final allowed status, using the reversibility-folded
     // decision (`combined_kind`) rather than the raw allowlist decision — so a
@@ -1680,7 +1729,7 @@ pub async fn check_tool_policy(
     };
     let decision_call_id = decision.id.to_string();
     fd_otel::emit_tool_decision_span(
-        fd_otel::GenAiSemconv::from_env(),
+        semconv,
         &request.tool_name,
         decision_outcome,
         &decision_span_reason,
@@ -1690,6 +1739,9 @@ pub async fn check_tool_policy(
         // Colorado SB 26-189 ADMT rule is a library-level enforcement rule (like
         // Art.50) and is not wired into this tool-policy path; no flag here.
         None,
+        // MCP SEP-414: parent the decision span onto the caller's W3C trace
+        // context (None unless opted in and a valid traceparent was sent).
+        mcp_trace_parent.as_ref(),
     );
 
     // Step 7: Persist run state. Always record the chosen response level (so the

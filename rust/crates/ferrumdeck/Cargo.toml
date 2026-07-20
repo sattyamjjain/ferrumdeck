@@ -13,4 +13,4 @@ readme = "README.md"
 
 [dependencies]
 # Re-exports the enforcement decision path; import path stays `fd_policy`.
-fd-policy = { path = "../fd-policy", version = "0.7.7", package = "ferrumdeck-policy" }
+fd-policy = { path = "../fd-policy", version = "0.7.8", package = "ferrumdeck-policy" }

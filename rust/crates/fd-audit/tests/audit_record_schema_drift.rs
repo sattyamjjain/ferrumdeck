@@ -65,6 +65,11 @@ fn fixture_event() -> AuditEvent {
                 "winning_source": "allowlist:denied"
             }
         }),
+        // No distributed-trace link on the canonical fixture — the optional
+        // SEP-414 fields are `skip_serializing_if = None`, so the golden shape is
+        // unchanged for the common (no-trace) case.
+        trace_id: None,
+        trace_sampled: None,
     }
 }
 
@@ -119,6 +124,31 @@ fn audit_record_schema_does_not_drift() {
          Golden: {}\n",
         path.display(),
     );
+}
+
+/// The optional SEP-414 trace linkage is absent by default (so the golden is
+/// unchanged) and serializes as flat fields when set — this is how a receipts
+/// consumer joins a decision to its distributed trace.
+#[test]
+fn trace_link_is_absent_by_default_and_present_when_set() {
+    // Absent by default: neither key appears in the JSON projection.
+    let json = serde_json::to_value(fixture_event()).expect("serialise");
+    assert!(json.get("trace_id").is_none());
+    assert!(json.get("trace_sampled").is_none());
+
+    // Present when linked: flat fields carrying the W3C trace-id + sampled flag.
+    let linked = fixture_event().with_trace_link("0af7651916cd43dd8448eb211c80319c", true);
+    let json = serde_json::to_value(&linked).expect("serialise");
+    assert_eq!(json["trace_id"], "0af7651916cd43dd8448eb211c80319c");
+    assert_eq!(json["trace_sampled"], true);
+
+    // Round-trips.
+    let back: AuditEvent = serde_json::from_value(json).expect("deserialise linked record");
+    assert_eq!(
+        back.trace_id.as_deref(),
+        Some("0af7651916cd43dd8448eb211c80319c")
+    );
+    assert_eq!(back.trace_sampled, Some(true));
 }
 
 /// Sanity check: the fixture itself must round-trip through serde so the
