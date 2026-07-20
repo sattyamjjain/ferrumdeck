@@ -6,19 +6,16 @@ name: Agent Security Scan (AgentAuditKit)
 # `evals/agents/`, etc. for misconfigurations, tool poisoning, trust-boundary
 # gaps, and hardcoded secrets, and uploads SARIF to the Security tab.
 #
-# POSTURE: report-only. Findings are visible (Security tab + PR comment) but the
-# build does NOT fail. There is a known pre-existing false-positive backlog to
-# triage first:
-#   * ~146 AAK-AGENT-001 ("shell command directives") on our own CLAUDE.md /
-#     AGENTS.md docs, which legitimately list cargo/make build commands.
-#   * SECRET false-positives inside our OWN secret-detection code
-#     (fd-audit/redaction.rs, fd-policy/airlock/{credential_dlp,exfiltration}.rs)
-#     — the scanner is matching our detection regex patterns, not real secrets.
-#   * All .env / .idea / .claude-flow hits are gitignored local files that do not
-#     exist in a CI checkout.
-# The one genuinely actionable class today is AAK-GHA-IMMUTABLE-001 (pin actions
-# to a commit SHA). Once the backlog is triaged/suppressed, flip `fail-on: none`
-# to `fail-on: high` (and drop `continue-on-error`) to turn this into a real gate.
+# POSTURE: gating. The build FAILS on any high/critical finding (`fail-on: high`).
+# The pre-existing false-positive backlog has been triaged and suppressed in the
+# committed `.agent-audit-kit.yml` at the repo root — every suppression there is a
+# documented false-positive (dev-doc shell listings, our own secret-detection
+# source, trusted-config MCP stdio, React-hook keyword collisions, eval "tasks",
+# local/gitignored files) or a fixed finding (the litellm CVE). Real findings are
+# NOT suppressed: AAK-GHA-IMMUTABLE-001 (unpinned actions, medium) stays visible
+# in the Security tab as a to-do. A NEW high/critical finding will block CI.
+# SARIF (all severities) is still uploaded to the Security tab regardless of the
+# gate outcome, so findings below the gate threshold remain visible.
 
 on:
   push:
@@ -52,16 +49,16 @@ jobs:
       # GitHub's own codeql-action (the reliable, token-authenticated path).
       - name: Scan agent + MCP configs
         uses: sattyamjjain/agent-audit-kit@fb60194a91d1328027abdd48b033d9a67563b501 # v0.3.52
-        continue-on-error: true # report-only: never break CI on findings
         with:
           path: .
-          severity: low # surface everything in the Security tab
-          fail-on: none # report-only — change to `high` to gate once the backlog is triaged
+          severity: low # SARIF carries all severities for the Security tab...
+          fail-on: high # ...but the build only fails on high/critical.
           format: sarif
-          upload-sarif: false # uploaded explicitly below
+          upload-sarif: false # uploaded explicitly below (the action gets no token)
           comment-on-pr: true
-          # Generated / local dirs (belt-and-suspenders; CI checks out tracked files only).
-          ignore-paths: node_modules,target,.next,.claude-flow,.idea,dist,build
+          # Suppression (ignore-paths + exclude-rules) lives in the committed
+          # .agent-audit-kit.yml so it is reviewable and reused by local scans.
+          config: .agent-audit-kit.yml
 
       # Normalize the SARIF before upload. AAK v0.3.52 emits SARIF `fixes[]`
       # objects carrying only a free-text `description` and NOT the
