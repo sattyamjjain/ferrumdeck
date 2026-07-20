@@ -63,6 +63,23 @@ jobs:
           # Generated / local dirs (belt-and-suspenders; CI checks out tracked files only).
           ignore-paths: node_modules,target,.next,.claude-flow,.idea,dist,build
 
+      # Normalize the SARIF before upload. AAK v0.3.52 emits SARIF `fixes[]`
+      # objects carrying only a free-text `description` and NOT the
+      # SARIF-2.1.0-required `artifactChanges` property, so GitHub's uploader
+      # rejects the whole file. `fixes` is optional and is meant for
+      # machine-applicable patches, not remediation prose — stripping it yields
+      # valid SARIF with every finding, location, and rule preserved.
+      # (Upstream bug to fix in agent-audit-kit's SARIF emitter.)
+      - name: Normalize SARIF (strip malformed optional fixes)
+        if: always()
+        run: |
+          if [ -f agent-audit-results.sarif ]; then
+            jq 'del(.runs[]?.results[]?.fixes)' agent-audit-results.sarif > agent-audit-results.clean.sarif
+            echo "normalized: $(jq '.runs[0].results | length' agent-audit-results.clean.sarif) results, 0 fixes"
+          else
+            echo "::error::scan did not produce agent-audit-results.sarif"; exit 1
+          fi
+
       # Upload to the Security / Code Scanning tab. This step is NOT report-only:
       # a broken upload SHOULD fail visibly (a green run with no findings in the
       # Security tab is worse than a red one telling you the pipe is broken).
@@ -70,5 +87,5 @@ jobs:
         if: always() # run even though the scan step is continue-on-error
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: agent-audit-results.sarif
+          sarif_file: agent-audit-results.clean.sarif
           category: agent-audit-kit
