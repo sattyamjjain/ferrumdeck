@@ -616,6 +616,80 @@ def enforce_vs_observe(
     )
 
 
+@app.command("governed-benchmark")
+def governed_benchmark(
+    dataset_dir: Annotated[
+        Path | None,
+        typer.Option("--dataset-dir", "-d", help="Dataset dir (workload.jsonl + governance.json)"),
+    ] = None,
+    seed: Annotated[int, typer.Option("--seed", help="Recorded for provenance")] = 0,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Report path (.json; a sibling .md is also written)"),
+    ] = None,
+) -> None:
+    """Governed-vs-ungoverned benchmark: what the policy engine costs vs stops.
+
+    Runs one fixed safe-PR-agent workload (with injected unsafe tool actions —
+    RCE-pattern write, raw-IP exfil, denied tool, over-budget loop) twice: once
+    with the deny-by-default allowlist + Airlock RASP + budget ON (governed) and
+    once OFF (ungoverned). Reports the two numbers no closed competitor publishes:
+    **% of unsafe actions blocked** and **governance overhead** (added p50/p95
+    decision latency + audit cost/tokens, plus the net cost delta — usually
+    negative, because stopping the unsafe + runaway calls saves more than the
+    decisions cost). Deterministic, offline, no LLM; blocked-% is pinned to the
+    real Rust ``fd_policy`` by ``cargo test -p fd-policy --test governed_benchmark``.
+    Each governed decision rides the existing OTel decision-span path and records
+    its W3C ``traceparent`` (MCP SEP-414). See docs/BENCHMARK.md.
+
+    Examples:
+        fd-eval governed-benchmark
+        fd-eval governed-benchmark -o evals/reports/governed-benchmark.json
+    """
+    from fd_evals.governed_benchmark import run_benchmark
+
+    ds = dataset_dir or Path("evals") / "datasets" / "governed_benchmark"
+    if not (ds / "workload.jsonl").exists():
+        raise typer.BadParameter(f"workload not found under {ds}")
+
+    console.print(f"[cyan]Governed-vs-ungoverned benchmark[/cyan] (dataset: {ds}, seed: {seed})\n")
+    result = run_benchmark(ds, seed=seed)
+    console.print(result.to_markdown())
+
+    table = Table(show_header=False, box=None)
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value")
+    table.add_row(
+        "Unsafe blocked (governed)",
+        f"[green]{result.governed_blocked}/{result.unsafe_total} "
+        f"({result.governed_block_pct:.0f}%)[/green]  vs  "
+        f"{result.ungoverned_blocked}/{result.unsafe_total} ungoverned",
+    )
+    table.add_row(
+        "Governance overhead",
+        f"+{result.added_latency_p50_us:.2f} µs p50 / +{result.added_latency_p95_us:.2f} µs p95, "
+        f"+{result.governance_overhead_cost_cents:.2f}¢ audit",
+    )
+    table.add_row(
+        "Net cost delta",
+        f"[green]{result.net_cost_delta_cents:+.2f}¢[/green] "
+        f"({result.governed.total_cost_cents:.1f}¢ governed vs "
+        f"{result.ungoverned.total_cost_cents:.1f}¢ ungoverned)",
+    )
+    console.print(table)
+
+    if output is None:
+        date = datetime.now(tz=UTC).strftime("%Y%m%d")
+        output = Path("evals") / "reports" / f"governed-benchmark-{date}.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("w") as f:
+        json.dump(result.to_dict(), f, indent=2)
+    output.with_suffix(".md").write_text(result.to_markdown())
+    console.print(
+        f"\n[green]Report: {output}[/green]  ·  [green]{output.with_suffix('.md')}[/green]"
+    )
+
+
 @app.command("list-tasks")
 def list_tasks(
     dataset: Annotated[

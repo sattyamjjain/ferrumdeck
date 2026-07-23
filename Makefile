@@ -50,6 +50,7 @@ help:
 	@echo "  make eval-asb     - Run the offline ASB + EU AI Act Art.50 benchmark"
 	@echo "  make bench-enforcement - Benchmark the enforcement decision-path latency (criterion)"
 	@echo "  make bench-enforce-vs-observe - Observability blind-spot: record-only vs in-path gate"
+	@echo "  make bench-governed - Governed-vs-ungoverned: governance overhead + % unsafe blocked"
 	@echo ""
 	@echo "Clean:"
 	@echo "  make clean        - Clean build artifacts"
@@ -298,6 +299,10 @@ bench-enforcement:
 bench-enforce-vs-observe:
 	@echo "Running observability blind-spot benchmark (record-only vs in-path gate, offline)..."
 	uv run python evals/enforce_vs_observe.py
+
+bench-governed:
+	@echo "Running governed-vs-ungoverned benchmark (overhead + blocked %, deterministic, offline)..."
+	uv run python -m fd_evals governed-benchmark
 
 # =============================================================================
 # Clean

@@ -50,6 +50,14 @@ from fd_evals.enforce_vs_observe import (
     render_report,
     run_comparison,
 )
+from fd_evals.governed_benchmark import (
+    GOVERNED_BENCHMARK_ANCHOR,
+    BenchmarkResult,
+    is_valid_traceparent,
+)
+from fd_evals.governed_benchmark import (
+    run_benchmark as run_governed_benchmark,
+)
 from fd_evals.harness_delta import (
     HARNESS_ANCHOR,
     HarnessDelta,
@@ -92,16 +100,20 @@ __all__ = [
     "COHERENCE_ANCHOR",
     "ENFORCE_VS_OBSERVE_ANCHOR",
     "EU_AI_ACT_ART50_ANCHOR",
+    "GOVERNED_BENCHMARK_ANCHOR",
     "HARNESS_ANCHOR",
     "INJECTION_DEFENSE_ANCHOR",
     "AsbReport",
     "BaseScorer",
+    "BenchmarkResult",
     "CoherenceSpan",
     "Comparison",
     "LaneResult",
     "assert_contrast",
+    "is_valid_traceparent",
     "render_report",
     "run_comparison",
+    "run_governed_benchmark",
     "InjectionDefenseReport",
     "check_art50",
     "decide_asb",
