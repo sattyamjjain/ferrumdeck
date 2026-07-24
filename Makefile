@@ -51,6 +51,7 @@ help:
 	@echo "  make bench-enforcement - Benchmark the enforcement decision-path latency (criterion)"
 	@echo "  make bench-enforce-vs-observe - Observability blind-spot: record-only vs in-path gate"
 	@echo "  make bench-governed - Governed-vs-ungoverned: governance overhead + % unsafe blocked"
+	@echo "  make demo-x402    - x402 spend gate halting an over-budget autonomous payment"
 	@echo ""
 	@echo "Clean:"
 	@echo "  make clean        - Clean build artifacts"
@@ -303,6 +304,10 @@ bench-enforce-vs-observe:
 bench-governed:
 	@echo "Running governed-vs-ungoverned benchmark (overhead + blocked %, deterministic, offline)..."
 	uv run python -m fd_evals governed-benchmark
+
+demo-x402:
+	@echo "Running x402 spend-gate demo (simulate + gate + record; no real money, self-verifying)..."
+	cargo run --quiet -p ferrumdeck --example x402_spend_gate
 
 # =============================================================================
 # Clean

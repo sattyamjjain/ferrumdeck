@@ -38,6 +38,18 @@ pub mod attrs {
     pub const FERRUMDECK_COST_CENTS: &str = "ferrumdeck.cost.cents";
     pub const FERRUMDECK_COST_CURRENCY: &str = "ferrumdeck.cost.currency";
 
+    // x402 paid-API spend (autonomous payments). A paywalled outbound call that
+    // answers HTTP 402 quotes a price the agent must pay; the FerrumDeck spend
+    // gate prices it in cents and rides it on the same span as token cost, so a
+    // run's cost slope includes autonomous payments, not just inference. The
+    // gate verdict (`authorize` | `deny` | `deny_unpriceable`) is stable across
+    // the GenAI semconv flip. Domain type: `fd_policy::x402::X402CostEvent`.
+    pub const FERRUMDECK_COST_X402_CENTS: &str = "ferrumdeck.cost.x402_cents";
+    pub const FERRUMDECK_X402_ASSET: &str = "ferrumdeck.x402.asset";
+    pub const FERRUMDECK_X402_SCHEME: &str = "ferrumdeck.x402.scheme";
+    pub const FERRUMDECK_X402_NETWORK: &str = "ferrumdeck.x402.network";
+    pub const FERRUMDECK_X402_DECISION: &str = "ferrumdeck.x402.decision";
+
     // Debt-vs-tax cost decomposition (§2605.27320). Per-call `*.role` is
     // tagged on the LLM/tool span; the three rollup attrs land on the
     // run-completion span. Python mirror lives in `fd_runtime.tracing` and
@@ -157,6 +169,30 @@ pub mod span_helpers {
     /// Record cost on the current span
     pub fn record_cost(span: &Span, cost_cents: i64) {
         span.record(attrs::FERRUMDECK_COST_CENTS, cost_cents);
+    }
+
+    /// Record an x402 paid-API cost event on the current span, **alongside**
+    /// token cost, so a paywalled autonomous payment is queryable next to the
+    /// inference it accompanies. Primitive args (no dependency on the
+    /// `fd_policy::x402::X402CostEvent` domain type): pass the normalized cents,
+    /// the settlement `asset`/`scheme`, the optional `network`, and the gate
+    /// `decision` (`"authorize"` | `"deny"` | `"deny_unpriceable"`). Mirrors the
+    /// style of [`record_cost`] — the caller owns the domain object.
+    pub fn record_x402_cost(
+        span: &Span,
+        cost_cents: i64,
+        asset: &str,
+        scheme: &str,
+        network: Option<&str>,
+        decision: &str,
+    ) {
+        span.record(attrs::FERRUMDECK_COST_X402_CENTS, cost_cents);
+        span.record(attrs::FERRUMDECK_X402_ASSET, asset);
+        span.record(attrs::FERRUMDECK_X402_SCHEME, scheme);
+        span.record(attrs::FERRUMDECK_X402_DECISION, decision);
+        if let Some(net) = network {
+            span.record(attrs::FERRUMDECK_X402_NETWORK, net);
+        }
     }
 
     /// Record FerrumDeck context on the current span
@@ -356,6 +392,42 @@ pub mod pricing {
 #[cfg(test)]
 mod tests {
     use super::pricing;
+
+    #[test]
+    fn x402_cost_attr_keys_are_stable_and_distinct() {
+        use super::attrs;
+        // These keys are the wire contract a Jaeger/OTLP consumer queries on;
+        // pin them so a rename is a deliberate, test-breaking change.
+        assert_eq!(
+            attrs::FERRUMDECK_COST_X402_CENTS,
+            "ferrumdeck.cost.x402_cents"
+        );
+        assert_eq!(attrs::FERRUMDECK_X402_ASSET, "ferrumdeck.x402.asset");
+        assert_eq!(attrs::FERRUMDECK_X402_SCHEME, "ferrumdeck.x402.scheme");
+        assert_eq!(attrs::FERRUMDECK_X402_NETWORK, "ferrumdeck.x402.network");
+        assert_eq!(attrs::FERRUMDECK_X402_DECISION, "ferrumdeck.x402.decision");
+        // Distinct from the token-cost key it rides alongside.
+        assert_ne!(
+            attrs::FERRUMDECK_COST_X402_CENTS,
+            attrs::FERRUMDECK_COST_CENTS
+        );
+    }
+
+    #[test]
+    fn record_x402_cost_accepts_a_real_span_with_and_without_network() {
+        // A disabled span absorbs records cleanly; guards against a typo in the
+        // constant names (same smoke pattern as cost_decomposition).
+        let span = tracing::Span::none();
+        super::span_helpers::record_x402_cost(
+            &span,
+            50,
+            "USDC",
+            "exact",
+            Some("base-sepolia"),
+            "authorize",
+        );
+        super::span_helpers::record_x402_cost(&span, 0, "WETH", "exact", None, "deny_unpriceable");
+    }
 
     #[test]
     fn test_gpt4o_pricing() {

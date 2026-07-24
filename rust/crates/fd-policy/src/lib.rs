@@ -22,6 +22,7 @@ pub mod routing;
 pub mod rules;
 pub mod trace;
 pub mod transparency_art50;
+pub mod x402;
 
 pub use bench_audit::{BenchAuditPolicy, BenchGatedClaim, BenchTrustSummary, BENCH_AUDIT_ANCHOR};
 pub use colorado_sb26_189::{
@@ -58,6 +59,10 @@ pub use trace::DecisionTrace;
 pub use transparency_art50::{
     check as check_art50, enforce as enforce_art50, response_level as art50_response_level,
     Art50Config, Art50Status, EU_AI_ACT_ART50_ANCHOR,
+};
+pub use x402::{
+    evaluate_x402_payment, X402Challenge, X402CostEvent, X402GateOutcome, X402_ANCHOR,
+    X402_PAYMENT_REQUIRED_STATUS,
 };
 
 // Re-export Airlock types for convenience

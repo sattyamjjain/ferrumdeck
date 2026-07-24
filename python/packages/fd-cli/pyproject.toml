@@ -1,6 +1,6 @@
 [project]
 name = "fd-cli"
-version = "0.7.8"
+version = "0.7.9"
 description = "FerrumDeck CLI - Command line tool for interacting with the control plane"
 requires-python = ">=3.12"
 dependencies = [
