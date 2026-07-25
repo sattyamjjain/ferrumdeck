@@ -287,6 +287,246 @@ def run_ungoverned(workload: list[dict[str, Any]]) -> LaneResult:
     )
 
 
+# =============================================================================
+# AP2 payment rail — the second rail on the same pre-call spend gate.
+# =============================================================================
+#
+# Where the tool-call lanes above measure governance over the deny-by-default
+# allowlist + Airlock + budget, this section measures it over **autonomous
+# payments** authorized by a Google AP2 signed-Mandate chain. The governed
+# decision mirrors the real Rust ``fd_policy::evaluate_ap2_payment`` (Ed25519
+# signature-chain verification + intent-scope check + the **same per-task cost
+# ceiling** the x402 gate uses); it is pinned to the real engine by
+# ``cargo test -p fd-policy --test ap2_gate``. The mandate fixtures carry the
+# *verified state* (``signature_valid`` / ``in_scope``) exactly as the tool-call
+# lane's ``decide`` models an Airlock verdict — the cryptography itself is proven
+# on the Rust plane, this lane models the governance decision it produces.
+
+
+@dataclass
+class Ap2Outcome:
+    """What happened to one AP2 mandate in one lane."""
+
+    id: str
+    merchant: str
+    total_cents: float
+    kind: str  # valid | unsafe
+    unsafe_kind: str  # none | invalid_signature | over_ceiling | scope_mismatch
+    authorized: bool
+    blocked_by: (
+        str  # none | invalid_signature | intent_scope_mismatch | cart_over_ceiling | unpriceable
+    )
+    traceparent: str | None = None  # governed lane only
+
+
+def decide_ap2(mandate: dict[str, Any], budget: Budget, used_cents: float) -> tuple[bool, str]:
+    """The governed AP2 decision, mirroring ``fd_policy::evaluate_ap2_payment``.
+
+    Deny-by-default, in the same order the Rust gate applies: currency priceable
+    → signature chain → intent scope (merchant/category + the user's own max) →
+    the per-task budget ceiling. Returns ``(authorized, blocked_by)``.
+    """
+    if str(mandate.get("currency", "USD")).upper() != "USD":
+        return (False, "unpriceable")
+    if not bool(mandate.get("signature_valid", False)):
+        return (False, "invalid_signature")
+    total = float(mandate["total_cents"])
+    intent_max = float(mandate.get("intent_max_cents", float("inf")))
+    if not bool(mandate.get("in_scope", True)) or total > intent_max:
+        return (False, "intent_scope_mismatch")
+    if not budget.has_headroom(used_cents, total):
+        return (False, "cart_over_ceiling")
+    return (True, "none")
+
+
+def run_ap2_governed(
+    mandates: list[dict[str, Any]],
+    budget: Budget,
+    *,
+    emit_spans: bool = True,
+) -> tuple[list[Ap2Outcome], float, int, list[int]]:
+    """Gate each mandate through the verifier before authorizing. Emits the same
+    governance evidence the x402 path emits: a W3C-trace-context decision span
+    and an audit record of the authorized payment. Returns
+    ``(outcomes, governance_cost_cents, governance_tokens, latencies_ns)``."""
+    outcomes: list[Ap2Outcome] = []
+    used = 0.0
+    gov_cost = 0.0
+    gov_tokens = 0
+    latencies: list[int] = []
+
+    for m in mandates:
+        total = float(m["total_cents"])
+
+        t0 = time.perf_counter_ns()
+        authorized, blocked_by = decide_ap2(m, budget, used)
+        latencies.append(time.perf_counter_ns() - t0)
+
+        # Every AP2 decision writes an audit record — the governance overhead.
+        gov_cost += GOVERNANCE_COST_CENTS_PER_DECISION
+        gov_tokens += GOVERNANCE_TOKENS_PER_DECISION
+
+        traceparent: str | None = None
+        if emit_spans:
+            decision = "allow" if authorized else "deny"
+            reason = f"ap2 governed_benchmark: {blocked_by if not authorized else 'authorized'}"
+            with trace_tool_decision("ap2_payment", decision, reason, step_id=m["id"]) as span:
+                traceparent = w3c_traceparent(span)
+                span.set_attribute("mcp.traceparent", traceparent)
+                # The authorized-payment audit record on the same span: cents +
+                # the mandate chain ids (mirrors fd_otel record_ap2_cost).
+                span.set_attribute("ferrumdeck.cost.ap2_cents", int(total) if authorized else 0)
+                span.set_attribute("ferrumdeck.ap2.merchant", str(m["merchant"]))
+                span.set_attribute("ferrumdeck.ap2.intent_id", str(m.get("intent_id", "")))
+                span.set_attribute("ferrumdeck.ap2.cart_id", str(m.get("cart_id", "")))
+                span.set_attribute(
+                    "ferrumdeck.ap2.decision", "authorize" if authorized else blocked_by
+                )
+
+        if authorized:
+            used += total
+
+        outcomes.append(
+            Ap2Outcome(
+                id=m["id"],
+                merchant=str(m["merchant"]),
+                total_cents=total,
+                kind=m.get("kind", "valid"),
+                unsafe_kind=m.get("unsafe_kind", "none"),
+                authorized=authorized,
+                blocked_by=blocked_by,
+                traceparent=traceparent,
+            )
+        )
+    return outcomes, round(gov_cost, 6), gov_tokens, latencies
+
+
+def run_ap2_ungoverned(mandates: list[dict[str, Any]]) -> list[Ap2Outcome]:
+    """Run the mandates with the gate OFF — every payment is authorized and paid,
+    signature-invalid and over-budget included."""
+    return [
+        Ap2Outcome(
+            id=m["id"],
+            merchant=str(m["merchant"]),
+            total_cents=float(m["total_cents"]),
+            kind=m.get("kind", "valid"),
+            unsafe_kind=m.get("unsafe_kind", "none"),
+            authorized=True,
+            blocked_by="none",
+        )
+        for m in mandates
+    ]
+
+
+@dataclass
+class Ap2Comparison:
+    """The AP2 payment-rail governed-vs-ungoverned comparison."""
+
+    governed: list[Ap2Outcome]
+    ungoverned: list[Ap2Outcome]
+    governance_cost_cents: float
+    governance_tokens: int
+    latencies_ns: list[int] = field(default_factory=list)
+
+    @property
+    def unsafe_total(self) -> int:
+        return sum(1 for o in self.ungoverned if o.kind == "unsafe")
+
+    @property
+    def governed_blocked(self) -> int:
+        return sum(1 for o in self.governed if o.kind == "unsafe" and not o.authorized)
+
+    @property
+    def ungoverned_blocked(self) -> int:
+        return sum(1 for o in self.ungoverned if o.kind == "unsafe" and not o.authorized)
+
+    @property
+    def governed_block_pct(self) -> float:
+        return 100.0 * self.governed_blocked / self.unsafe_total if self.unsafe_total else 0.0
+
+    @property
+    def authorized_count(self) -> int:
+        return sum(1 for o in self.governed if o.authorized)
+
+    @property
+    def governed_exec_cost_cents(self) -> float:
+        return round(sum(o.total_cents for o in self.governed if o.authorized), 4)
+
+    @property
+    def ungoverned_exec_cost_cents(self) -> float:
+        return round(sum(o.total_cents for o in self.ungoverned), 4)
+
+    @property
+    def net_cost_delta_cents(self) -> float:
+        """(governed exec + governance overhead) − ungoverned exec. Negative ⇒
+        the gate net-saved by refusing the unsafe/over-budget payments."""
+        return round(
+            self.governed_exec_cost_cents
+            + self.governance_cost_cents
+            - self.ungoverned_exec_cost_cents,
+            4,
+        )
+
+    @property
+    def sample_traceparent(self) -> str | None:
+        for o in self.governed:
+            if o.traceparent:
+                return o.traceparent
+        return None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "rail": "ap2",
+            "unsafe_total": self.unsafe_total,
+            "governed_blocked": self.governed_blocked,
+            "ungoverned_blocked": self.ungoverned_blocked,
+            "governed_block_pct": round(self.governed_block_pct, 2),
+            "authorized_count": self.authorized_count,
+            "governed_exec_cost_cents": self.governed_exec_cost_cents,
+            "ungoverned_exec_cost_cents": self.ungoverned_exec_cost_cents,
+            "net_cost_delta_cents": self.net_cost_delta_cents,
+            "mandates": [
+                {
+                    "id": g.id,
+                    "merchant": g.merchant,
+                    "kind": g.kind,
+                    "unsafe_kind": g.unsafe_kind,
+                    "governed_blocked_by": g.blocked_by,
+                    "governed_authorized": g.authorized,
+                    "ungoverned_authorized": u.authorized,
+                }
+                for g, u in zip(self.governed, self.ungoverned, strict=True)
+            ],
+        }
+
+
+def load_ap2_mandates(dataset_dir: Path) -> list[dict[str, Any]]:
+    path = dataset_dir / "ap2_mandates.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+
+
+def run_ap2(dataset_dir: Path, budget: Budget, *, emit_spans: bool = True) -> Ap2Comparison | None:
+    """Run the AP2 payment-rail governed-vs-ungoverned lane, reusing the SAME
+    per-task ``budget`` ceiling as the tool-call + x402 gates. ``None`` when the
+    dataset has no AP2 mandates."""
+    mandates = load_ap2_mandates(dataset_dir)
+    if not mandates:
+        return None
+    governed, gov_cost, gov_tokens, latencies = run_ap2_governed(
+        mandates, budget, emit_spans=emit_spans
+    )
+    ungoverned = run_ap2_ungoverned(mandates)
+    return Ap2Comparison(
+        governed=governed,
+        ungoverned=ungoverned,
+        governance_cost_cents=gov_cost,
+        governance_tokens=gov_tokens,
+        latencies_ns=latencies,
+    )
+
+
 @dataclass
 class BenchmarkResult:
     """The governed-vs-ungoverned comparison + the headline metrics."""
@@ -295,6 +535,7 @@ class BenchmarkResult:
     ungoverned: LaneResult
     seed: int
     anchor: str = GOVERNED_BENCHMARK_ANCHOR
+    ap2: Ap2Comparison | None = None
 
     # ---- unsafe-action blocking ----
     @property
@@ -394,6 +635,7 @@ class BenchmarkResult:
                 }
                 for g, u in zip(self.governed.outcomes, self.ungoverned.outcomes, strict=True)
             ],
+            "ap2": self.ap2.to_dict() if self.ap2 else None,
         }
 
     def to_markdown(self) -> str:
@@ -447,6 +689,45 @@ class BenchmarkResult:
             lines.append(
                 f"| {row['id']} | `{row['tool']}` | {row['unsafe_kind']} | {gov} | {ung} |"
             )
+
+        if self.ap2 is not None:
+            a = self.ap2
+            lines += [
+                "",
+                "## Payment-rail coverage: AP2 (Google Agent Payments Protocol)",
+                "",
+                "> The **same pre-call spend gate**, extended to autonomous payments "
+                "authorized by a signed Intent + Cart Mandate chain. Governed verifies "
+                "the Ed25519 signature chain + intent scope + the **same per-task cost "
+                "ceiling** the x402 gate uses, *before* authorizing; ungoverned pays "
+                "every mandate. Pinned to the real Rust engine by "
+                "`cargo test -p fd-policy --test ap2_gate`.",
+                "",
+                "| Metric | Governed | Ungoverned |",
+                "|---|---|---|",
+                f"| Unsafe payments blocked | **{a.governed_blocked}/{a.unsafe_total} "
+                f"({a.governed_block_pct:.0f}%)** | {a.ungoverned_blocked}/{a.unsafe_total} "
+                f"({100.0 * a.ungoverned_blocked / a.unsafe_total if a.unsafe_total else 0:.0f}%) |",
+                f"| Payments authorized | {a.authorized_count} | {len(a.ungoverned)} |",
+                f"| Payment spend (cents) | {a.governed_exec_cost_cents:.2f} | "
+                f"{a.ungoverned_exec_cost_cents:.2f} |",
+                f"| **Net cost delta** (governed − ungoverned) | "
+                f"**{a.net_cost_delta_cents:+.2f} cents** | — |",
+                "",
+                f"Sample W3C traceparent (MCP SEP-414): `{a.sample_traceparent}`",
+                "",
+                "| Mandate | Merchant | Unsafe kind | Governed | Ungoverned |",
+                "|---|---|---|---|---|",
+            ]
+            for row in d["ap2"]["mandates"]:
+                gov = (
+                    "✅ paid" if row["governed_authorized"] else f"🛑 {row['governed_blocked_by']}"
+                )
+                ung = "paid" if row["ungoverned_authorized"] else "—"
+                lines.append(
+                    f"| {row['id']} | `{row['merchant']}` | {row['unsafe_kind']} | {gov} | {ung} |"
+                )
+
         return "\n".join(lines)
 
 
@@ -462,19 +743,25 @@ def run_benchmark(dataset_dir: Path, *, seed: int = 0, emit_spans: bool = True) 
     budget = Budget.from_governance_file(dataset_dir)
     governed = run_governed(workload, gov, budget, emit_spans=emit_spans)
     ungoverned = run_ungoverned(workload)
-    return BenchmarkResult(governed=governed, ungoverned=ungoverned, seed=seed)
+    ap2 = run_ap2(dataset_dir, budget, emit_spans=emit_spans)
+    return BenchmarkResult(governed=governed, ungoverned=ungoverned, seed=seed, ap2=ap2)
 
 
 __all__ = [
     "GOVERNANCE_COST_CENTS_PER_DECISION",
     "GOVERNANCE_TOKENS_PER_DECISION",
     "GOVERNED_BENCHMARK_ANCHOR",
+    "Ap2Comparison",
+    "Ap2Outcome",
     "BenchmarkResult",
     "Budget",
     "LaneResult",
     "StepOutcome",
+    "decide_ap2",
     "is_valid_traceparent",
+    "load_ap2_mandates",
     "load_workload",
+    "run_ap2",
     "run_benchmark",
     "run_governed",
     "run_ungoverned",

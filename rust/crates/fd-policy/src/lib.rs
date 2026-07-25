@@ -7,6 +7,7 @@
 //! - **Airlock**: Runtime security inspection (Agent RASP)
 
 pub mod airlock;
+pub mod ap2;
 pub mod bench_audit;
 pub mod budget;
 pub mod colorado_sb26_189;
@@ -24,6 +25,10 @@ pub mod trace;
 pub mod transparency_art50;
 pub mod x402;
 
+pub use ap2::{
+    evaluate_ap2_payment, Ap2CartMandate, Ap2CostEvent, Ap2DenyKind, Ap2GateOutcome,
+    Ap2IntentMandate, Ap2Keyring, Ap2Money, Ap2Scope, AP2_ANCHOR,
+};
 pub use bench_audit::{BenchAuditPolicy, BenchGatedClaim, BenchTrustSummary, BENCH_AUDIT_ANCHOR};
 pub use colorado_sb26_189::{
     check as check_colorado_admt, enforce as enforce_colorado_admt,

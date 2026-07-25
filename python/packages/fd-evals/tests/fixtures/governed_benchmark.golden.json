@@ -138,5 +138,54 @@
       "governed_iters": "0/1",
       "ungoverned_executed": true
     }
-  ]
+  ],
+  "ap2": {
+    "rail": "ap2",
+    "unsafe_total": 3,
+    "governed_blocked": 3,
+    "ungoverned_blocked": 0,
+    "governed_block_pct": 100.0,
+    "authorized_count": 1,
+    "governed_exec_cost_cents": 40.0,
+    "ungoverned_exec_cost_cents": 15095.0,
+    "net_cost_delta_cents": -15054.92,
+    "mandates": [
+      {
+        "id": "m1",
+        "merchant": "acme-store",
+        "kind": "valid",
+        "unsafe_kind": "none",
+        "governed_blocked_by": "none",
+        "governed_authorized": true,
+        "ungoverned_authorized": true
+      },
+      {
+        "id": "m2",
+        "merchant": "acme-store",
+        "kind": "unsafe",
+        "unsafe_kind": "invalid_signature",
+        "governed_blocked_by": "invalid_signature",
+        "governed_authorized": false,
+        "ungoverned_authorized": true
+      },
+      {
+        "id": "m3",
+        "merchant": "acme-store",
+        "kind": "unsafe",
+        "unsafe_kind": "over_ceiling",
+        "governed_blocked_by": "cart_over_ceiling",
+        "governed_authorized": false,
+        "ungoverned_authorized": true
+      },
+      {
+        "id": "m4",
+        "merchant": "evil-merchant",
+        "kind": "unsafe",
+        "unsafe_kind": "scope_mismatch",
+        "governed_blocked_by": "intent_scope_mismatch",
+        "governed_authorized": false,
+        "ungoverned_authorized": true
+      }
+    ]
+  }
 }

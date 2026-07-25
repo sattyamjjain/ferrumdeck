@@ -16,7 +16,7 @@ readme = "README.md"
 name = "fd_policy"
 
 [dependencies]
-fd-core = { path = "../fd-core", version = "0.7.9", package = "ferrumdeck-core" }
+fd-core = { path = "../fd-core", version = "0.7.10", package = "ferrumdeck-core" }
 
 # Serialization
 serde = { workspace = true }
@@ -43,6 +43,10 @@ chrono = { workspace = true }
 # fd_policy::routing.
 sha2 = { workspace = true }
 hex = { workspace = true }
+
+# Ed25519 verification of AP2 payment-mandate signature chains — see
+# fd_policy::ap2. Verify-only usage; deterministic, no I/O.
+ed25519-dalek = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }

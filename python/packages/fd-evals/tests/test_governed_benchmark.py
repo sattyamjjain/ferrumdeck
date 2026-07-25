@@ -92,3 +92,40 @@ class TestDeterminismAndTrace:
         tp = r.sample_traceparent
         assert tp is not None
         assert is_valid_traceparent(tp), f"not a valid W3C traceparent: {tp}"
+
+
+class TestAp2PaymentRail:
+    """The AP2 signed-Mandate payment rail — the second rail on the same gate.
+    Governed decisions mirror ``fd_policy::evaluate_ap2_payment`` and are pinned
+    to the real Ed25519 engine by ``cargo test -p fd-policy --test ap2_gate``."""
+
+    def test_governed_blocks_all_unsafe_mandates_ungoverned_none(self) -> None:
+        a = _result().ap2
+        assert a is not None
+        assert a.unsafe_total == 3  # invalid-sig, over-ceiling, scope-mismatch
+        assert a.governed_blocked == 3
+        assert a.governed_block_pct == 100.0
+        assert a.ungoverned_blocked == 0
+        assert a.authorized_count == 1  # only the valid, in-scope, in-budget cart
+
+    def test_each_unsafe_mandate_blocked_by_the_expected_reason(self) -> None:
+        by_id = {o.id: o for o in _result().ap2.governed}
+        assert by_id["m1"].authorized is True
+        assert by_id["m2"].blocked_by == "invalid_signature"  # tampered cart total
+        assert by_id["m3"].blocked_by == "cart_over_ceiling"  # $150 over the 100c ceiling
+        assert by_id["m4"].blocked_by == "intent_scope_mismatch"  # merchant not authorized
+
+    def test_governed_pays_far_less_than_ungoverned(self) -> None:
+        a = _result().ap2
+        # Governed pays only the one valid $0.40 cart; ungoverned pays every
+        # mandate (dominated by the $150 over-ceiling one) — matching the Rust
+        # pin (governed 40c vs ungoverned 15095c).
+        assert a.governed_exec_cost_cents == 40.0
+        assert a.ungoverned_exec_cost_cents == 15095.0
+        assert a.net_cost_delta_cents < 0
+
+    def test_ap2_emits_w3c_traceparent_evidence(self) -> None:
+        r = run_benchmark(DATASET, seed=0, emit_spans=True)
+        tp = r.ap2.sample_traceparent
+        assert tp is not None
+        assert is_valid_traceparent(tp), f"not a valid W3C traceparent: {tp}"

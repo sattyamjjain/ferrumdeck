@@ -50,6 +50,18 @@ pub mod attrs {
     pub const FERRUMDECK_X402_NETWORK: &str = "ferrumdeck.x402.network";
     pub const FERRUMDECK_X402_DECISION: &str = "ferrumdeck.x402.decision";
 
+    // AP2 (Agent Payments Protocol) signed-Mandate spend (autonomous payments).
+    // The second payment rail on the same pre-call spend gate: a payment
+    // pre-authorized by a signed Intent + Cart Mandate chain, verified before
+    // authorization and folded into the same cents ledger as x402/token cost.
+    // The gate verdict (`authorize` | deny-kind, e.g. `cart_over_ceiling`) is
+    // stable across the GenAI semconv flip. Domain type: `fd_policy::ap2`.
+    pub const FERRUMDECK_COST_AP2_CENTS: &str = "ferrumdeck.cost.ap2_cents";
+    pub const FERRUMDECK_AP2_MERCHANT: &str = "ferrumdeck.ap2.merchant";
+    pub const FERRUMDECK_AP2_INTENT_ID: &str = "ferrumdeck.ap2.intent_id";
+    pub const FERRUMDECK_AP2_CART_ID: &str = "ferrumdeck.ap2.cart_id";
+    pub const FERRUMDECK_AP2_DECISION: &str = "ferrumdeck.ap2.decision";
+
     // Debt-vs-tax cost decomposition (§2605.27320). Per-call `*.role` is
     // tagged on the LLM/tool span; the three rollup attrs land on the
     // run-completion span. Python mirror lives in `fd_runtime.tracing` and
@@ -193,6 +205,29 @@ pub mod span_helpers {
         if let Some(net) = network {
             span.record(attrs::FERRUMDECK_X402_NETWORK, net);
         }
+    }
+
+    /// Record an AP2 signed-Mandate payment on the current span — the second
+    /// payment rail's evidence, emitted the same way the x402 path does. Rides
+    /// the same span as token cost so an authorized (or denied) autonomous
+    /// payment is queryable next to the inference it accompanies. Primitive args
+    /// (no dependency on the `fd_policy::ap2` domain types): the normalized
+    /// cents, the `merchant`, the `intent_id`/`cart_id` of the mandate chain,
+    /// and the gate `decision` (`"authorize"` or a deny-kind such as
+    /// `"cart_over_ceiling"`). Mirrors [`record_x402_cost`].
+    pub fn record_ap2_cost(
+        span: &Span,
+        cost_cents: i64,
+        merchant: &str,
+        intent_id: &str,
+        cart_id: &str,
+        decision: &str,
+    ) {
+        span.record(attrs::FERRUMDECK_COST_AP2_CENTS, cost_cents);
+        span.record(attrs::FERRUMDECK_AP2_MERCHANT, merchant);
+        span.record(attrs::FERRUMDECK_AP2_INTENT_ID, intent_id);
+        span.record(attrs::FERRUMDECK_AP2_CART_ID, cart_id);
+        span.record(attrs::FERRUMDECK_AP2_DECISION, decision);
     }
 
     /// Record FerrumDeck context on the current span
@@ -427,6 +462,43 @@ mod tests {
             "authorize",
         );
         super::span_helpers::record_x402_cost(&span, 0, "WETH", "exact", None, "deny_unpriceable");
+    }
+
+    #[test]
+    fn ap2_cost_attr_keys_are_stable_and_distinct() {
+        use super::attrs;
+        assert_eq!(
+            attrs::FERRUMDECK_COST_AP2_CENTS,
+            "ferrumdeck.cost.ap2_cents"
+        );
+        assert_eq!(attrs::FERRUMDECK_AP2_MERCHANT, "ferrumdeck.ap2.merchant");
+        assert_eq!(attrs::FERRUMDECK_AP2_INTENT_ID, "ferrumdeck.ap2.intent_id");
+        assert_eq!(attrs::FERRUMDECK_AP2_CART_ID, "ferrumdeck.ap2.cart_id");
+        assert_eq!(attrs::FERRUMDECK_AP2_DECISION, "ferrumdeck.ap2.decision");
+        // Distinct from both the token-cost and the x402 cost keys it rides beside.
+        assert_ne!(
+            attrs::FERRUMDECK_COST_AP2_CENTS,
+            attrs::FERRUMDECK_COST_CENTS
+        );
+        assert_ne!(
+            attrs::FERRUMDECK_COST_AP2_CENTS,
+            attrs::FERRUMDECK_COST_X402_CENTS
+        );
+    }
+
+    #[test]
+    fn record_ap2_cost_accepts_a_real_span() {
+        // Same disabled-span smoke as record_x402_cost — guards the const names.
+        let span = tracing::Span::none();
+        super::span_helpers::record_ap2_cost(
+            &span,
+            4000,
+            "acme-store",
+            "intent-abc",
+            "cart-xyz",
+            "authorize",
+        );
+        super::span_helpers::record_ap2_cost(&span, 0, "evil", "i", "c", "cart_over_ceiling");
     }
 
     #[test]
