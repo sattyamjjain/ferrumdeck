@@ -13,7 +13,7 @@ readme = "README.md"
 
 [dependencies]
 # Re-exports the enforcement decision path; import path stays `fd_policy`.
-fd-policy = { path = "../fd-policy", version = "0.7.10", package = "ferrumdeck-policy" }
+fd-policy = { path = "../fd-policy", version = "0.7.11", package = "ferrumdeck-policy" }
 
 [dev-dependencies]
 # Only for the `x402_spend_gate` example, which parses simulated 402 challenge
