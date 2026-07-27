@@ -644,7 +644,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "ferrumdeck"
-version = "0.1.0"
+version = "0.7.11"
 source = { editable = "." }
 
 [package.dev-dependencies]

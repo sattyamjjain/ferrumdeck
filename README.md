@@ -61,6 +61,8 @@ assert!(engine.evaluate_tool_call_with(&allowlist, "unknown").is_denied());     
 
 Prefer the engine directly (no umbrella)? `cargo add ferrumdeck-policy` — the import path is still `use fd_policy::…`. Primitives only: `ferrumdeck-core` (`use fd_core::…`). All three are Apache-2.0. (Published as `ferrumdeck*` because the bare `fd-core` name is taken on crates.io by an unrelated crate; the Rust import paths are unchanged.)
 
+> **Python plane: install from source only.** Only the Rust enforcement engine is published to a package registry (crates.io). The Python data-plane packages (`fd-runtime`, `fd-worker`, `fd-mcp-router`, `fd-mcp-tools`, `fd-evals`, `fd-cli`) and the workspace-root `ferrumdeck` package are **not on PyPI** — their version numbers are internal workspace versions, not PyPI releases. Install them from a clone with [`uv`](https://docs.astral.sh/uv/): `uv sync`.
+
 ---
 
 ## What this proves
@@ -236,6 +238,15 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
   the anti-RCE pattern matcher, the financial/velocity circuit breaker, and the
   data-exfiltration + credential-DLP shield run here, in `shadow` or `enforce`
   mode.
+- **Enforcement on the agentic execution path.** The Python worker's in-loop
+  agentic executor authorizes **every** tool call against the control-plane
+  `check-tool` endpoint *before* it runs: `allow` → execute, `deny` → refuse,
+  `requires_approval` → do not execute (the run is gated pending approval). The
+  local allowlist is only a cheap pre-filter, never the final authority, and the
+  path **fails closed** — if the control plane is unreachable the call is refused
+  (configurable via `AGENTIC_FAIL_CLOSED`, default on). (Previously this loop
+  only checked a local allowlist and executed approval-required tools anyway;
+  fixed 2026-07-27.)
 - **Append-only audit trail** for policy, budget, approval, routing, and
   promotion decisions (the repository exposes no `UPDATE`/`DELETE`).
 - **Coherence-divergence monitor**, wired live at the gateway run stream. As
@@ -247,12 +258,6 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
 
 **Scaffolded / not yet wired end-to-end — do not rely on these yet:**
 
-- **Airlock on the agentic execution path.** The Python worker's *agentic
-  LLM-loop* executor does not yet call back to the control-plane `check-tool`
-  endpoint, so Airlock and approval gates are enforced on the explicit
-  `StepType.TOOL` path but **not** inside an in-loop agentic run. Wiring this is
-  the top roadmap item; until then, run agentic workloads only in trusted
-  contexts.
 - **Schema-drift and behavioral-drift Airlock layers** are implemented and
   unit-tested but are **not activated** in the running gateway (they need
   `tool_version_id` / `agent_id` plumbed into the inspection context).

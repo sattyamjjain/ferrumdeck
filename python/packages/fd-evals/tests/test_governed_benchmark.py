@@ -109,7 +109,9 @@ class TestAp2PaymentRail:
         assert a.authorized_count == 1  # only the valid, in-scope, in-budget cart
 
     def test_each_unsafe_mandate_blocked_by_the_expected_reason(self) -> None:
-        by_id = {o.id: o for o in _result().ap2.governed}
+        ap2 = _result().ap2
+        assert ap2 is not None
+        by_id = {o.id: o for o in ap2.governed}
         assert by_id["m1"].authorized is True
         assert by_id["m2"].blocked_by == "invalid_signature"  # tampered cart total
         assert by_id["m3"].blocked_by == "cart_over_ceiling"  # $150 over the 100c ceiling
@@ -117,6 +119,7 @@ class TestAp2PaymentRail:
 
     def test_governed_pays_far_less_than_ungoverned(self) -> None:
         a = _result().ap2
+        assert a is not None
         # Governed pays only the one valid $0.40 cart; ungoverned pays every
         # mandate (dominated by the $150 over-ceiling one) — matching the Rust
         # pin (governed 40c vs ungoverned 15095c).
@@ -126,6 +129,7 @@ class TestAp2PaymentRail:
 
     def test_ap2_emits_w3c_traceparent_evidence(self) -> None:
         r = run_benchmark(DATASET, seed=0, emit_spans=True)
+        assert r.ap2 is not None
         tp = r.ap2.sample_traceparent
         assert tp is not None
         assert is_valid_traceparent(tp), f"not a valid W3C traceparent: {tp}"

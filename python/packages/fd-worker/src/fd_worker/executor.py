@@ -29,7 +29,7 @@ from fd_runtime import (
     trace_tool_call,
     trace_tool_decision,
 )
-from fd_worker.agentic import AgenticExecutor
+from fd_worker.agentic import AgenticExecutor, _env_bool
 from fd_worker.exceptions import AirlockBlockedError
 from fd_worker.llm import LLMExecutor
 from fd_worker.validation import OutputValidator
@@ -106,6 +106,11 @@ class StepExecutor:
                 mcp_configs=self._mcp_servers,
                 allowlist=self._tool_allowlist,
                 max_iterations=int(os.getenv("AGENTIC_MAX_ITERATIONS", "25")),
+                # The control plane is the FINAL authority on every agentic tool
+                # call — the local allowlist is only a pre-filter. Fail closed by
+                # default if the gateway is unreachable (AGENTIC_FAIL_CLOSED).
+                control_plane_client=self.client,
+                fail_closed=_env_bool("AGENTIC_FAIL_CLOSED", True),
             )
             await self._agentic_executor.connect()
             self._agentic_connected = True
@@ -350,13 +355,15 @@ class StepExecutor:
             run_id=run_id,
             step_id=step_id,
         ) as span:
-            # Run the agentic loop
+            # Run the agentic loop. run_id is threaded through so every tool call
+            # is authorized against the control plane before it executes.
             result = await executor.run(
                 task=task,
                 system_prompt=system_prompt,
                 model=model,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                run_id=run_id,
             )
 
             # Set tracing attributes

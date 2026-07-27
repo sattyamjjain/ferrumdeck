@@ -77,10 +77,13 @@ deployment is Art. 50-compliant.
   **shadow** (surface, don't block) — they are detection signals until an operator
   opts into enforcement.
 - **Wired vs library.** The gateway wires the allowlist, Airlock (anti-RCE/exfil),
-  budget, and transparency into the request path. Delegation-aware budget leases and
-  some drift monitors are implemented and tested at the crate level; end-to-end
-  gateway wiring for a few is still in progress (see the README "Project Status &
-  Limitations").
+  budget, and transparency into the request path, and (since 2026-07-27) the Python
+  worker's in-loop **agentic** executor authorizes every tool call against the
+  `check-tool` endpoint before execution and **fails closed** when the control plane
+  is unreachable — so the controls above hold on both the explicit `StepType.TOOL`
+  path and the agentic loop. Delegation-aware budget leases and some drift monitors
+  are implemented and tested at the crate level; end-to-end gateway wiring for a few
+  is still in progress (see the README "Project Status & Limitations").
 - **Not model robustness.** These controls gate *actions*, not model outputs. They
   reduce the blast radius of a misaligned or injected agent; they do not make the
   underlying model safe.

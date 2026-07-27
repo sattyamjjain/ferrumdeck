@@ -10,6 +10,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from fd_mcp_router.config import MCPServerConfig, ToolAllowlist
+from fd_runtime.client import ControlPlaneClient
 from fd_worker.llm import (
     LLMExecutor,
     LLMUsage,
@@ -18,6 +19,15 @@ from fd_worker.llm import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """Parse a boolean env var. Anything but an explicit false-y value keeps the
+    (safe) default — a typo must not silently open the gate."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
 @dataclass
@@ -39,6 +49,10 @@ class ToolResult:
     success: bool
     output: Any
     error: str | None = None
+    # The enforcement decision that governed this call — surfaced onto the run
+    # record so a refusal is visible, not silent. One of:
+    # "allow" | "deny" | "requires_approval" | "fail_closed" | None (not gated).
+    decision: str | None = None
 
 
 @dataclass
@@ -175,11 +189,21 @@ class AgenticExecutor:
         mcp_configs: list[MCPServerConfig],
         allowlist: ToolAllowlist,
         max_iterations: int = 25,
+        control_plane_client: ControlPlaneClient | None = None,
+        fail_closed: bool = True,
     ):
         self.mcp_configs = mcp_configs
         self.allowlist = allowlist
         self.max_iterations = max_iterations
         self.llm_executor = LLMExecutor()
+
+        # The control plane is the FINAL authority on every tool call. The local
+        # allowlist below is only a cheap pre-filter. When the control plane is
+        # unreachable, `fail_closed` decides the default: refuse (True) — never
+        # execute an unauthorized call just because the gateway is down.
+        self._control_plane_client = control_plane_client
+        self._fail_closed = fail_closed
+        self._run_id: str | None = None
 
         self._connections: dict[str, MCPConnection] = {}
         self._tool_to_server: dict[str, str] = {}
@@ -226,28 +250,136 @@ class AgenticExecutor:
             await conn.disconnect()
         self._connections.clear()
 
+    def _refusal(self, tool_call: ToolCall, decision: str, reason: str) -> ToolResult:
+        """A non-executing tool result carrying the enforcement decision."""
+        return ToolResult(
+            tool_call_id=tool_call.id,
+            tool_name=tool_call.name,
+            success=False,
+            output=None,
+            error=reason,
+            decision=decision,
+        )
+
+    async def _authorize(self, run_id: str | None, tool_call: ToolCall) -> ToolResult | None:
+        """Ask the control plane whether this tool call may proceed, BEFORE it
+        runs. Returns a refusal ``ToolResult`` if the call must not execute, or
+        ``None`` if it is authorized to proceed.
+
+        Enforcement contract (mirrors the gateway ``POST
+        /v1/runs/{run_id}/check-tool`` handler): ``allowed`` → proceed;
+        ``requires_approval`` → do not execute, the run is gated pending human
+        approval; otherwise → denied. If the control plane cannot be consulted
+        (no client / no run_id / gateway unreachable), we **fail closed** and
+        refuse by default — an unauthorized call must never run just because the
+        decision plane is unavailable.
+        """
+        tool_name = tool_call.name
+
+        if self._control_plane_client is None or not run_id:
+            if self._fail_closed:
+                logger.error(
+                    "event=fail_closed tool=%s run_id=%s reason=no_control_plane_context "
+                    "-> refusing (the control plane is the required authority)",
+                    tool_name,
+                    run_id,
+                )
+                return self._refusal(
+                    tool_call,
+                    "fail_closed",
+                    f"Tool '{tool_name}' refused (fail-closed): no control plane "
+                    "available to authorize this call before execution",
+                )
+            logger.warning(
+                "Tool %s: no control-plane context and fail-open configured — executing UNGOVERNED",
+                tool_name,
+            )
+            return None
+
+        try:
+            resp = await self._control_plane_client.check_tool_policy(
+                run_id=run_id,
+                tool_name=tool_name,
+                tool_input=tool_call.arguments,
+            )
+        except Exception as e:  # network / 5xx / auth / run-not-found
+            if self._fail_closed:
+                logger.error(
+                    "event=fail_closed tool=%s run_id=%s reason=check_tool_unreachable "
+                    "error=%s -> refusing",
+                    tool_name,
+                    run_id,
+                    e,
+                )
+                return self._refusal(
+                    tool_call,
+                    "fail_closed",
+                    f"Tool '{tool_name}' refused (fail-closed): control plane "
+                    f"unreachable, cannot authorize before execution ({e})",
+                )
+            logger.warning(
+                "Tool %s: check-tool failed (%s) and fail-open configured — executing UNGOVERNED",
+                tool_name,
+                e,
+            )
+            return None
+
+        if resp.requires_approval:
+            # Do NOT execute. The gateway has already gated the run pending
+            # approval (RunStatus::PolicyBlocked + a POLICY_APPROVAL_REQUIRED
+            # audit event); an operator resolves it via PUT /v1/approvals/{id}.
+            logger.warning(
+                "Tool %s requires approval — NOT executing; run gated pending approval: %s",
+                tool_name,
+                resp.reason,
+            )
+            return self._refusal(
+                tool_call,
+                "requires_approval",
+                f"Tool '{tool_name}' requires approval before execution "
+                f"(pending): {resp.reason}",
+            )
+
+        if not resp.allowed:
+            logger.warning("Tool %s denied by control plane: %s", tool_name, resp.reason)
+            return self._refusal(
+                tool_call,
+                "deny",
+                f"Tool '{tool_name}' denied by policy: {resp.reason}",
+            )
+
+        return None  # authorized to proceed
+
     async def _execute_tool(
         self,
         tool_call: ToolCall,
+        run_id: str | None = None,
     ) -> ToolResult:
-        """Execute a single tool call."""
+        """Execute a single tool call, gated by the control plane before it runs.
+
+        The local allowlist is only a cheap pre-filter (a fast local deny with no
+        network round-trip); it can only ever *add* restriction and is **never**
+        the final authority. Every call that survives the pre-filter is
+        authorized by the control-plane ``check-tool`` endpoint before execution
+        (see :meth:`_authorize`), which fails closed if the gateway is
+        unreachable.
+        """
         tool_name = tool_call.name
+        run_id = run_id if run_id is not None else self._run_id
 
-        # Check allowlist
-        status = self.allowlist.check(tool_name)
-
-        if status == "denied":
-            return ToolResult(
-                tool_call_id=tool_call.id,
-                tool_name=tool_name,
-                success=False,
-                output=None,
-                error=f"Tool '{tool_name}' is denied by policy",
+        # 1. Cheap local pre-filter — an explicit local deny short-circuits
+        #    without a network round-trip. (More-restrictive-only; the control
+        #    plane below is the authority for allow / approval.)
+        if self.allowlist.check(tool_name) == "denied":
+            logger.warning("Tool %s denied by local allowlist pre-filter", tool_name)
+            return self._refusal(
+                tool_call, "deny", f"Tool '{tool_name}' is denied by policy"
             )
 
-        if status == "requires_approval":
-            # For now, log and continue - in production this would trigger approval flow
-            logger.warning(f"Tool {tool_name} requires approval - executing anyway for demo")
+        # 2. Control-plane check-tool is the FINAL, pre-execution authority.
+        refusal = await self._authorize(run_id, tool_call)
+        if refusal is not None:
+            return refusal
 
         # Find server for this tool
         server_name = self._tool_to_server.get(tool_name)
@@ -301,6 +433,7 @@ class AgenticExecutor:
         model: str = "claude-sonnet-4-20250514",
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        run_id: str | None = None,
     ) -> AgenticResult:
         """Run an agentic loop to complete a task.
 
@@ -310,10 +443,20 @@ class AgenticExecutor:
             model: LLM model to use
             max_tokens: Max tokens per LLM call
             temperature: Sampling temperature
+            run_id: The run this loop belongs to. Used to authorize every tool
+                call against the control plane's ``check-tool`` endpoint. When
+                omitted the executor fails closed (refuses tool calls) unless
+                explicitly configured fail-open.
 
         Returns:
             AgenticResult with final response and execution details
         """
+        self._run_id = run_id
+        if run_id is None:
+            logger.warning(
+                "AgenticExecutor.run called without run_id — tool calls cannot be "
+                "authorized against the control plane and will fail closed"
+            )
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": task},
@@ -361,11 +504,14 @@ class AgenticExecutor:
                     )
                 )
 
-                # Execute each tool call
+                # Execute each tool call — every one is authorized by the
+                # control plane before it runs (see _execute_tool).
                 for tc in response.tool_calls:
-                    result = await self._execute_tool(tc)
+                    result = await self._execute_tool(tc, run_id=self._run_id)
 
-                    # Record the tool call
+                    # Record the tool call, including the enforcement decision so
+                    # a refusal (deny / requires_approval / fail_closed) is
+                    # visible on the run record, not silently dropped.
                     tool_calls_made.append(
                         {
                             "tool_name": tc.name,
@@ -373,6 +519,7 @@ class AgenticExecutor:
                             "success": result.success,
                             "output_preview": str(result.output)[:200] if result.output else None,
                             "error": result.error,
+                            "decision": result.decision,
                         }
                     )
 

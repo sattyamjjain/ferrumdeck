@@ -1,0 +1,91 @@
+name: Version & Release Consistency
+
+# Two drift guards, added after the release history fell three versions behind the
+# tags and the root Python version sat at 0.1.0 against a 0.7.11 workspace:
+#
+#   1. version-parity   — the Rust workspace version and the root Python version
+#                         must agree (unless an explicit opt-out marker is present).
+#   2. tag-has-release  — every `v*.*.*` git tag must have a matching GitHub Release.
+#
+# Runs on pushes/PRs to main (so drift is caught before it compounds), on a weekly
+# schedule (so an un-released tag can't sit unnoticed), and on demand.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1" # Mondays, 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version-parity:
+    name: Rust workspace vs root Python version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare versions
+        run: |
+          set -euo pipefail
+
+          # Explicit opt-out: create the marker file to intentionally decouple the
+          # root Python package version from the Rust workspace version.
+          if [ -f .version-parity-optout ]; then
+            echo "::notice::.version-parity-optout present — skipping version parity check."
+            exit 0
+          fi
+
+          rust_ver="$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml','rb'))['workspace']['package']['version'])")"
+          py_ver="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+
+          echo "Rust workspace version : $rust_ver"
+          echo "Root Python version    : $py_ver"
+
+          if [ "$rust_ver" != "$py_ver" ]; then
+            echo "::error::Version drift: Rust workspace ($rust_ver) != root Python ($py_ver). Bump both together, or add a .version-parity-optout marker if the decoupling is intentional."
+            exit 1
+          fi
+          echo "Versions agree ($rust_ver)."
+
+  tag-has-release:
+    name: Every tag has a GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the full tag history
+
+      - name: Check tags against releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          tags="$(git tag --list 'v*.*.*' | sort -u)"
+          if [ -z "$tags" ]; then
+            echo "No v*.*.* tags — nothing to check."
+            exit 0
+          fi
+
+          releases="$(gh release list --limit 200 --json tagName -q '.[].tagName' | sort -u)"
+
+          missing=""
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            if ! grep -Fxq "$tag" <<<"$releases"; then
+              missing="$missing $tag"
+            fi
+          done <<<"$tags"
+
+          if [ -n "$missing" ]; then
+            echo "::error::These tags have no GitHub Release:$missing — create them (gh release create <tag> --notes-file ...) so the release history matches the tags."
+            exit 1
+          fi
+          echo "Every v*.*.* tag has a matching GitHub Release."
