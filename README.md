@@ -31,7 +31,7 @@ Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_
 
 ▶ **[Run the 5-minute reproducible demo →](examples/demo/README.md)** — one command boots the local stack and, against the **real gateway API**, you watch a **budget-breach auto-kill** and a **denied tool call** happen in-process. It's self-verifying: each guarantee is asserted with `jq` and the script exits non-zero on failure, so you get a hard pass/fail, not a screenshot to trust.
 
-> **Status: early / alpha, built primarily by one maintainer.** The governance core — per-agent deny-by-default tool allowlists, per-run/per-agent budget enforcement, DB-backed tenant isolation, and Airlock RASP at the gateway tool-policy check — is implemented and tested. Several advertised layers are still being wired end-to-end. See **[Project Status & Limitations](#project-status--limitations)** for an honest map of what enforces today vs. what's on the roadmap before you rely on it.
+> **Status: early / alpha, built primarily by one maintainer.** The governance core — per-agent deny-by-default tool allowlists, per-run/per-agent budget enforcement, DB-backed tenant isolation, and Airlock RASP at the gateway tool-policy check — is implemented and tested. Several advertised layers are still being wired end-to-end. See **[Project Status & Limitations](#project-status--limitations)** for an honest map of what enforces today vs. what's on the **[roadmap](ROADMAP.md)** before you rely on it.
 
 [![CI](https://github.com/sattyamjjain/ferrumdeck/actions/workflows/ci.yml/badge.svg)](https://github.com/sattyamjjain/ferrumdeck/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -273,8 +273,9 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
 - **Audit tamper-evidence.** The log is append-only at the application layer,
   but there is **no cryptographic hash-chain or DB-level write-once enforcement
   yet** — so it is not tamper-*evident* against a privileged database actor. A
-  hash-chain is on the roadmap; please don't represent the trail as
-  immutable/tamper-proof for compliance until it ships.
+  hash-chain is on the [roadmap](ROADMAP.md) ([#8](https://github.com/sattyamjjain/ferrumdeck/issues/8));
+  please don't represent the trail as immutable/tamper-proof for compliance until
+  it ships.
 - **Multi-tenant SaaS hardening.** Tenant isolation is enforced, but there is no
   dashboard auth/session layer, no SSO/RBAC, and no API-key self-service — treat
   the dashboard + gateway as a **trusted-operator** deployment for now.
@@ -285,7 +286,7 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
 liveness more than behaviour — do not read them as proof that a given attack is
 blocked. Hardening them is in progress.
 
-Found a gap not listed here? Please open an issue — accurate status is a feature.
+The known gaps above are tracked in the open on the **[roadmap](ROADMAP.md)**, one GitHub issue each under the [`roadmap`](https://github.com/sattyamjjain/ferrumdeck/issues?q=is%3Aissue+label%3Aroadmap) label. Found a gap not listed there? Please **[open an issue](https://github.com/sattyamjjain/ferrumdeck/issues/new)** — accurate status is a feature.
 
 ---
 
@@ -1333,7 +1334,7 @@ against the outbound payload:
 | Tool-call payload drift | Airlock schema-drift guard against the registered `ToolVersion` JSON Schema |
 | Single-axis exploitation | Airlock behavioral-drift monitor — rolling z-score per agent |
 | Privilege escalation | Scoped API keys, tenant isolation |
-| Audit tampering | Append-only logging (app-layer; no `UPDATE`/`DELETE` in the repo API). Cryptographic hash-chaining + DB-level write-once are on the roadmap — see [Project Status](#project-status--limitations) |
+| Audit tampering | Append-only logging (app-layer; no `UPDATE`/`DELETE` in the repo API). Cryptographic hash-chaining + DB-level write-once are on the [roadmap](ROADMAP.md) ([#8](https://github.com/sattyamjjain/ferrumdeck/issues/8)) — see [Project Status](#project-status--limitations) |
 
 ---
 

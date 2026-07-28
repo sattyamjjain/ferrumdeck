@@ -49,6 +49,16 @@ make run-worker
 make run-dashboard
 ```
 
+### Where to Start
+
+The best first contributions are the known gaps, tracked in the open on the
+**[roadmap](ROADMAP.md)** — one GitHub issue each under the
+[`roadmap`](https://github.com/sattyamjjain/ferrumdeck/issues?q=is%3Aissue+label%3Aroadmap)
+label. Issues also tagged
+[`good first issue`](https://github.com/sattyamjjain/ferrumdeck/issues?q=is%3Aissue+label%3A%22good+first+issue%22)
+are self-contained and a good on-ramp. Each roadmap item names the file/endpoint
+it lives in and what *done* means, so you can scope a PR before writing code.
+
 ## Development Setup
 
 ### Environment Variables

@@ -336,8 +336,7 @@ class AgenticExecutor:
             return self._refusal(
                 tool_call,
                 "requires_approval",
-                f"Tool '{tool_name}' requires approval before execution "
-                f"(pending): {resp.reason}",
+                f"Tool '{tool_name}' requires approval before execution (pending): {resp.reason}",
             )
 
         if not resp.allowed:
@@ -372,9 +371,7 @@ class AgenticExecutor:
         #    plane below is the authority for allow / approval.)
         if self.allowlist.check(tool_name) == "denied":
             logger.warning("Tool %s denied by local allowlist pre-filter", tool_name)
-            return self._refusal(
-                tool_call, "deny", f"Tool '{tool_name}' is denied by policy"
-            )
+            return self._refusal(tool_call, "deny", f"Tool '{tool_name}' is denied by policy")
 
         # 2. Control-plane check-tool is the FINAL, pre-execution authority.
         refusal = await self._authorize(run_id, tool_call)

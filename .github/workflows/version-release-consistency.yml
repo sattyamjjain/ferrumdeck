@@ -24,33 +24,82 @@ permissions:
 
 jobs:
   version-parity:
-    name: Rust workspace vs root Python version
+    name: All manifests match the Rust workspace version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compare versions
+      - name: Compare every version-bearing manifest to the Rust workspace version
         run: |
           set -euo pipefail
 
           # Explicit opt-out: create the marker file to intentionally decouple the
-          # root Python package version from the Rust workspace version.
+          # version-bearing manifests from the Rust workspace version.
           if [ -f .version-parity-optout ]; then
             echo "::notice::.version-parity-optout present — skipping version parity check."
             exit 0
           fi
 
-          rust_ver="$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml','rb'))['workspace']['package']['version'])")"
-          py_ver="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          # Root Cargo.toml [workspace.package].version is the single source of truth;
+          # every manifest below must match it, and no Rust crate may pin a literal
+          # version (they must inherit via version.workspace = true). tomllib/json
+          # are stdlib — no new CI dependency.
+          python3 - <<'PY'
+          import glob, json, tomllib, sys, pathlib
 
-          echo "Rust workspace version : $rust_ver"
-          echo "Root Python version    : $py_ver"
+          truth = tomllib.load(open('Cargo.toml', 'rb'))['workspace']['package']['version']
+          print(f"Source of truth — Cargo.toml [workspace.package].version = {truth}\n")
+          problems = []
 
-          if [ "$rust_ver" != "$py_ver" ]; then
-            echo "::error::Version drift: Rust workspace ($rust_ver) != root Python ($py_ver). Bump both together, or add a .version-parity-optout marker if the decoupling is intentional."
-            exit 1
-          fi
-          echo "Versions agree ($rust_ver)."
+          def check(label, got):
+              ok = got == truth
+              print(f"  {'OK ' if ok else 'BAD'}  {label}: {got}")
+              if not ok:
+                  problems.append(f"{label} = {got!r} (expected {truth!r})")
+
+          def project_version(path):
+              return tomllib.load(open(path, 'rb'))['project']['version']
+
+          # Python manifests: root + every workspace package.
+          check('pyproject.toml [project].version', project_version('pyproject.toml'))
+          for p in sorted(glob.glob('python/packages/*/pyproject.toml')):
+              check(f'{p} [project].version', project_version(p))
+
+          # Root package __version__ (split on '=' to avoid regex quoting).
+          root_v = None
+          for line in pathlib.Path('src/ferrumdeck/__init__.py').read_text().splitlines():
+              if line.strip().startswith('__version__'):
+                  root_v = line.split('=', 1)[1].strip().strip('"').strip("'")
+                  break
+          check('src/ferrumdeck/__init__.py __version__', root_v)
+
+          # Node dashboard.
+          check('nextjs/package.json .version', json.load(open('nextjs/package.json')).get('version'))
+
+          # Every Rust crate/service must INHERIT its version (version.workspace = true),
+          # never pin a literal — this assertion is what stops a future crate
+          # re-introducing the fd-dag bug. A literal parses as str; inheritance parses
+          # as {'workspace': True}.
+          pinned = []
+          for path in sorted(glob.glob('rust/crates/*/Cargo.toml') + glob.glob('rust/services/*/Cargo.toml')):
+              v = tomllib.load(open(path, 'rb')).get('package', {}).get('version')
+              if isinstance(v, str):
+                  pinned.append(f'{path} pins version = "{v}" (use version.workspace = true)')
+          if pinned:
+              print('  BAD  rust manifests pinning a literal [package].version:')
+              for pp in pinned:
+                  print('       - ' + pp)
+              problems.extend(pinned)
+          else:
+              print('  OK   no rust crate/service pins a literal [package].version')
+
+          if problems:
+              print()
+              for pr in problems:
+                  print(f'::error::version drift: {pr}')
+              sys.exit(1)
+          print(f'\nAll version-bearing manifests agree at {truth}; no rust crate pins a literal version.')
+          PY
 
   tag-has-release:
     name: Every tag has a GitHub Release

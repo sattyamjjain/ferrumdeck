@@ -405,24 +405,10 @@ Router::new()
 
 ## Recent Security Scan Results
 
-Security scan conducted January 2026. Results: **19/25 vulnerabilities fixed (76%)**.
-
-| Severity | Total | Fixed | Remaining |
-|----------|-------|-------|-----------|
-| Critical | 6 | 3 | 3 (manual key rotation) |
-| High | 8 | 8 | 0 |
-| Medium | 8 | 8 | 0 |
-| Low | 3 | 2 | 1 (accepted risk) |
-
-**Manual Action Required:**
-- C-001: Rotate Anthropic API key at console.anthropic.com
-- C-002: Rotate OpenAI API key at platform.openai.com
-- C-003: Revoke GitHub token at github.com/settings/tokens
-
-**Accepted Risk:**
-- L-002: JWT session invalidation requires Redis blacklist (acceptable with short JWT expiry)
-
-See `security-scan/state.json` for full details.
+An internal security review was conducted on 2026-01-24; the findings were
+remediated in the codebase and the exposed development credentials were rotated.
+See [SECURITY.md](../../SECURITY.md) for the disposition, and use the disclosure
+process there to report anything new.
 
 ## Recommended Improvements
 
