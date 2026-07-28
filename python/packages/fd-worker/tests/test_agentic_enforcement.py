@@ -95,9 +95,7 @@ async def test_gateway_down_fails_closed():
     import httpx
 
     client = AsyncMock()
-    client.check_tool_policy = AsyncMock(
-        side_effect=httpx.ConnectError("connection refused")
-    )
+    client.check_tool_policy = AsyncMock(side_effect=httpx.ConnectError("connection refused"))
     ex, conn = _make_executor(client, fail_closed=True)
 
     result = await ex._execute_tool(_tool_call(), run_id="run_1")

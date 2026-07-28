@@ -136,3 +136,11 @@ Thumbs.db
 # Helm — vendored dependency tarballs (re-pulled via `helm dependency update`)
 # =============================================================================
 deploy/helm/*/charts/
+
+# =============================================================================
+# In-flight planning / scratch artifacts (session logs, scan state) — must not
+# be committed to a public repo. See SECURITY.md for the security-review
+# disposition; these are working scratch, not deliverables.
+# =============================================================================
+security-scan/
+nextjs/refactor/

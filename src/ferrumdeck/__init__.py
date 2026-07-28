@@ -11,4 +11,4 @@ in sync with root Cargo.toml by the `version-release-consistency` CI check). It
 is installable from source only — not published to PyPI.
 """
 
-__version__ = "0.7.11"
+__version__ = "0.7.12"

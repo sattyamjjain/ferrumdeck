@@ -93,6 +93,14 @@ Tool execution occurs in isolated environments with limited permissions.
 
 6. **Monitoring**: Enable OpenTelemetry tracing and monitor for anomalous behavior.
 
+## Security Review Disposition
+
+An internal security review was conducted on **2026-01-24**. The findings were
+triaged and remediated in the codebase, and the exposed development credentials
+identified during the review were rotated. The working scratch files from that
+review are not tracked in this repository. For anything new, please use the
+disclosure process described above rather than filing a public issue.
+
 ## Known Security Considerations
 
 ### Current Limitations
