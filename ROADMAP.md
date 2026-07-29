@@ -69,11 +69,14 @@ is a feature.
   eval-run dashboard renders a real run end-to-end.
 - **Tracking:** [#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)
 
-### Audit tamper-evidence: cryptographic hash-chain + DB-level write-once
-- **Problem:** the audit trail is append-only **at the application layer**, but
-  there is **no cryptographic hash-chain and no DB-level write-once enforcement** —
-  so it is not tamper-*evident* against a privileged database actor. Do not
-  represent the trail as immutable/tamper-proof for compliance until this ships.
+### Audit tamper-evidence: cryptographic hash-chain
+- **Problem:** the audit trail is append-only — enforced by the repo API (no
+  `UPDATE`/`DELETE` path) **and** a DB trigger (`trg_audit_events_append_only`,
+  migration `20260719000001`) that rejects every `UPDATE` and rejects `DELETE`
+  within the 3-year retention floor. What is still missing is a **cryptographic
+  hash-chain**: without one the trail is not tamper-*evident* against a privileged
+  DB actor who could drop the trigger or `TRUNCATE` the table. Do not represent
+  the trail as immutable/tamper-proof for compliance until this ships.
 - **Regulatory context:** the retention *floor* already ships
   (`RETENTION_FLOOR_YEARS = 3` in `rust/crates/fd-policy/src/colorado_sb26_189.rs`,
   enforced by migration `db/migrations/20260719000001_add_audit_retention_floor.sql`),
@@ -83,9 +86,11 @@ is a feature.
   remaining gap between "we keep the records for 3 years" and "we can prove they
   weren't altered."
 - **Lives in:** `rust/crates/fd-audit/` (event write path) + `db/migrations/`.
-- **Done:** each audit event carries a hash chained to its predecessor, a verifier
-  can detect any insertion/deletion/edit, and a DB constraint/trigger rejects
-  `UPDATE`/`DELETE` on `audit_events` at the database layer.
+- **Done:** each audit event carries a hash chained to its predecessor and a
+  verifier can detect any insertion/deletion/edit — including one made by a
+  privileged actor who bypasses the existing `UPDATE`/`DELETE`-rejecting trigger
+  (e.g. by dropping it or `TRUNCATE`-ing). The DB-level `UPDATE`/`DELETE` reject
+  trigger already ships (see Problem); the hash-chain is the remaining work.
 - **Tracking:** [#8](https://github.com/sattyamjjain/ferrumdeck/issues/8)
 
 ---

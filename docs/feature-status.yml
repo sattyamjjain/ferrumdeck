@@ -1,0 +1,117 @@
+# Single source of truth for claims integrity.
+#
+# The README "Key Features" list and the "Project Status & Limitations" section
+# (mirrored into ROADMAP.md) used to be able to drift — a feature advertised as
+# shipped in one place while the other said it was not wired. This file is the
+# one place that records, per feature the Limitations section contradicts, the
+# exact inline status marker that MUST appear on its Key Features row.
+#
+# `scripts/check_claims_integrity.py` (run in CI + `make check-claims`) fails if:
+#   * a Key Features row named here is missing its marker, or
+#   * ROADMAP.md no longer references a contradicted feature, or
+#   * the README test-count block disagrees with `test_counts` below, or
+#   * (with --recount) the re-derived test counts disagree with `test_counts`.
+#
+# Every status here was verified against the code on 2026-07-30 (paths cited).
+
+# ---------------------------------------------------------------------------
+# Key Features rows that the Limitations section contradicts. Each `readme_row`
+# is a stable substring identifying the Key Features bullet; `marker` is the
+# exact inline text that bullet must contain.
+# ---------------------------------------------------------------------------
+key_features:
+  - id: airlock-rasp
+    readme_row: "**[Airlock RASP](#airlock-rasp)**"
+    marker: "[partial: 3 of 5 layers wired"
+    status: "3 of 5 Airlock layers fire at the gateway"
+    evidence: >-
+      rust/crates/fd-policy/src/airlock/inspector.rs runs anti-RCE (Layer 1,
+      config.rce.enabled), velocity/financial (Layer 2), and exfiltration
+      (Layer 3) unconditionally. Schema-drift (Layer 0) only fires when
+      ctx.tool_version_id is Some; behavioral-drift (Layer -1) only when
+      ctx.agent_id is Some. The gateway check_tool_policy handler
+      (rust/services/gateway/src/handlers/runs.rs) passes tool_version_id: None
+      and agent_id: None, so those two layers never fire in the running gateway.
+    limitations_anchor: "#project-status--limitations"
+    roadmap_issue: 4
+
+  - id: audit-tamper-evidence
+    readme_row: "**Audit Trail**:"
+    marker: "not tamper-evident"
+    status: "append-only (app API + DB trigger); no hash-chain"
+    evidence: >-
+      The repo exposes no UPDATE/DELETE path, and migration
+      db/migrations/20260719000001_add_audit_retention_floor.sql adds trigger
+      trg_audit_events_append_only which rejects every UPDATE and rejects DELETE
+      within the 3-year retention floor. There is NO cryptographic hash-chain in
+      rust/crates/fd-audit/ (grep for hash/prev/chain in the write path is
+      empty), so the trail is not tamper-EVIDENT against a privileged DB actor
+      who could DROP the trigger or TRUNCATE the table.
+    limitations_anchor: "#project-status--limitations"
+    roadmap_issue: 8
+
+  - id: eval-framework-dashboard
+    readme_row: "**Evaluation Framework**:"
+    marker: "[dashboard data BFF-stubbed"
+    status: "eval framework runs; dashboard eval data is stubbed"
+    evidence: >-
+      nextjs/src/app/api/v1/evals/{suites,runs,regression-report}/route.ts each
+      begin with "// Stub API route ... returns empty data until backend is
+      implemented" and return empty arrays.
+    limitations_anchor: "#project-status--limitations"
+    roadmap_issue: 7
+
+  - id: regression-gating
+    readme_row: "**Regression Gating**:"
+    marker: "not a PR merge gate"
+    status: "eval regression check runs on a schedule, not on PRs"
+    evidence: >-
+      .github/workflows/evals.yml triggers only on `schedule` (daily) and
+      `workflow_dispatch` — there is no `pull_request`/`push` trigger, and
+      .github/workflows/ci.yml has no eval job. So an eval regression does not
+      block a PR merge today.
+    limitations_anchor: "#project-status--limitations"
+    roadmap_issue: 7
+
+  - id: baseline-comparisons
+    readme_row: "**Baseline Comparisons**:"
+    marker: "[dashboard data BFF-stubbed"
+    status: "baseline view depends on the stubbed eval dashboard data"
+    evidence: >-
+      Same BFF stub as eval-framework-dashboard: /api/v1/evals/* returns empty.
+    limitations_anchor: "#project-status--limitations"
+    roadmap_issue: 7
+
+# ---------------------------------------------------------------------------
+# Test counts, re-derived programmatically on 2026-07-30. The README test-count
+# block must render the `gating_total` and the liveness caveat from this. Run
+# `make claims-recount` (scripts/check_claims_integrity.py --recount) to
+# re-derive after tests change; CI verifies README <-> this file agreement, and
+# cheaply re-derives the Python-collectable buckets.
+# ---------------------------------------------------------------------------
+test_counts:
+  # Suites that gate CI (unit/lint) — the honest headline.
+  gating:
+    rust:
+      count: 696
+      method: "cargo test --workspace -- --list | grep -cE ': test$'"
+    python_unit:
+      count: 512
+      method: "uv run pytest python/packages/{fd-runtime,fd-mcp-router,fd-worker,fd-evals}/tests --collect-only -q"
+    frontend:
+      count: 576
+      method: "cd nextjs && npm test -- --watchAll=false --ci  (jest 'Tests:' total)"
+    api_contracts:
+      count: 50
+      method: "uv run pytest tests/api --collect-only -q"
+  gating_total: 1834
+  # Live-stack suites: require `make dev-up`, skip without it, and (per the
+  # README testing caveat) assert liveness more than behaviour. NOT counted in
+  # the headline, reported on their own line.
+  liveness:
+    security: 66
+    chaos: 16
+    e2e: 43
+    integration: 81
+    method: "uv run pytest tests/<suite> --collect-only -q (skip at runtime without a live gateway)"
+    note: "excluded from the headline; assert liveness more than behaviour (security/chaos/e2e)"

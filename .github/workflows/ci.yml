@@ -139,6 +139,9 @@ jobs:
       - name: Run pyright
         run: uv run pyright python/
 
+      - name: Claims integrity (README Key Features vs Limitations vs ROADMAP)
+        run: uv run python scripts/check_claims_integrity.py
+
   python-test:
     name: Python Tests
     runs-on: ubuntu-latest

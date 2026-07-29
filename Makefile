@@ -335,7 +335,7 @@ clean-docker:
 # CI Helpers
 # =============================================================================
 
-ci-check:
+ci-check: check-claims
 	@echo "Running CI checks..."
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
@@ -343,3 +343,14 @@ ci-check:
 	uv run ruff check python/
 	uv run ruff format --check python/
 	uv run pytest
+
+# Claims integrity: README Key Features markers + ROADMAP + the test-count block
+# must agree with the single source docs/feature-status.yml. Text-only (no build).
+check-claims:
+	@echo "Checking claims integrity (README/ROADMAP vs docs/feature-status.yml)..."
+	uv run python scripts/check_claims_integrity.py
+
+# Re-derive the test counts (shells out to pytest/cargo) and verify them against
+# docs/feature-status.yml. Run after adding/removing tests, then update the source.
+claims-recount:
+	uv run python scripts/check_claims_integrity.py --recount
