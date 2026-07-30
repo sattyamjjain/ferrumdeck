@@ -254,6 +254,23 @@ impl ToolsRepo {
         .await
     }
 
+    /// List every tool version across all tools.
+    ///
+    /// Used at gateway boot to populate the Airlock `SchemaDriftGuard` (one
+    /// compiled input-schema per `ToolVersionId`). Ordered oldest-first so a
+    /// later duplicate id (should never happen — ids are unique) would win last.
+    #[instrument(skip(self))]
+    pub async fn list_all_versions(&self) -> Result<Vec<ToolVersion>, sqlx::Error> {
+        sqlx::query_as::<_, ToolVersion>(
+            r#"
+            SELECT * FROM tool_versions
+            ORDER BY created_at ASC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+    }
+
     /// List unique MCP servers with tool counts
     #[instrument(skip(self))]
     pub async fn list_mcp_servers(

@@ -1,5 +1,7 @@
 //! Application state
 
+use fd_core::ToolVersionId;
+use fd_policy::airlock::{BehavioralDriftMonitor, SchemaDriftGuard};
 use fd_policy::{
     AirlockConfig, AirlockInspector, AirlockMode, CoherenceConfig, CoherenceMonitor, PolicyEngine,
 };
@@ -202,7 +204,51 @@ impl AppState {
             "Airlock security inspector initialized"
         );
 
-        let airlock = Arc::new(AirlockInspector::new(airlock_config));
+        // Wire the two drift layers into the inspector so they fire in the
+        // running gateway. Without both of these the schema-drift (Layer 0) and
+        // behavioral-drift (Layer -1) layers are inert: the inspector skips them
+        // unless it holds a guard/monitor AND the per-call context carries a
+        // tool_version_id / agent_id (populated in `check_tool_policy`). See #4.
+        //
+        // BOOT-POPULATION LIMITATION: the schema-drift guard is compiled ONCE
+        // here from the `tool_versions` table. A tool version registered *after*
+        // boot is not in the guard until the gateway restarts, so its payloads
+        // are not schema-drift-checked in the meantime — fail-open by
+        // construction (an unknown tool_version_id is skipped, never blocked).
+        // Refreshing the guard on registry writes is a follow-up
+        // (https://github.com/sattyamjjain/ferrumdeck/issues/13). The
+        // behavioral-drift monitor is a single process-wide instance so its
+        // per-agent rolling baselines accumulate across every run.
+        let schema_guard = match ToolsRepo::new(db.clone()).list_all_versions().await {
+            Ok(versions) => {
+                let pairs = versions.into_iter().filter_map(|tv| {
+                    ToolVersionId::parse(&tv.id)
+                        .ok()
+                        .map(|id| (id, tv.input_schema))
+                });
+                let guard = SchemaDriftGuard::new(pairs);
+                tracing::info!(
+                    schema_count = guard.len(),
+                    "Airlock schema-drift guard populated at boot"
+                );
+                guard
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "failed to load tool versions for schema-drift guard; \
+                     starting empty (schema-drift fails open until restart)"
+                );
+                SchemaDriftGuard::empty()
+            }
+        };
+        let behavioral_monitor = Arc::new(BehavioralDriftMonitor::new());
+
+        let airlock = Arc::new(
+            AirlockInspector::new(airlock_config)
+                .with_schema_drift_guard(Arc::new(schema_guard))
+                .with_behavioral_drift_monitor(behavioral_monitor),
+        );
 
         // Coherence-divergence monitor — fed live from the step stream in
         // `submit_step_result`. Enabled by default; disable via

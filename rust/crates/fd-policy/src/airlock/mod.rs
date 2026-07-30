@@ -2,7 +2,24 @@
 //!
 //! Provides runtime security inspection for AI agent tool calls:
 //!
-//! ## Three Inspection Layers
+//! ## Five Inspection Layers
+//!
+//! Run in this order by [`inspector::AirlockInspector::inspect`]; the first
+//! violation short-circuits. The two drift layers only run when the
+//! [`inspector::InspectionContext`] carries the relevant id (`agent_id` /
+//! `tool_version_id`) AND the inspector was built with the matching
+//! guard/monitor — the gateway wires both at boot (`state.rs`) and populates the
+//! ids in `check_tool_policy` (`handlers/runs.rs`). When an id is absent the
+//! layer skips (fail-open for that SIGNAL; the deny-by-default allowlist is
+//! unaffected).
+//!
+//! -1. **Behavioral-Drift Monitor** (`behavioral_drift.rs`) — per-agent rolling
+//!     z-score on cost (and latency / refusal / schema-violation), keyed by
+//!     `agent_id`. Fires when a call is anomalous against the agent's baseline.
+//!
+//! 0. **Schema-Drift Guard** (`schema_drift.rs`) — validates `tool_input`
+//!    against the registered input schema for `tool_version_id`. Catches the LLM
+//!    fabricating a payload that no longer matches the tool's contract.
 //!
 //! 1. **Anti-RCE Pattern Matcher** (`patterns.rs`)
 //!    - Detects dangerous code patterns: eval(), exec(), __import__
@@ -19,6 +36,12 @@
 //!    - Domain whitelist for network tools
 //!    - Blocks raw IP addresses (prevents C2 connections)
 //!    - URL extraction from nested JSON payloads
+//!
+//! **Boot-population limitation:** the schema-drift guard is compiled once at
+//! gateway boot from the `tool_versions` table. A tool version registered after
+//! boot is not schema-drift-checked until the gateway restarts (fail-open by
+//! construction). Tracked in
+//! <https://github.com/sattyamjjain/ferrumdeck/issues/13>.
 //!
 //! ## Operating Modes
 //!
@@ -40,6 +63,8 @@
 //!     tool_name: "write_file".to_string(),
 //!     tool_input: serde_json::json!({"content": "hello"}),
 //!     estimated_cost_cents: Some(10),
+//!     tool_version_id: None, // Some(id) arms the schema-drift layer
+//!     agent_id: None,        // Some(id) arms the behavioral-drift layer
 //! };
 //!
 //! let result = inspector.inspect(&ctx).await;

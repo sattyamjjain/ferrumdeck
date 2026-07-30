@@ -7,7 +7,7 @@ use axum::{
     Extension, Json,
 };
 use chrono::Utc;
-use fd_core::RunId;
+use fd_core::{AgentId, RunId, ToolVersionId};
 use fd_otel::genai::pricing;
 use fd_policy::budget::{Budget, BudgetUsage};
 use fd_policy::forecast::{compute_forecast, ForecastInputs, ForecastSnapshot};
@@ -17,7 +17,7 @@ use fd_policy::{CoherenceSpan, TrajectoryEvent};
 use fd_storage::{
     models::{
         action, actor, resource, AgentVersion, AuditEventBuilder, CreateRun, CreateStep, RunStatus,
-        StepStatus, StepType, UpdateRun, UpdateStep,
+        StepStatus, StepType, ToolVersion, UpdateRun, UpdateStep,
     },
     queue::{JobContext, StepJob},
     QueueMessage, RunForecastSnapshot,
@@ -1426,6 +1426,23 @@ pub struct CheckToolResponse {
     pub response_level: String,
 }
 
+/// Derive the Airlock inspection `tool_version_id` from the tool's latest
+/// registered version. Returns `None` when there is no version, or when the
+/// stored id does not parse as a `ToolVersionId` — the schema-drift layer then
+/// simply skips this call (fail-open for the drift SIGNAL; the allowlist still
+/// governs whether the call runs).
+fn inspection_tool_version_id(version: Option<&ToolVersion>) -> Option<ToolVersionId> {
+    version.and_then(|v| ToolVersionId::parse(&v.id).ok())
+}
+
+/// Derive the Airlock inspection `agent_id` from the run's agent version.
+/// Returns `None` when the agent version is absent, or when its `agent_id`
+/// does not parse — the behavioral-drift layer then skips this call (fail-open
+/// for the drift SIGNAL only).
+fn inspection_agent_id(agent_version: Option<&AgentVersion>) -> Option<AgentId> {
+    agent_version.and_then(|av| AgentId::parse(&av.agent_id).ok())
+}
+
 /// Check if a tool call is allowed by policy and Airlock security inspection
 /// Workers should call this before executing tool steps
 #[instrument(skip(state, auth), fields(
@@ -1498,12 +1515,25 @@ pub async fn check_tool_policy(
     // always requires approval (R3). An UNREGISTERED tool defaults to
     // Irreversible (deny-by-default). The rung is folded into the allowlist
     // decision more-restrictive-wins, so it can only ever *add* friction.
-    let reversibility = repos
+    let tool_row = repos
         .tools()
         .find_by_name_or_slug(&request.tool_name)
-        .await?
+        .await?;
+    let reversibility = tool_row
+        .as_ref()
         .map(|t| fd_policy::Reversibility::parse(&t.reversibility))
         .unwrap_or_default();
+
+    // The tool's latest registered version carries the input schema the
+    // schema-drift guard (Airlock Layer 0) was compiled from at boot. We resolve
+    // it here so its id can be threaded into the inspection context below; an
+    // unregistered tool (no row) or a tool with no versions yields None, and the
+    // schema-drift layer simply skips — fail-open for the drift SIGNAL only, the
+    // deny-by-default allowlist above still governs whether the call runs.
+    let latest_version = match &tool_row {
+        Some(t) => repos.tools().get_latest_version(&t.id).await?,
+        None => None,
+    };
     let effective_budget =
         resolve_run_budget(&run.config, agent_version.as_ref(), &Budget::default());
     let usage = fd_policy::budget::BudgetUsage {
@@ -1532,12 +1562,14 @@ pub async fn check_tool_policy(
         tool_name: request.tool_name.clone(),
         tool_input: tool_input.clone(),
         estimated_cost_cents: request.estimated_cost_cents,
-        // Schema-drift inspection is opt-in once the registry lookup is wired
-        // up — gateway currently dispatches by tool_name only.
-        tool_version_id: None,
-        // Behavioral-drift inspection is opt-in once agent_id is plumbed
-        // through from the run record.
-        agent_id: None,
+        // Schema-drift (Layer 0): the id of the tool's latest registered version,
+        // whose input schema the boot-time guard holds. None when the tool is
+        // unregistered / has no versions / has a malformed id — the layer skips.
+        tool_version_id: inspection_tool_version_id(latest_version.as_ref()),
+        // Behavioral-drift (Layer -1): the agent behind this run, so the monitor
+        // can key its rolling baseline. None when the agent version is missing /
+        // malformed — the layer skips.
+        agent_id: inspection_agent_id(agent_version.as_ref()),
     };
 
     let airlock_result = state.airlock.inspect(&inspection_ctx).await;
@@ -1958,6 +1990,91 @@ mod budget_resolution_tests {
         let default = Budget::default();
         let budget = resolve_run_budget(&config, None, &default);
         assert_eq!(budget.max_cost_cents, default.max_cost_cents);
+    }
+}
+
+/// Unit tests for the two pure derivations that thread the Airlock drift
+/// signals' ids into the inspection context. These decide whether the
+/// schema-drift (Layer 0) and behavioral-drift (Layer -1) layers fire at all:
+/// a `None` return makes the layer skip (fail-open for the SIGNAL), a `Some`
+/// return arms it.
+#[cfg(test)]
+mod airlock_id_derivation_tests {
+    use super::{inspection_agent_id, inspection_tool_version_id};
+    use fd_core::{AgentId, ToolVersionId};
+    use fd_storage::models::{AgentVersion, ToolVersion};
+
+    fn tool_version_with_id(id: &str) -> ToolVersion {
+        ToolVersion {
+            id: id.into(),
+            tool_id: "tol_test".into(),
+            version: "1.0.0".into(),
+            input_schema: serde_json::json!({ "type": "object" }),
+            output_schema: None,
+            changelog: None,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    fn agent_version_with_agent_id(agent_id: &str) -> AgentVersion {
+        AgentVersion {
+            id: "agv_test".into(),
+            agent_id: agent_id.into(),
+            version: "1.0.0".into(),
+            system_prompt: String::new(),
+            model: "claude-sonnet-4-20250514".into(),
+            model_params: serde_json::json!({}),
+            allowed_tools: vec![],
+            approval_required_tools: vec![],
+            denied_tools: vec![],
+            tool_configs: serde_json::json!({}),
+            max_tokens: None,
+            max_tool_calls: None,
+            max_wall_time_secs: None,
+            max_cost_cents: None,
+            changelog: None,
+            created_at: chrono::Utc::now(),
+            created_by: None,
+        }
+    }
+
+    #[test]
+    fn tool_version_id_none_when_absent() {
+        // No registered version → schema-drift layer skips.
+        assert!(inspection_tool_version_id(None).is_none());
+    }
+
+    #[test]
+    fn tool_version_id_none_when_malformed() {
+        // A row whose id is not a valid ToolVersionId must not arm the layer.
+        let tv = tool_version_with_id("not-a-valid-id");
+        assert!(inspection_tool_version_id(Some(&tv)).is_none());
+    }
+
+    #[test]
+    fn tool_version_id_parsed_when_valid() {
+        let valid = ToolVersionId::new();
+        let tv = tool_version_with_id(&valid.to_string());
+        assert_eq!(inspection_tool_version_id(Some(&tv)), Some(valid));
+    }
+
+    #[test]
+    fn agent_id_none_when_absent() {
+        // No agent version → behavioral-drift layer skips.
+        assert!(inspection_agent_id(None).is_none());
+    }
+
+    #[test]
+    fn agent_id_none_when_malformed() {
+        let av = agent_version_with_agent_id("agt_not_a_ulid");
+        assert!(inspection_agent_id(Some(&av)).is_none());
+    }
+
+    #[test]
+    fn agent_id_parsed_from_agent_version() {
+        let valid = AgentId::new();
+        let av = agent_version_with_agent_id(&valid.to_string());
+        assert_eq!(inspection_agent_id(Some(&av)), Some(valid));
     }
 }
 
