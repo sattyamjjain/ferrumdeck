@@ -434,6 +434,59 @@ jobs:
           echo "| Backwards Compatibility (API-BWD) | ✅ |" >> $GITHUB_STEP_SUMMARY
 
   # =============================================================================
+  # Deterministic governance regression gate — runs on EVERY push + PR (the
+  # workflow's push/pull_request triggers), with NO services and NO secrets.
+  # It fails the build the moment a golden fixture or a real-engine pin
+  # disagrees: the injection-defense / ASB / governed-vs-ungoverned eval numbers
+  # the README cites, and the `fd_policy` engine tests that pin them (plus the
+  # AP2 signed-Mandate gate). These are pure, offline, and LLM-free, so they gate
+  # a PR merge deterministically. The LLM-judged smoke suite stays nightly in
+  # evals.yml (#7).
+  # =============================================================================
+  eval-regression:
+    name: Governance Regression Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-packages
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-eval-regression-${{ hashFiles('**/Cargo.lock') }}
+
+      # Deterministic, offline eval numbers the README cites (no LLM, no network).
+      - name: Governance eval suites (injection-defense, ASB, governed-vs-ungoverned)
+        run: make eval-injection-defense && make eval-asb && make bench-governed
+
+      # The real fd_policy engine tests that pin those same numbers + the AP2
+      # signed-Mandate gate. (Crate published as `ferrumdeck-policy`.)
+      - name: Real-engine governance pins
+        run: >-
+          cargo test -p ferrumdeck-policy
+          --test injection_defense
+          --test asb_defense
+          --test governed_benchmark
+          --test ap2_gate
+
+  # =============================================================================
   # Eval Gate (on PRs to main)
   # =============================================================================
   eval-gate:

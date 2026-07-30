@@ -20,21 +20,6 @@
 # exact inline text that bullet must contain.
 # ---------------------------------------------------------------------------
 key_features:
-  - id: airlock-rasp
-    readme_row: "**[Airlock RASP](#airlock-rasp)**"
-    marker: "[partial: 3 of 5 layers wired"
-    status: "3 of 5 Airlock layers fire at the gateway"
-    evidence: >-
-      rust/crates/fd-policy/src/airlock/inspector.rs runs anti-RCE (Layer 1,
-      config.rce.enabled), velocity/financial (Layer 2), and exfiltration
-      (Layer 3) unconditionally. Schema-drift (Layer 0) only fires when
-      ctx.tool_version_id is Some; behavioral-drift (Layer -1) only when
-      ctx.agent_id is Some. The gateway check_tool_policy handler
-      (rust/services/gateway/src/handlers/runs.rs) passes tool_version_id: None
-      and agent_id: None, so those two layers never fire in the running gateway.
-    limitations_anchor: "#project-status--limitations"
-    roadmap_issue: 4
-
   - id: audit-tamper-evidence
     readme_row: "**Audit Trail**:"
     marker: "not tamper-evident"
@@ -50,6 +35,21 @@ key_features:
     limitations_anchor: "#project-status--limitations"
     roadmap_issue: 8
 
+  - id: realtime-sse
+    readme_row: "**Realtime run stream (SSE)**"
+    marker: "[wire shape defined; gateway→BFF push deferred"
+    status: "no gateway→BFF push; BFF synthetic generator is opt-in and OFF by default"
+    evidence: >-
+      nextjs/src/app/api/sse/[channel]/route.ts delegates to
+      nextjs/src/lib/realtime/mock-events.ts, which creates no timer unless
+      FERRUMDECK_SSE_MOCK_EVENTS is "1"/"true". The five run-channel governance
+      events (run.forecast.updated, policy.decision.explained,
+      policy.response.recorded, routing.decision.recorded,
+      coherence.divergence.detected) have a defined wire shape and no gateway
+      emitter; the console reads them from the polled run endpoint.
+    limitations_anchor: "#project-status--limitations"
+    roadmap_issue: 5
+
   - id: eval-framework-dashboard
     readme_row: "**Evaluation Framework**:"
     marker: "[dashboard data BFF-stubbed"
@@ -63,13 +63,17 @@ key_features:
 
   - id: regression-gating
     readme_row: "**Regression Gating**:"
-    marker: "not a PR merge gate"
-    status: "eval regression check runs on a schedule, not on PRs"
+    marker: "[PR gate covers the 3 deterministic suites; LLM-judged suite stays nightly"
+    status: "3 deterministic governance suites gate every PR; LLM-judged suite is nightly"
     evidence: >-
-      .github/workflows/evals.yml triggers only on `schedule` (daily) and
-      `workflow_dispatch` — there is no `pull_request`/`push` trigger, and
-      .github/workflows/ci.yml has no eval job. So an eval regression does not
-      block a PR merge today.
+      .github/workflows/ci.yml has an `eval-regression` job (push + pull_request,
+      no services, no secrets) that runs `make eval-injection-defense`,
+      `make eval-asb`, `make bench-governed`, and `cargo test -p
+      ferrumdeck-policy --test injection_defense --test asb_defense --test
+      governed_benchmark --test ap2_gate` — so a golden-fixture or real-engine-pin
+      regression blocks a PR merge. The LLM-judged smoke/regression suite
+      (needs model calls + a live stack) still runs nightly in
+      .github/workflows/evals.yml, not on PRs.
     limitations_anchor: "#project-status--limitations"
     roadmap_issue: 7
 
@@ -93,18 +97,18 @@ test_counts:
   # Suites that gate CI (unit/lint) — the honest headline.
   gating:
     rust:
-      count: 696
+      count: 707
       method: "cargo test --workspace -- --list | grep -cE ': test$'"
     python_unit:
       count: 512
       method: "uv run pytest python/packages/{fd-runtime,fd-mcp-router,fd-worker,fd-evals}/tests --collect-only -q"
     frontend:
-      count: 576
+      count: 603
       method: "cd nextjs && npm test -- --watchAll=false --ci  (jest 'Tests:' total)"
     api_contracts:
       count: 50
       method: "uv run pytest tests/api --collect-only -q"
-  gating_total: 1834
+  gating_total: 1872
   # Live-stack suites: require `make dev-up`, skip without it, and (per the
   # README testing caveat) assert liveness more than behaviour. NOT counted in
   # the headline, reported on their own line.

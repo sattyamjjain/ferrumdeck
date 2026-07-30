@@ -19,22 +19,19 @@ is a feature.
 
 ## Now
 
-### Activate schema-drift and behavioral-drift Airlock layers in the gateway
-- **Problem:** these two Airlock layers are implemented and unit-tested but are
-  **not activated** in the running gateway — they never fire on a real request.
-- **Lives in:** `rust/services/gateway/src/handlers/runs.rs` (the `check_tool_policy`
-  handler builds an `InspectionContext` with `tool_version_id: None` / `agent_id: None`);
-  the fields exist on `fd_policy::airlock::InspectionContext`
-  (`rust/crates/fd-policy/src/airlock/inspector.rs`).
-- **Done:** the handler populates `tool_version_id` (from the tool registry lookup)
-  and `agent_id` (from the run record) so the schema-drift guard and behavioral-drift
-  monitor run on live tool calls, with a test proving each fires end-to-end.
-- **Tracking:** _(good first issue)_ — [#4](https://github.com/sattyamjjain/ferrumdeck/issues/4)
-
 ### Push `policy.response.recorded` over SSE (gateway → BFF)
 - **Problem:** the `policy.response.recorded` realtime event **shape is defined**
   and the dashboard already consumes it, but the gateway does not yet **push** it —
-  so the R1/R2/R3 response level only updates on a polled read, not live.
+  so the R1/R2/R3 response level only updates on a polled read, not live. The same
+  is true of the four sibling run-channel events
+  (`run.forecast.updated`, `policy.decision.explained`, `routing.decision.recorded`,
+  `coherence.divergence.detected`): wire shapes exist, no gateway emitter. Until
+  this lands the realtime channel carries **heartbeats only**. The BFF *can*
+  synthesize these events for wire-shape development behind
+  `FERRUMDECK_SSE_MOCK_EVENTS`, but that flag is **OFF by default in every
+  environment** — a fabricated enforcement verdict must never reach an operator's
+  console — so the honest default is: no live governance events until the emitter
+  ships.
 - **Lives in:** the BFF SSE consumer at
   `nextjs/src/app/api/sse/[channel]/route.ts` (handles `policy.response.recorded`);
   the gateway run-stream emitter under `rust/services/gateway/src/` needs to emit it.

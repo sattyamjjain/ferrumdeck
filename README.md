@@ -235,9 +235,18 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
   `project → workspace → tenant` ownership check; unknown project or tenant
   mismatch is denied.
 - **Airlock RASP at the gateway tool-policy check** (`POST /v1/runs/{id}/check-tool`):
-  the anti-RCE pattern matcher, the financial/velocity circuit breaker, and the
-  data-exfiltration + credential-DLP shield run here, in `shadow` or `enforce`
-  mode.
+  **all five layers** run here, in `shadow` or `enforce` mode — the anti-RCE
+  pattern matcher, the financial/velocity circuit breaker, and the
+  data-exfiltration + credential-DLP shield on every call, plus the
+  **schema-drift guard** (validates `tool_input` against the tool version's
+  registered input schema) when the tool has a registered version and the
+  **behavioral-drift monitor** (per-agent rolling z-score on cost) when the run's
+  agent is known. The gateway attaches the guard + monitor at boot (`state.rs`)
+  and threads `tool_version_id` / `agent_id` into the inspection context
+  (`check_tool_policy`). One documented limitation: the schema-drift guard is
+  compiled **once at boot** from the `tool_versions` table, so a version
+  registered *after* boot is not schema-drift-checked until restart — fail-open by
+  construction ([#13](https://github.com/sattyamjjain/ferrumdeck/issues/13)).
 - **Enforcement on the agentic execution path.** The Python worker's in-loop
   agentic executor authorizes **every** tool call against the control-plane
   `check-tool` endpoint *before* it runs: `allow` → execute, `deny` → refuse,
@@ -258,9 +267,6 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
 
 **Scaffolded / not yet wired end-to-end — do not rely on these yet:**
 
-- **Schema-drift and behavioral-drift Airlock layers** are implemented and
-  unit-tested but are **not activated** in the running gateway (they need
-  `tool_version_id` / `agent_id` plumbed into the inspection context).
 - **Trace→signal loop (HarnessX).** The harness-suggestion governance
   endpoints (`/v1/harness-suggestions*`) and the training-signal export
   (`POST /v1/runs/{id}/training-signal`, redacted server-side via the audit
@@ -268,8 +274,12 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
   But the **evals dashboard data is still BFF-stubbed** (`/api/v1/evals/*`
   returns empty until a gateway eval backend lands), so the full
   eval→gateway→dashboard round-trip is demonstrable only with a live stack and
-  a non-stub eval feed. Approving a suggestion **records** the decision; it
-  never auto-applies a policy/allowlist/budget change.
+  a non-stub eval feed. (The eval *numbers* themselves are not ungated: the
+  deterministic governance suites + real-engine pins run on every push + PR via
+  `ci.yml`'s `eval-regression` job — the dashboard round-trip is the only part
+  of [#7](https://github.com/sattyamjjain/ferrumdeck/issues/7) still open.)
+  Approving a suggestion **records** the decision; it never auto-applies a
+  policy/allowlist/budget change.
 - **Audit tamper-evidence.** The log is append-only — enforced both by the repo
   API (no `UPDATE`/`DELETE` path) **and** a DB trigger
   (`trg_audit_events_append_only`, migration `20260719000001`) that rejects every
@@ -282,6 +292,14 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
 - **Multi-tenant SaaS hardening.** Tenant isolation is enforced, but there is no
   dashboard auth/session layer, no SSO/RBAC, and no API-key self-service — treat
   the dashboard + gateway as a **trusted-operator** deployment for now.
+- **Realtime run stream (SSE).** Until the gateway→BFF push lands
+  ([#5](https://github.com/sattyamjjain/ferrumdeck/issues/5)) the dashboard's
+  realtime channel carries **heartbeats only** — governance events are read from
+  the polled run endpoint, not pushed. The BFF *can* emit synthetic events for
+  wire-shape development behind `FERRUMDECK_SSE_MOCK_EVENTS`, but that flag is
+  **OFF by default in every environment**, so a fabricated enforcement verdict (a
+  synthetic R3 gate, a made-up policy decision) can never reach an operator's
+  console.
 
 **Testing caveat.** The unit/lint suites (`cargo test --workspace`, clippy,
 `ruff`, jest) pass and gate CI. The `tests/security`, `tests/chaos`, and
@@ -289,10 +307,10 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
 liveness more than behaviour — do not read them as proof that a given attack is
 blocked. Hardening them is in progress.
 
-**Automated test coverage.** The CI-gating unit/lint suites total **1,834**
-tests, re-derivable with `make claims-recount`: Rust **696**
+**Automated test coverage.** The CI-gating unit/lint suites total **1,872**
+tests, re-derivable with `make claims-recount`: Rust **707**
 (`cargo test --workspace -- --list`), Python unit **512** (`pytest` over the four
-`python/packages/*/tests` the CI unit job runs), frontend **576**
+`python/packages/*/tests` the CI unit job runs), frontend **603**
 (`jest`), and API-contract **50** (`pytest tests/api`). The live-stack suites —
 `tests/security` (66), `tests/chaos` (16), `tests/e2e` (43) — need `make dev-up`,
 **skip without it**, and (per the caveat above) assert liveness more than
@@ -313,7 +331,7 @@ The known gaps above are tracked in the open on the **[roadmap](ROADMAP.md)**, o
 - **Budget Enforcement**: Automatic run termination when limits exceeded (tokens, cost, time)
 - **Predictive Budget Forecast**: Deterministic linear + EWMA projection of end-of-run cost after every step, surfacing a `budget_breach_projected` flag on the run API + SSE event (`run.forecast.updated`) before the auto-kill fires. See [`docs/runbooks/budget-forecast.md`](docs/runbooks/budget-forecast.md).
 - **Policy Engine**: Configurable rules for tool access and risk management
-- **[Airlock RASP](#airlock-rasp)**: Five runtime self-protection layers — anti-RCE pattern matcher, financial circuit breaker, data-exfiltration shield, schema-drift guard, behavioral-drift monitor — in `shadow` or `enforce` mode. **⚠ [partial: 3 of 5 layers wired at the gateway](#project-status--limitations)** — anti-RCE, financial, and exfil fire on every tool call; schema-drift + behavioral-drift are implemented and unit-tested but **not yet activated** in the running gateway (they need `tool_version_id` / `agent_id` plumbed into the inspection context, [#4](https://github.com/sattyamjjain/ferrumdeck/issues/4)).
+- **[Airlock RASP](#airlock-rasp)**: Five runtime self-protection layers — anti-RCE pattern matcher, financial circuit breaker, data-exfiltration shield, schema-drift guard, behavioral-drift monitor — in `shadow` or `enforce` mode. **All five fire at the gateway tool-policy check**: anti-RCE / financial / exfil on every call, schema-drift when the tool has a registered version, behavioral-drift when the run's agent is known. One documented limitation: the schema-drift guard is compiled **once at boot** from the tool registry, so a tool version registered *after* boot is not schema-drift-checked until the gateway restarts (fail-open by construction — [#13](https://github.com/sattyamjjain/ferrumdeck/issues/13)).
 - **Explicit Conflict Resolution + Decision Traces**: When multiple policies match a tool call, a named precedence function (`Deny > RequiresApproval > BudgetCap > Allow`) picks the winner deterministically, and every decision carries an audit-grade trace of matched verdicts and overrides surfaced on the run API + `policy.decision.explained` SSE event. See [`docs/runbooks/policy-conflict-resolution.md`](docs/runbooks/policy-conflict-resolution.md).
 - **Routing-Decision Audit (multi-agent coordination)**: Every time the orchestrator binds a subtask to a concrete agent / role / model, a `RoutingDecision` record (candidates considered, chosen binding, reason code, SHA-256 content hash) is written through the existing immutable audit trail and surfaced on `GET /v1/runs/{id}/routing` plus the `routing.decision.recorded` SSE event. fd-evals replays compare the content hash to detect coordination drift. Anchor: AgensFlow ([arXiv:2605.27466](https://arxiv.org/abs/2605.27466)). See [`docs/runbooks/routing-decision-audit.md`](docs/runbooks/routing-decision-audit.md).
 - **Champion-Challenger Promotion Gate**: A registered challenger version cannot replace the live champion until it clears a deterministic gate — configurable metric thresholds (inclusive floors) **plus** a required human approval. Deny-by-default: the challenger stays in shadow until explicitly promoted. The decision + metric evidence (SHA-256 content hash for tamper-evidence) flow through the **same** `PolicyDecision` channel every gate uses and are written to the immutable audit trail. Exposed on `POST /v1/promotions/evaluate` (write scope) + `GET /v1/promotions/{agent_id}`, surfaced on the agent dashboard (champion vs challenger + gate status). See [`docs/runbooks/champion-challenger-promotion.md`](docs/runbooks/champion-challenger-promotion.md).
@@ -328,6 +346,7 @@ The known gaps above are tracked in the open on the **[roadmap](ROADMAP.md)**, o
 - **Cross-MCP trace correlation (MCP SEP-414)**: When a caller propagates W3C trace context in the tool-call request `_meta` (`traceparent`/`tracestate`/`baggage`), ferrumdeck parents its enforcement decision span on that context — so the decision joins your trace end-to-end (host → client SDK → MCP server → ferrumdeck decision → downstream) and the trace-id lands on the persisted decision record. Malformed `traceparent` is rejected (never propagated); off unless the OTel semconv opt-in is set. **Targets** the 2026-07-28 MCP revision (a Release Candidate) and implements the SEP-414 conventions — *not* a conformance claim. See [`docs/mcp-trace-conformance.md`](docs/mcp-trace-conformance.md).
 - **Cost Tracking**: Real-time token counting and cost calculation per run
 - **Jaeger UI**: Visual trace exploration and debugging
+- **Realtime run stream (SSE)**: the dashboard subscribes to per-run / per-workspace channels for `run.forecast.updated`, `policy.decision.explained`, `policy.response.recorded`, `routing.decision.recorded`, and `coherence.divergence.detected`. **⚠ [wire shape defined; gateway→BFF push deferred](#project-status--limitations)** — the gateway does not yet push these to the BFF, so the channel carries **heartbeats only** and the console reads the values from the polled run endpoint. A synthetic generator can emit them for wire-shape development behind `FERRUMDECK_SSE_MOCK_EVENTS` — **OFF by default in every environment**, so no fabricated enforcement verdict can ever reach an operator's console. ([#5](https://github.com/sattyamjjain/ferrumdeck/issues/5))
 - **Audit Trail**: Append-only logging of every action — enforced both by the repo API (no `UPDATE`/`DELETE` path) and a DB trigger (`trg_audit_events_append_only`: rejects every `UPDATE`; rejects `DELETE` within the 3-year retention floor). **⚠ [append-only, not tamper-evident yet](#project-status--limitations)** — there is no cryptographic hash-chain, so history is not tamper-*evident* against a privileged DB actor (who could drop the trigger or `TRUNCATE`); don't represent it as immutable for compliance until [#8](https://github.com/sattyamjjain/ferrumdeck/issues/8) ships.
 - **Tool-call firing rate**: Derived OTel signal (`ferrumdeck.metrics.tool_call_firing_rate`) tracking the share of reasoning steps that invoked at least one tool, per run + per agent over a sliding window. Surfaced on the agent overview tab with a configurable low-firing-rate threshold (default 40%) that flags model regressions or broken tool registries before they propagate. See [`docs/runbooks/tool-call-firing-rate.md`](docs/runbooks/tool-call-firing-rate.md).
 - **Debt-vs-tax cost decomposition (§2605.27320)**: Per-call `span_role ∈ {primary, retry, judge, guardrail, escalation, revalidation, monitor}` classification on every LLM/tool call, with two derived rollups per task/run — `agent.cost.token` (primary calls = debt) and `agent.cost.tax` (everything else). Dashboard panel ranks tasks by `tax / (token + tax)` descending so retry / escalation storms are visible at a glance. See [`docs/runbooks/cost-decomposition.md`](docs/runbooks/cost-decomposition.md).
@@ -340,7 +359,7 @@ The known gaps above are tracked in the open on the **[roadmap](ROADMAP.md)**, o
 
 ### Quality
 - **Evaluation Framework**: Deterministic offline test suites for agent workflows (the `fd-evals` framework runs the reproducible benchmarks above). **⚠ [dashboard data BFF-stubbed](#project-status--limitations)** — the dashboard's `/api/v1/evals/*` routes return empty until a gateway eval backend lands ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
-- **Regression Gating**: the eval suite reports quality regressions between versions. **⚠ [scheduled eval, not a PR merge gate](#project-status--limitations)** — `evals.yml` runs on a daily schedule + on demand (not on push/PR, and `ci.yml` has no eval job), so a regression does not block a merge today ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
+- **Regression Gating**: the eval suite reports quality regressions between versions. **⚠ [PR gate covers the 3 deterministic suites; LLM-judged suite stays nightly](#project-status--limitations)** — `ci.yml`'s `eval-regression` job runs the injection-defense / ASB / governed-vs-ungoverned suites + the real `fd_policy` engine pins on every push + PR (no services, no secrets), so a golden-fixture or engine-pin regression blocks a merge. The LLM-judged smoke/regression suite still runs nightly in `evals.yml`, not on PRs ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
 - **Baseline Comparisons**: Track performance across versions. **⚠ [dashboard data BFF-stubbed](#project-status--limitations)** — the baseline view reads the same stubbed `/api/v1/evals/*` data ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
 - **Per-harness eval dimension (Harness-Bench)**: fd-evals reports at the `(model × harness_config)` level — same model under different harness configs can produce different scores. Each run records its `tools_available`, `permission_tier`, `state_recovery`, and `tracing` config alongside the existing baseline, the dashboard groups results by `(model × harness)` with a side-by-side Recharts bar chart, and `DeltaReport` exposes a per-dimension diff (added/removed tools, tier change, recovery change). See [`docs/runbooks/harness-config.md`](docs/runbooks/harness-config.md).
 - **Training-signal export (trace→signal, HarnessX)**: closes the eval loop the other way — projects a run's trace into a JSONL of `(state, action, observation, outcome_score)` tuples for downstream training/eval. Built **server-side** at `POST /v1/runs/{id}/training-signal`, where every `state`/`observation` is run through the **existing audit redaction path** (`fd_audit::redaction`) so PII/secrets are stripped before they ever leave the control plane; `outcome_score` is trace-intrinsic (step status) with an optional eval-supplied `run_score` override. The dashboard exposes a per-suite/per-run "Download training signal" action.

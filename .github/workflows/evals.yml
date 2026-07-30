@@ -1,5 +1,13 @@
 name: Evaluations
 
+# This workflow runs the NIGHTLY, LLM-judged evaluation suite (the smoke /
+# regression / all suites, which need model calls and a live stack). The
+# DETERMINISTIC governance suites — injection-defense, ASB, and
+# governed-vs-ungoverned, plus the real `fd_policy` engine pins — are gated on
+# every push + PR by the `eval-regression` job in ci.yml (no services, no
+# secrets), so a fixture/pin regression blocks a merge without waiting for the
+# nightly run. Keep that split: fast + deterministic on PRs here-in-ci, slow +
+# LLM-judged on a schedule here. See ROADMAP #7.
 on:
   # Run on schedule (daily at 2 AM UTC)
   schedule:
