@@ -1,25 +1,45 @@
-"""Pytest fixtures for FerrumDeck security tests."""
+"""Pytest fixtures for FerrumDeck security tests.
+
+These tests run against a live gateway (`make quickstart`) and are excluded from
+the CI-gating count. Two things previously made the whole suite a no-op:
+
+* the readiness probe hit ``/health/live``, which the gateway does not serve
+  (its health routes are ``/health`` and ``/ready``), so `ensure_services_running`
+  skipped **unconditionally** — even against a running gateway; and
+* the default API key was ``fd_test_key``, which is not the seeded dev key.
+
+Both are fixed here so the suite actually exercises the gateway. The gateway API
+is served under ``/v1`` (``/api/v1`` is the Next.js BFF, a different service);
+behavioural tests below therefore call ``/v1/...`` directly.
+"""
 
 import os
 import time
-from typing import Generator
+from collections.abc import Generator
 
 import httpx
 import pytest
 
 # Test configuration
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8080")
-VALID_API_KEY = os.getenv("FD_API_KEY", "fd_test_key")
-ADMIN_API_KEY = os.getenv("FD_ADMIN_API_KEY", "fd_admin_key")
-READ_ONLY_API_KEY = os.getenv("FD_READ_ONLY_API_KEY", "fd_readonly_key")
+# The seeded dev key (db/migrations/20241223000002_seed_dev_data.sql), scopes
+# read/write/admin. Override with FD_API_KEY for a differently-seeded stack.
+VALID_API_KEY = os.getenv("FD_API_KEY", "fd_dev_key_abc123")
+ADMIN_API_KEY = os.getenv("FD_ADMIN_API_KEY", "fd_dev_key_abc123")
+READ_ONLY_API_KEY = os.getenv("FD_READ_ONLY_API_KEY", "fd_dev_key_abc123")
+
+# Agent seeded by the dev migration, with a known allowlist
+# (git_read / git_write / test_run / github_create_pr). Used to create a run so
+# the enforcement path (`/v1/runs/{id}/check-tool`) can be exercised.
+SEED_AGENT_ID = os.getenv("FD_SEED_AGENT_ID", "agt_01JFVX0000000000000000001")
 
 
 def wait_for_service(url: str, timeout: int = 30) -> bool:
-    """Wait for a service to become available."""
+    """Wait for the gateway to become available (its health route is `/health`)."""
     start = time.time()
     while time.time() - start < timeout:
         try:
-            resp = httpx.get(f"{url}/health/live", timeout=2.0)
+            resp = httpx.get(f"{url}/health", timeout=2.0)
             if resp.status_code == 200:
                 return True
         except Exception:
@@ -88,6 +108,53 @@ def unauthenticated_client() -> Generator[httpx.Client, None, None]:
         timeout=30.0,
     ) as client:
         yield client
+
+
+@pytest.fixture
+def created_run(api_client: httpx.Client) -> str:
+    """Create a run against the seeded agent and return its id.
+
+    The Airlock enforcement path is `POST /v1/runs/{run_id}/check-tool`, so a
+    behavioural test needs a real run to check tools against. Fails loudly if the
+    run cannot be created — a security test must not silently pass when its setup
+    is broken.
+    """
+    resp = api_client.post(
+        "/v1/runs",
+        json={"agent_id": SEED_AGENT_ID, "input": {"task": "security-test"}},
+    )
+    assert resp.status_code in (200, 201), (
+        f"could not create run for the seeded agent {SEED_AGENT_ID}: "
+        f"{resp.status_code} {resp.text}"
+    )
+    run_id = resp.json()["id"]
+    assert run_id
+    return run_id
+
+
+@pytest.fixture
+def check_tool(api_client: httpx.Client):
+    """Return a helper that calls the enforcement endpoint and returns the JSON.
+
+    The response carries `allowed`, `blocked_by_airlock`, `risk_score`,
+    `risk_level`, and `violation_type` (present whenever Airlock detects a
+    violation, in shadow OR enforce mode). `violation_type` is the gateway's
+    debug-lowercased form of the Rust `ViolationType` variant — e.g.
+    `RcePattern` -> "rcepattern", `ExfiltrationAttempt` -> "exfiltrationattempt",
+    `IpAddressUsed` -> "ipaddressused".
+    """
+
+    def _check(run_id: str, tool_name: str, tool_input: dict) -> dict:
+        resp = api_client.post(
+            f"/v1/runs/{run_id}/check-tool",
+            json={"tool_name": tool_name, "tool_input": tool_input},
+        )
+        assert resp.status_code == 200, (
+            f"check-tool should evaluate the call, got {resp.status_code}: {resp.text}"
+        )
+        return resp.json()
+
+    return _check
 
 
 @pytest.fixture
