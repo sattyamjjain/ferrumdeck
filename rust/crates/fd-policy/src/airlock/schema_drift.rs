@@ -15,7 +15,7 @@ use fd_core::ToolVersionId;
 use jsonschema::JSONSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tracing::{debug, warn};
 
 /// Categories of drift between an actual payload and the registered schema.
@@ -64,10 +64,17 @@ pub struct SchemaDriftDetails {
 
 /// Cache of compiled JSON Schemas, keyed by `ToolVersionId`.
 ///
-/// Build once at gateway startup from `fd_registry::ToolVersion.input_schema`,
-/// then share via `Arc` to every inspection.
+/// Seeded at gateway startup from `fd_registry::ToolVersion.input_schema` and
+/// shared via `Arc` to every inspection. The map is behind an [`RwLock`] and
+/// **interior-mutable** so a tool version registered *after* boot can be added
+/// live via [`Self::upsert`] from the registry write path — a call the gateway
+/// makes in its `create_tool` handler, so a freshly-registered tool is
+/// drift-checked without a restart (#13). Inspections take a read lock (many
+/// concurrent readers); registry writes take a brief write lock. Compilation
+/// happens *outside* the write lock, so the critical section is a single
+/// `HashMap` insert and can never poison the lock.
 pub struct SchemaDriftGuard {
-    schemas: HashMap<ToolVersionId, Arc<JSONSchema>>,
+    schemas: RwLock<HashMap<ToolVersionId, Arc<JSONSchema>>>,
 }
 
 impl SchemaDriftGuard {
@@ -94,30 +101,74 @@ impl SchemaDriftGuard {
                 }
             }
         }
-        Self { schemas }
+        Self {
+            schemas: RwLock::new(schemas),
+        }
     }
 
     /// Empty guard — used when schema-drift is disabled or no tool versions
     /// have been registered yet.
     pub fn empty() -> Self {
         Self {
-            schemas: HashMap::new(),
+            schemas: RwLock::new(HashMap::new()),
         }
     }
 
     pub fn len(&self) -> usize {
-        self.schemas.len()
+        self.read().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.schemas.is_empty()
+        self.read().is_empty()
     }
 
-    /// Returns `None` when the payload conforms to the registered schema
-    /// (or no schema is registered for this tool version), and
-    /// `Some(violation)` otherwise. The violation's `details` field carries
-    /// a JSON-encoded [`SchemaDriftDetails`] for the dashboard / worker to
-    /// surface to the LLM.
+    /// Whether a compiled schema is registered for `tool_version_id`.
+    pub fn contains(&self, tool_version_id: &ToolVersionId) -> bool {
+        self.read().contains_key(tool_version_id)
+    }
+
+    /// Compile `schema` and register (or replace) the entry for
+    /// `tool_version_id`, live, without a rebuild or restart. Call this from the
+    /// registry write path right after a tool version is persisted (#13).
+    ///
+    /// Returns `true` if the schema compiled and is now enforced, `false` if it
+    /// failed to compile (logged and skipped — same policy as [`Self::new`], the
+    /// version simply gets no drift coverage). Compilation is done before the
+    /// write lock is taken, so the write critical section is a single insert.
+    pub fn upsert(&self, tool_version_id: ToolVersionId, schema: &serde_json::Value) -> bool {
+        match JSONSchema::compile(schema) {
+            Ok(compiled) => {
+                self.write().insert(tool_version_id, Arc::new(compiled));
+                debug!(tool_version_id = %tool_version_id, "schema-drift guard entry upserted");
+                true
+            }
+            Err(err) => {
+                warn!(
+                    tool_version_id = %tool_version_id,
+                    error = %err,
+                    "schema-drift upsert: uncompilable input schema; this tool version will not be drift-checked",
+                );
+                false
+            }
+        }
+    }
+
+    fn read(&self) -> std::sync::RwLockReadGuard<'_, HashMap<ToolVersionId, Arc<JSONSchema>>> {
+        // The write critical section is insert-only and panic-free, so the lock
+        // cannot be poisoned; recover defensively rather than panic in-path.
+        self.schemas.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn write(&self) -> std::sync::RwLockWriteGuard<'_, HashMap<ToolVersionId, Arc<JSONSchema>>> {
+        self.schemas.write().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Returns `None` when the payload conforms to the registered schema, and
+    /// `Some(violation)` otherwise. When no schema is registered for this tool
+    /// version the result depends on `config.fail_closed_on_unregistered`:
+    /// `false` (default) skips (fail-open), `true` returns a drift violation
+    /// (fail-closed). The violation's `details` field carries a JSON-encoded
+    /// [`SchemaDriftDetails`] for the dashboard / worker to surface to the LLM.
     pub fn check(
         &self,
         tool_version_id: &ToolVersionId,
@@ -127,7 +178,18 @@ impl SchemaDriftGuard {
         if !config.enabled {
             return None;
         }
-        let schema = self.schemas.get(tool_version_id)?;
+        // Clone the Arc out under the read lock, then release it before the
+        // (potentially non-trivial) validation so we never hold the lock across
+        // it and block a registry write.
+        let schema = match self.read().get(tool_version_id) {
+            Some(s) => Arc::clone(s),
+            None => {
+                if config.fail_closed_on_unregistered {
+                    return Some(unregistered_violation(tool_version_id, config));
+                }
+                return None;
+            }
+        };
         let validation = schema.validate(payload);
         let errors = match validation {
             Ok(()) => return None,
@@ -199,6 +261,35 @@ fn classify_kind(kind: &jsonschema::error::ValidationErrorKind) -> DriftKind {
     }
 }
 
+/// The violation emitted when `fail_closed_on_unregistered` is set and a call
+/// carries a `tool_version_id` the guard has no compiled schema for. It is a
+/// `SchemaDrift` violation (same layer, same downstream handling) whose single
+/// delta records that the schema itself is missing.
+fn unregistered_violation(
+    tool_version_id: &ToolVersionId,
+    config: &SchemaDriftConfig,
+) -> AirlockViolation {
+    let risk_score = config.risk_score.min(100);
+    let deltas = vec![DriftDelta {
+        field: "/".to_string(),
+        kind: DriftKind::PayloadShape,
+        message: "no registered schema for this tool version (fail-closed)".to_string(),
+    }];
+    let details = SchemaDriftDetails {
+        tool_version_id: tool_version_id.to_string(),
+        deltas,
+    };
+    let serialized = serde_json::to_string(&details)
+        .unwrap_or_else(|_| format!("schema_drift: unregistered tool_version {tool_version_id}"));
+    AirlockViolation {
+        violation_type: ViolationType::SchemaDrift,
+        risk_score,
+        risk_level: RiskLevel::from_score(risk_score),
+        details: serialized,
+        trigger: "schema_drift:unregistered".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +311,7 @@ mod tests {
         SchemaDriftConfig {
             enabled: true,
             risk_score: 70,
+            fail_closed_on_unregistered: false,
         }
     }
 
@@ -338,6 +430,77 @@ mod tests {
         let guard = SchemaDriftGuard::new([(tv_id, bad_schema)]);
         // Bad schemas are logged and skipped; the tool version simply has no
         // drift-check coverage.
-        assert!(guard.is_empty() || !guard.schemas.contains_key(&tv_id));
+        assert!(guard.is_empty() || !guard.contains(&tv_id));
+    }
+
+    #[test]
+    fn upsert_registers_a_version_after_construction() {
+        // Post-boot state: an empty guard. Registering a version live must make
+        // the guard drift-check it without a rebuild (#13).
+        let guard = SchemaDriftGuard::empty();
+        let tv_id = ToolVersionId::new();
+        assert!(!guard.contains(&tv_id));
+        // Unknown version is skipped (fail-open default) before registration.
+        assert!(guard
+            .check(&tv_id, &json!({"name": "Ada"}), &config())
+            .is_none());
+
+        assert!(guard.upsert(tv_id, &person_schema()));
+        assert!(guard.contains(&tv_id));
+
+        // Now a drifted payload for that same version is caught — no restart.
+        let violation = guard
+            .check(&tv_id, &json!({"name": "Ada"}), &config())
+            .expect("drift must be caught once the version is registered live");
+        assert_eq!(violation.violation_type, ViolationType::SchemaDrift);
+        // A conforming payload still passes.
+        assert!(guard
+            .check(&tv_id, &json!({"name": "Ada", "age": 36}), &config())
+            .is_none());
+    }
+
+    #[test]
+    fn upsert_replaces_an_existing_entry() {
+        let tv_id = ToolVersionId::new();
+        let guard = SchemaDriftGuard::new([(tv_id, person_schema())]);
+        // Evolve the schema: now only `name` is required.
+        let looser = json!({
+            "type": "object",
+            "required": ["name"],
+            "properties": { "name": { "type": "string" } }
+        });
+        assert!(guard.upsert(tv_id, &looser));
+        // A payload that violated the old schema (missing `age`) now passes.
+        assert!(guard
+            .check(&tv_id, &json!({"name": "Ada"}), &config())
+            .is_none());
+    }
+
+    #[test]
+    fn fail_closed_blocks_an_unregistered_version() {
+        let guard = SchemaDriftGuard::empty();
+        let tv_id = ToolVersionId::new();
+        let mut cfg = config();
+        // Default (fail-open): an unregistered version passes.
+        assert!(guard.check(&tv_id, &json!({"x": 1}), &cfg).is_none());
+        // Opt into fail-closed: the same unregistered version is now blocked.
+        cfg.fail_closed_on_unregistered = true;
+        let violation = guard
+            .check(&tv_id, &json!({"x": 1}), &cfg)
+            .expect("fail-closed must block an unregistered tool version");
+        assert_eq!(violation.violation_type, ViolationType::SchemaDrift);
+        assert_eq!(violation.trigger, "schema_drift:unregistered");
+        // Once registered, a conforming payload passes even under fail-closed.
+        assert!(guard.upsert(tv_id, &json!({"type": "object"})));
+        assert!(guard.check(&tv_id, &json!({"x": 1}), &cfg).is_none());
+    }
+
+    #[test]
+    fn upsert_rejects_an_uncompilable_schema() {
+        let guard = SchemaDriftGuard::empty();
+        let tv_id = ToolVersionId::new();
+        // `{"type": 42}` is valid JSON but not a valid schema.
+        assert!(!guard.upsert(tv_id, &json!({"type": 42})));
+        assert!(!guard.contains(&tv_id));
     }
 }

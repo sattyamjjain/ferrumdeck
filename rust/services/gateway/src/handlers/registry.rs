@@ -6,6 +6,7 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
+use fd_core::ToolVersionId;
 use fd_storage::models::{
     AgentStatus, CreateAgent, CreateAgentVersion, CreateTool, CreateToolVersion, ToolRiskLevel,
 };
@@ -445,7 +446,15 @@ pub async fn create_tool(
             .to_string();
 
     let tool_id = format!("tol_{}", Ulid::new());
-    let version_id = format!("tlv_{}", Ulid::new());
+    // Mint the version id through the typed `ToolVersionId` (prefix `tov_`) so
+    // it round-trips through `ToolVersionId::parse` in the boot seed and in
+    // `check_tool_policy`. A literal `tlv_` prefix does NOT parse as a
+    // ToolVersionId, which silently dropped every gateway-created version from
+    // the schema-drift guard — the schema-drift layer never fired on real
+    // tools. Keep the typed id so we can register its schema live below.
+    let tool_version_id = ToolVersionId::new();
+    let version_id = tool_version_id.to_string();
+    let input_schema = request.input_schema;
 
     let create_tool = CreateTool {
         id: tool_id.clone(),
@@ -465,12 +474,27 @@ pub async fn create_tool(
         id: version_id,
         tool_id: tool_id.clone(),
         version: "1.0.0".to_string(),
-        input_schema: request.input_schema,
+        input_schema: input_schema.clone(),
         output_schema: request.output_schema,
         changelog: Some("Initial version".to_string()),
     };
 
     repos.tools().create_version(create_version).await?;
+
+    // Register this version's input schema with the live Airlock schema-drift
+    // guard so its payloads are drift-checked immediately — no gateway restart
+    // (#13). Persist-then-register: the DB row is the source of truth, and a
+    // guard entry without a matching row is harmless; the reverse would let an
+    // uninspected version through until restart.
+    let registered = state
+        .schema_drift_guard
+        .upsert(tool_version_id, &input_schema);
+    tracing::info!(
+        tool_id = %tool_id,
+        tool_version_id = %tool_version_id,
+        schema_registered = registered,
+        "registered tool; schema-drift guard updated live"
+    );
 
     Ok((StatusCode::CREATED, Json(tool_to_response(tool))))
 }

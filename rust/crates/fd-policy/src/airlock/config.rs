@@ -165,6 +165,22 @@ pub struct SchemaDriftConfig {
     /// Risk score (0-100) assigned to drift violations. Clamped to 100.
     #[serde(default = "default_schema_drift_risk_score")]
     pub risk_score: u8,
+
+    /// What to do when a call carries a `tool_version_id` for which the guard
+    /// holds **no compiled schema** (registered-but-not-yet-populated, or a
+    /// schema that failed to compile).
+    ///
+    /// * `false` (default) — **fail-open**: skip the check and let the call
+    ///   through. This preserves the historical behaviour and never blocks a
+    ///   call merely because its schema is unknown.
+    /// * `true` — **fail-closed**: treat the missing schema as a drift
+    ///   violation and block (enforce) / record (shadow). For a deny-by-default
+    ///   enforcement plane this is the stricter, arguably-correct posture, but
+    ///   it can reject live traffic for any tool version the guard has not seen,
+    ///   so it is opt-in. The gateway exposes it via
+    ///   `FERRUMDECK_SCHEMA_DRIFT_FAIL_CLOSED=true`.
+    #[serde(default = "default_schema_drift_fail_closed")]
+    pub fail_closed_on_unregistered: bool,
 }
 
 impl Default for SchemaDriftConfig {
@@ -172,12 +188,17 @@ impl Default for SchemaDriftConfig {
         Self {
             enabled: true,
             risk_score: default_schema_drift_risk_score(),
+            fail_closed_on_unregistered: default_schema_drift_fail_closed(),
         }
     }
 }
 
 fn default_schema_drift_risk_score() -> u8 {
     70
+}
+
+fn default_schema_drift_fail_closed() -> bool {
+    false
 }
 
 /// Behavioral-drift (per-agent rolling z-score) configuration

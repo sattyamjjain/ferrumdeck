@@ -27,6 +27,11 @@ pub struct AppState {
     /// Airlock security inspector
     pub airlock: Arc<AirlockInspector>,
 
+    /// The schema-drift guard the inspector holds, shared here so registry
+    /// write paths can register a new tool version's schema live (#13). Same
+    /// `Arc` as inside `airlock`; interior-mutable behind an `RwLock`.
+    pub schema_drift_guard: Arc<SchemaDriftGuard>,
+
     /// Coherence-divergence monitor (Strained Coherence, arXiv:2606.07889) —
     /// a trajectory-level Airlock RASP signal fed live from the run's step
     /// stream. One monitor shared across the process; it keys per-run state by
@@ -194,8 +199,19 @@ impl AppState {
             _ => AirlockMode::Shadow, // Default to shadow mode for safety
         };
 
+        // Schema-drift posture for tool versions the guard has no schema for
+        // (registered-but-not-yet-populated, or an uncompilable schema).
+        // Default fail-open (skip); opt into deny-by-default with
+        // FERRUMDECK_SCHEMA_DRIFT_FAIL_CLOSED=true.
+        let schema_drift_fail_closed = std::env::var("FERRUMDECK_SCHEMA_DRIFT_FAIL_CLOSED")
+            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+            .unwrap_or(false);
         let airlock_config = AirlockConfig {
             mode: airlock_mode,
+            schema_drift: fd_policy::airlock::config::SchemaDriftConfig {
+                fail_closed_on_unregistered: schema_drift_fail_closed,
+                ..fd_policy::airlock::config::SchemaDriftConfig::default()
+            },
             ..AirlockConfig::default()
         };
 
@@ -210,16 +226,15 @@ impl AppState {
         // unless it holds a guard/monitor AND the per-call context carries a
         // tool_version_id / agent_id (populated in `check_tool_policy`). See #4.
         //
-        // BOOT-POPULATION LIMITATION: the schema-drift guard is compiled ONCE
-        // here from the `tool_versions` table. A tool version registered *after*
-        // boot is not in the guard until the gateway restarts, so its payloads
-        // are not schema-drift-checked in the meantime — fail-open by
-        // construction (an unknown tool_version_id is skipped, never blocked).
-        // Refreshing the guard on registry writes is a follow-up
-        // (https://github.com/sattyamjjain/ferrumdeck/issues/13). The
-        // behavioral-drift monitor is a single process-wide instance so its
-        // per-agent rolling baselines accumulate across every run.
-        let schema_guard = match ToolsRepo::new(db.clone()).list_all_versions().await {
+        // The schema-drift guard is SEEDED here from the `tool_versions` table,
+        // then kept current at runtime: `create_tool` calls `guard.upsert(..)`
+        // on every registry write, so a tool version registered after boot is
+        // drift-checked without a restart (#13). We keep the same `Arc` in
+        // `AppState.schema_drift_guard` so those handlers reach the very guard
+        // the inspector reads. The behavioral-drift monitor is a single
+        // process-wide instance so its per-agent baselines accumulate across
+        // every run.
+        let schema_guard = Arc::new(match ToolsRepo::new(db.clone()).list_all_versions().await {
             Ok(versions) => {
                 let pairs = versions.into_iter().filter_map(|tv| {
                     ToolVersionId::parse(&tv.id)
@@ -229,7 +244,7 @@ impl AppState {
                 let guard = SchemaDriftGuard::new(pairs);
                 tracing::info!(
                     schema_count = guard.len(),
-                    "Airlock schema-drift guard populated at boot"
+                    "Airlock schema-drift guard seeded at boot"
                 );
                 guard
             }
@@ -237,16 +252,16 @@ impl AppState {
                 tracing::warn!(
                     error = %e,
                     "failed to load tool versions for schema-drift guard; \
-                     starting empty (schema-drift fails open until restart)"
+                     starting empty (registry writes will populate it live)"
                 );
                 SchemaDriftGuard::empty()
             }
-        };
+        });
         let behavioral_monitor = Arc::new(BehavioralDriftMonitor::new());
 
         let airlock = Arc::new(
             AirlockInspector::new(airlock_config)
-                .with_schema_drift_guard(Arc::new(schema_guard))
+                .with_schema_drift_guard(Arc::clone(&schema_guard))
                 .with_behavioral_drift_monitor(behavioral_monitor),
         );
 
@@ -279,6 +294,7 @@ impl AppState {
             db: db.clone(),
             policy_engine,
             airlock,
+            schema_drift_guard: schema_guard,
             coherence,
             coherence_config,
             coherence_enforce,

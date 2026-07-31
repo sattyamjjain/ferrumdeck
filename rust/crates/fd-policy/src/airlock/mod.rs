@@ -37,11 +37,12 @@
 //!    - Blocks raw IP addresses (prevents C2 connections)
 //!    - URL extraction from nested JSON payloads
 //!
-//! **Boot-population limitation:** the schema-drift guard is compiled once at
-//! gateway boot from the `tool_versions` table. A tool version registered after
-//! boot is not schema-drift-checked until the gateway restarts (fail-open by
-//! construction). Tracked in
-//! <https://github.com/sattyamjjain/ferrumdeck/issues/13>.
+//! The schema-drift guard is seeded at gateway boot from the `tool_versions`
+//! table and kept current at runtime: the registry write path calls
+//! [`schema_drift::SchemaDriftGuard::upsert`] on each tool-version registration,
+//! so a version registered after boot is drift-checked without a restart. A
+//! call whose tool version has no compiled schema is fail-open by default; set
+//! `SchemaDriftConfig::fail_closed_on_unregistered` to block it instead.
 //!
 //! ## Operating Modes
 //!

@@ -243,10 +243,12 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
   **behavioral-drift monitor** (per-agent rolling z-score on cost) when the run's
   agent is known. The gateway attaches the guard + monitor at boot (`state.rs`)
   and threads `tool_version_id` / `agent_id` into the inspection context
-  (`check_tool_policy`). One documented limitation: the schema-drift guard is
-  compiled **once at boot** from the `tool_versions` table, so a version
-  registered *after* boot is not schema-drift-checked until restart — fail-open by
-  construction ([#13](https://github.com/sattyamjjain/ferrumdeck/issues/13)).
+  (`check_tool_policy`). The schema-drift guard is seeded at boot from the
+  `tool_versions` table and **refreshed live** on every tool registration
+  (`create_tool` calls `guard.upsert`), so a version registered after boot is
+  drift-checked without a restart. A tool version with no compiled schema is
+  fail-open by default; `FERRUMDECK_SCHEMA_DRIFT_FAIL_CLOSED=true` flips that
+  case to deny-by-default.
 - **Enforcement on the agentic execution path.** The Python worker's in-loop
   agentic executor authorizes **every** tool call against the control-plane
   `check-tool` endpoint *before* it runs: `allow` → execute, `deny` → refuse,
@@ -331,7 +333,7 @@ The known gaps above are tracked in the open on the **[roadmap](ROADMAP.md)**, o
 - **Budget Enforcement**: Automatic run termination when limits exceeded (tokens, cost, time)
 - **Predictive Budget Forecast**: Deterministic linear + EWMA projection of end-of-run cost after every step, surfacing a `budget_breach_projected` flag on the run API + SSE event (`run.forecast.updated`) before the auto-kill fires. See [`docs/runbooks/budget-forecast.md`](docs/runbooks/budget-forecast.md).
 - **Policy Engine**: Configurable rules for tool access and risk management
-- **[Airlock RASP](#airlock-rasp)**: Five runtime self-protection layers — anti-RCE pattern matcher, financial circuit breaker, data-exfiltration shield, schema-drift guard, behavioral-drift monitor — in `shadow` or `enforce` mode. **All five fire at the gateway tool-policy check**: anti-RCE / financial / exfil on every call, schema-drift when the tool has a registered version, behavioral-drift when the run's agent is known. One documented limitation: the schema-drift guard is compiled **once at boot** from the tool registry, so a tool version registered *after* boot is not schema-drift-checked until the gateway restarts (fail-open by construction — [#13](https://github.com/sattyamjjain/ferrumdeck/issues/13)).
+- **[Airlock RASP](#airlock-rasp)**: Five runtime self-protection layers — anti-RCE pattern matcher, financial circuit breaker, data-exfiltration shield, schema-drift guard, behavioral-drift monitor — in `shadow` or `enforce` mode. **All five fire at the gateway tool-policy check**: anti-RCE / financial / exfil on every call, schema-drift when the tool has a registered version, behavioral-drift when the run's agent is known. The schema-drift guard is seeded at boot and **refreshed live on every tool registration** (no restart needed); a tool version with no compiled schema is fail-open by default, or deny-by-default under `FERRUMDECK_SCHEMA_DRIFT_FAIL_CLOSED=true`.
 - **Explicit Conflict Resolution + Decision Traces**: When multiple policies match a tool call, a named precedence function (`Deny > RequiresApproval > BudgetCap > Allow`) picks the winner deterministically, and every decision carries an audit-grade trace of matched verdicts and overrides surfaced on the run API + `policy.decision.explained` SSE event. See [`docs/runbooks/policy-conflict-resolution.md`](docs/runbooks/policy-conflict-resolution.md).
 - **Routing-Decision Audit (multi-agent coordination)**: Every time the orchestrator binds a subtask to a concrete agent / role / model, a `RoutingDecision` record (candidates considered, chosen binding, reason code, SHA-256 content hash) is written through the existing immutable audit trail and surfaced on `GET /v1/runs/{id}/routing` plus the `routing.decision.recorded` SSE event. fd-evals replays compare the content hash to detect coordination drift. Anchor: AgensFlow ([arXiv:2605.27466](https://arxiv.org/abs/2605.27466)). See [`docs/runbooks/routing-decision-audit.md`](docs/runbooks/routing-decision-audit.md).
 - **Champion-Challenger Promotion Gate**: A registered challenger version cannot replace the live champion until it clears a deterministic gate — configurable metric thresholds (inclusive floors) **plus** a required human approval. Deny-by-default: the challenger stays in shadow until explicitly promoted. The decision + metric evidence (SHA-256 content hash for tamper-evidence) flow through the **same** `PolicyDecision` channel every gate uses and are written to the immutable audit trail. Exposed on `POST /v1/promotions/evaluate` (write scope) + `GET /v1/promotions/{agent_id}`, surfaced on the agent dashboard (champion vs challenger + gate status). See [`docs/runbooks/champion-challenger-promotion.md`](docs/runbooks/champion-challenger-promotion.md).
