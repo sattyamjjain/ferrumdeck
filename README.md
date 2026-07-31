@@ -305,16 +305,20 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
 
 **Testing caveat.** The unit/lint suites (`cargo test --workspace`, clippy,
 `ruff`, jest) pass and gate CI. The `tests/security`, `tests/chaos`, and
-`tests/e2e` suites require a live stack (`make dev-up`) and currently assert
-liveness more than behaviour — do not read them as proof that a given attack is
-blocked. Hardening them is in progress.
+`tests/e2e` suites require a live stack (`make dev-up`) and skip without it.
+Hardening them to assert behaviour (not liveness) is in progress
+([#6](https://github.com/sattyamjjain/ferrumdeck/issues/6)): `test_airlock.py`
+and `test_policy_engine.py` now assert the actual enforcement decision (the
+specific `violation_type` + risk band, deny-by-default denying an unknown tool),
+but the remaining security/chaos/e2e tests still assert liveness — do not yet
+read those as proof that a given attack is blocked.
 
-**Automated test coverage.** The CI-gating unit/lint suites total **1,872**
-tests, re-derivable with `make claims-recount`: Rust **707**
+**Automated test coverage.** The CI-gating unit/lint suites total **1,878**
+tests, re-derivable with `make claims-recount`: Rust **713**
 (`cargo test --workspace -- --list`), Python unit **512** (`pytest` over the four
 `python/packages/*/tests` the CI unit job runs), frontend **603**
 (`jest`), and API-contract **50** (`pytest tests/api`). The live-stack suites —
-`tests/security` (66), `tests/chaos` (16), `tests/e2e` (43) — need `make dev-up`,
+`tests/security` (70), `tests/chaos` (16), `tests/e2e` (43) — need `make dev-up`,
 **skip without it**, and (per the caveat above) assert liveness more than
 behaviour, so they are **excluded from that headline**; `tests/integration` (81)
 is likewise live-stack and non-gating. These counts live in the single source
