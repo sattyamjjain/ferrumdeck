@@ -58,6 +58,28 @@ is a denormalised flattening of this same struct for SQLx and is *not* a
 separate schema — it is the persistence shim. The wire contract is the
 `fd-audit` shape above.
 
+### Integrity fields (persistence projection)
+
+The persistence projection additionally carries three **tamper-evidence** fields
+(migration `20260801000001`), populated by `AuditRepo::create` — never by a
+caller:
+
+| Field         | Semantics                                                                                            |
+| ------------- | ---------------------------------------------------------------------------------------------------- |
+| `prev_hash`   | The predecessor record's `record_hash` in this tenant's chain. `null` only for a genesis row.        |
+| `record_hash` | Lowercase-hex SHA-256 over `prev_hash \|\| 0x1f \|\| canonical_encoding(record)` — the tamper-evidence commitment. Canonicalization sorts `details` keys, so JSONB reordering on round-trip does not change it. |
+| `chain_seq`   | Monotonic per-tenant position (genesis = 1). A gap means a record was removed.                        |
+
+These are **persistence-level integrity metadata layered over** the wire
+contract, not part of it: the `fd-audit` receipts shape above is unchanged, and
+an FP-aware consumer can ignore them. They exist so a verifier
+(`AuditRepo::verify_chain`, `fd_audit::chain::verify_chain`) can detect any
+insertion, deletion, or edit within a tenant's chain. **Residual limitation:**
+detectable, not tamper-*proof* — a whole-tail rewrite is only caught once the
+chain head is externally anchored ([#14](https://github.com/sattyamjjain/ferrumdeck/issues/14)).
+Pre-migration rows sit outside the chain (`null` hashes) by design; the chain's
+genesis is the first row inserted per tenant after the migration.
+
 ## Foundation-Protocol mapping
 
 Foundation Protocol decomposes any agent-economy interaction into a fixed set

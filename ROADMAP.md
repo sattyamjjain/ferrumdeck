@@ -66,29 +66,33 @@ is a feature.
   eval-run dashboard renders a real run end-to-end.
 - **Tracking:** [#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)
 
-### Audit tamper-evidence: cryptographic hash-chain
-- **Problem:** the audit trail is append-only — enforced by the repo API (no
-  `UPDATE`/`DELETE` path) **and** a DB trigger (`trg_audit_events_append_only`,
-  migration `20260719000001`) that rejects every `UPDATE` and rejects `DELETE`
-  within the 3-year retention floor. What is still missing is a **cryptographic
-  hash-chain**: without one the trail is not tamper-*evident* against a privileged
-  DB actor who could drop the trigger or `TRUNCATE` the table. Do not represent
-  the trail as immutable/tamper-proof for compliance until this ships.
-- **Regulatory context:** the retention *floor* already ships
-  (`RETENTION_FLOOR_YEARS = 3` in `rust/crates/fd-policy/src/colorado_sb26_189.rs`,
-  enforced by migration `db/migrations/20260719000001_add_audit_retention_floor.sql`),
-  motivated by **Colorado SB 26-189** (effective **2027-01-01**), which requires
-  developers and deployers to retain compliance records for **not less than three
-  years** (<https://leg.colorado.gov/bills/sb26-189>). Tamper-*evidence* is the
-  remaining gap between "we keep the records for 3 years" and "we can prove they
-  weren't altered."
-- **Lives in:** `rust/crates/fd-audit/` (event write path) + `db/migrations/`.
-- **Done:** each audit event carries a hash chained to its predecessor and a
-  verifier can detect any insertion/deletion/edit — including one made by a
-  privileged actor who bypasses the existing `UPDATE`/`DELETE`-rejecting trigger
-  (e.g. by dropping it or `TRUNCATE`-ing). The DB-level `UPDATE`/`DELETE` reject
-  trigger already ships (see Problem); the hash-chain is the remaining work.
-- **Tracking:** [#8](https://github.com/sattyamjjain/ferrumdeck/issues/8)
+### Externally anchor the audit hash-chain head (tamper-proof, not just tamper-evident)
+- **Shipped in 0.7.16 ([#8](https://github.com/sattyamjjain/ferrumdeck/issues/8), closed):**
+  the audit trail is append-only (repo API + `trg_audit_events_append_only`
+  trigger) **and hash-chained** — migration `20260801000001` adds
+  `prev_hash`/`record_hash`/`chain_seq`, `rust/crates/fd-audit/src/chain.rs`
+  computes a per-record SHA-256 chained to its predecessor, and
+  `AuditRepo::verify_chain` detects any insertion/deletion/edit within a tenant's
+  chain.
+- **Problem (the residual):** a hash-chain makes tampering **detectable, not
+  impossible**. A privileged actor who rewrites the *entire* tail — dropping the
+  trigger and recomputing every downstream hash — can produce a **self-consistent**
+  chain, because they hold every input. Detection only bites once the chain
+  *head* is anchored to an external, append-only medium the actor cannot rewrite.
+- **Regulatory context:** the audit trail is the evidence base for **EU AI Act
+  Art. 12/19** (record-keeping / kept logs, applicable **2026-08-02**) and
+  **Colorado SB 26-189** (3-year retention floor, effective **2027-01-01**,
+  <https://leg.colorado.gov/bills/sb26-189>). Retention says the records still
+  exist; the hash-chain lets a deployer show they were not altered — an external
+  anchor closes the "whole-tail rewrite" gap.
+- **Lives in:** `rust/crates/fd-audit/src/chain.rs` (the chain to anchor) +
+  `python/packages/fd-runtime/attestation.py` / a future `fd-audit` signer (the
+  anchor).
+- **Done:** the chain head (latest `record_hash` per tenant) is periodically
+  anchored out-of-band (signed checkpoint / transparency log / attestation), and
+  `verify_chain` cross-checks the anchored head so a rewritten-but-self-consistent
+  tail is caught by head divergence.
+- **Tracking:** [#14](https://github.com/sattyamjjain/ferrumdeck/issues/14)
 
 ---
 

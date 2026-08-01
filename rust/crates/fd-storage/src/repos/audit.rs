@@ -4,6 +4,48 @@ use crate::models::{AuditEvent, CreateAuditEvent};
 use crate::DbPool;
 use tracing::instrument;
 
+/// Error from [`AuditRepo::verify_chain`]: a database read can fail, or the
+/// chain can be broken. A broken chain is a `Broken(ChainBreak)`; a failed read
+/// is a `Query` — a read failure is *not* evidence of tampering.
+#[derive(Debug, thiserror::Error)]
+pub enum AuditChainError {
+    #[error("audit-chain read failed: {0}")]
+    Query(#[from] sqlx::Error),
+    #[error(transparent)]
+    Broken(fd_audit::ChainBreak),
+}
+
+/// Project a persisted [`AuditEvent`] row into the pure [`fd_audit::ChainRecord`]
+/// the verifier consumes. The IP is rendered from its parsed form to match how
+/// the hash was computed at insert.
+fn row_to_chain_record(row: &AuditEvent) -> fd_audit::ChainRecord {
+    let input = fd_audit::ChainInput {
+        id: row.id.clone(),
+        occurred_at: row.occurred_at,
+        actor_type: row.actor_type.clone(),
+        actor_id: row.actor_id.clone(),
+        action: row.action.clone(),
+        resource_type: row.resource_type.clone(),
+        resource_id: row.resource_id.clone(),
+        details: row.details.clone(),
+        tenant_id: row.tenant_id.clone(),
+        workspace_id: row.workspace_id.clone(),
+        project_id: row.project_id.clone(),
+        run_id: row.run_id.clone(),
+        request_id: row.request_id.clone(),
+        ip_address: row.ip_address().map(|ip| ip.to_string()),
+        user_agent: row.user_agent.clone(),
+        trace_id: row.trace_id.clone(),
+        span_id: row.span_id.clone(),
+        chain_seq: row.chain_seq.unwrap_or_default(),
+    };
+    fd_audit::ChainRecord {
+        input,
+        prev_hash: row.prev_hash.clone(),
+        record_hash: row.record_hash.clone().unwrap_or_default(),
+    }
+}
+
 /// Repository for audit event operations
 #[derive(Clone)]
 pub struct AuditRepo {
@@ -15,17 +57,89 @@ impl AuditRepo {
         Self { pool }
     }
 
-    /// Create an audit event
+    /// Create an audit event, linking it into the per-tenant hash-chain.
+    ///
+    /// The whole operation runs in **one transaction**: it locks and reads the
+    /// tenant's current chain tip (`FOR UPDATE`), then inserts with
+    /// `prev_hash` = the tip's `record_hash`, `chain_seq` = tip + 1, and a freshly
+    /// computed `record_hash`. The repo derives all three — callers never supply
+    /// a hash ([`CreateAuditEvent`] has no hash fields).
+    ///
+    /// **Throughput trade-off (documented, not hidden):** the `FOR UPDATE` row
+    /// lock **serializes audit writes per tenant** so the chain has one
+    /// well-defined order. Writes for *different* tenants still run concurrently;
+    /// a single tenant's audit inserts are linearized. At genesis there is no tip
+    /// row to lock — two racing genesis inserts are instead resolved by the
+    /// `UNIQUE(tenant, chain_seq)` index (the loser gets a unique violation and
+    /// retries).
     #[instrument(skip(self, event), fields(event_id = %event.id))]
     pub async fn create(&self, event: CreateAuditEvent) -> Result<AuditEvent, sqlx::Error> {
-        sqlx::query_as::<_, AuditEvent>(
+        use chrono::SubsecRound;
+
+        let mut tx = self.pool.begin().await?;
+
+        // Lock + read this tenant's chain tip. IS NOT DISTINCT FROM makes NULL
+        // (global/system) events share one chain rather than N distinct NULLs.
+        let tip: Option<(Option<String>, i64)> = sqlx::query_as(
+            r#"
+            SELECT record_hash, chain_seq FROM audit_events
+            WHERE tenant_id IS NOT DISTINCT FROM $1 AND chain_seq IS NOT NULL
+            ORDER BY chain_seq DESC
+            LIMIT 1
+            FOR UPDATE
+            "#,
+        )
+        .bind(&event.tenant_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let (prev_hash, chain_seq) = match tip {
+            Some((record_hash, seq)) => (record_hash, seq + 1),
+            None => (None, 1), // genesis
+        };
+
+        // Truncate to microseconds (Postgres TIMESTAMPTZ resolution) so the
+        // value we hash is bit-identical to what round-trips back on verify.
+        let occurred_at = chrono::Utc::now().trunc_subsecs(6);
+        // Canonicalize the IP to its parsed form so the hashed value matches the
+        // INET column's normalized read-back.
+        let ip_canonical = event
+            .ip_address
+            .as_ref()
+            .and_then(|s| s.parse::<std::net::IpAddr>().ok())
+            .map(|ip| ip.to_string());
+
+        let chain_input = fd_audit::ChainInput {
+            id: event.id.clone(),
+            occurred_at,
+            actor_type: event.actor_type.clone(),
+            actor_id: event.actor_id.clone(),
+            action: event.action.clone(),
+            resource_type: event.resource_type.clone(),
+            resource_id: event.resource_id.clone(),
+            details: event.details.clone(),
+            tenant_id: event.tenant_id.clone(),
+            workspace_id: event.workspace_id.clone(),
+            project_id: event.project_id.clone(),
+            run_id: event.run_id.clone(),
+            request_id: event.request_id.clone(),
+            ip_address: ip_canonical,
+            user_agent: event.user_agent.clone(),
+            trace_id: event.trace_id.clone(),
+            span_id: event.span_id.clone(),
+            chain_seq,
+        };
+        let record_hash = fd_audit::record_hash(prev_hash.as_deref(), &chain_input);
+
+        let row = sqlx::query_as::<_, AuditEvent>(
             r#"
             INSERT INTO audit_events (
                 id, actor_type, actor_id, action, resource_type, resource_id,
                 details, tenant_id, workspace_id, project_id, run_id,
-                request_id, ip_address, user_agent, trace_id, span_id
+                request_id, ip_address, user_agent, trace_id, span_id,
+                occurred_at, prev_hash, record_hash, chain_seq
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::inet, $14, $15, $16)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::inet, $14, $15, $16, $17, $18, $19, $20)
             RETURNING *
             "#,
         )
@@ -45,8 +159,44 @@ impl AuditRepo {
         .bind(&event.user_agent)
         .bind(&event.trace_id)
         .bind(&event.span_id)
-        .fetch_one(&self.pool)
+        .bind(occurred_at)
+        .bind(&prev_hash)
+        .bind(&record_hash)
+        .bind(chain_seq)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(row)
+    }
+
+    /// Verify the per-tenant audit hash-chain, oldest-first, returning the first
+    /// break. Reads the tenant's chained rows (`chain_seq IS NOT NULL`; NULL
+    /// tenant = the global chain) and delegates to [`fd_audit::verify_chain`].
+    ///
+    /// Detects any insertion, deletion, or in-place edit *within* the chain. It
+    /// does **not** catch a wholesale rewrite of the entire tail by an actor who
+    /// holds every input — that requires an external anchor on the chain head
+    /// (issue #14). Round-trip note: the hash binds `details` (canonicalized with
+    /// sorted keys, so JSONB reordering is harmless) and the IP in parsed form;
+    /// callers persisting exotic JSON number formats should be aware JSONB may
+    /// normalize them.
+    #[instrument(skip(self))]
+    pub async fn verify_chain(&self, tenant_id: Option<&str>) -> Result<(), AuditChainError> {
+        let rows: Vec<AuditEvent> = sqlx::query_as::<_, AuditEvent>(
+            r#"
+            SELECT * FROM audit_events
+            WHERE tenant_id IS NOT DISTINCT FROM $1 AND chain_seq IS NOT NULL
+            ORDER BY chain_seq ASC
+            "#,
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
         .await
+        .map_err(AuditChainError::Query)?;
+
+        let records: Vec<fd_audit::ChainRecord> = rows.iter().map(row_to_chain_record).collect();
+        fd_audit::verify_chain(&records).map_err(AuditChainError::Broken)
     }
 
     /// List audit events for a run

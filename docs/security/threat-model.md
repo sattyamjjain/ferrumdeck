@@ -332,6 +332,33 @@ CREATE TABLE threats (
 - Seccomp/AppArmor profiles
 - Resource limits
 
+### Audit Log Tampering
+**Risk:** A privileged actor alters or deletes governance records to hide a
+policy bypass, budget breach, or unauthorized action — undermining the audit
+trail's value as compliance evidence (EU AI Act Art. 12/19; Colorado SB 26-189).
+
+**Controls:**
+- **Append-only** — the repo exposes no `UPDATE`/`DELETE` path, and the
+  `trg_audit_events_append_only` trigger (migration `20260719000001`) rejects
+  every `UPDATE` and rejects `DELETE` within the 3-year retention floor.
+- **Per-tenant hash-chain** (migration `20260801000001`) — each row carries
+  `prev_hash` / `record_hash` / `chain_seq`; `record_hash` is a SHA-256 over a
+  canonical, key-sorted encoding of the record, chained to its predecessor
+  (`rust/crates/fd-audit/src/chain.rs`), computed inside a single `FOR UPDATE`
+  transaction so per-tenant order is well-defined. `AuditRepo::verify_chain`
+  detects any insertion, deletion, or in-place edit *within* a chain (a removed
+  row surfaces as a `chain_seq` gap; an edited row as a hash mismatch).
+
+**Residual risk (stated plainly):** a hash-chain makes tampering **detectable,
+not impossible**. An actor with full DB write access who rewrites the *entire*
+tail (drops the trigger, recomputes every downstream hash) can forge a
+**self-consistent** chain, because they hold every input. Detection requires
+anchoring the chain *head* to an external, append-only medium the actor cannot
+rewrite — a signed checkpoint / transparency log / attestation
+(`python/packages/fd-runtime/attestation.py` or a future `fd-audit` signer).
+Tracked as [#14](https://github.com/sattyamjjain/ferrumdeck/issues/14). Until it
+ships, treat the trail as tamper-*evident*, not tamper-*proof*.
+
 ### LLM Call Security Monitoring
 
 **Risk:** Unmonitored LLM usage can lead to cost overruns, abuse, or security incidents
