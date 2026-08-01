@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **MCP 2026-07-28 is now the ratified, current spec — restated the trace-conformance status honestly** (docs-only, no engine/API/policy change). `docs/mcp-trace-conformance.md` previously flagged 2026-07-28 as a Release Candidate that had "not shipped". It shipped: the `2026-07-28` GitHub release is `prerelease: false` (published 2026-07-28), `/specification/latest` 307-redirects to `/specification/2026-07-28`, and the versioning page states it is the current protocol version (verified live 2026-08-01). SEP-414's `_meta` conventions survived ratification unchanged — the ratified reserved-key table keeps `traceparent`/`tracestate`/`baggage` unprefixed for OpenTelemetry — so the implementation is *more* defensible now. The non-conformance caveat is **retained** on its real remaining ground (no MCP conformance suite has been run against ferrumdeck); the claim strength stays "implements / targets", not "conformant". README's Cross-MCP trace-correlation row updated to match.
+
 ## [0.7.15] - 2026-07-31
 
 ### Fixed
