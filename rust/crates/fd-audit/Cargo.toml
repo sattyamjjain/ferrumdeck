@@ -16,6 +16,12 @@ serde_json = { workspace = true }
 # Time
 chrono = { workspace = true }
 
+# Hash-chain tamper-evidence (SHA-256 over a canonical record encoding).
+# sha2 + hex are already workspace deps (fd-storage uses them for API-key
+# hashing); reused here rather than adding a new crate.
+sha2 = { workspace = true }
+hex = { workspace = true }
+
 # Error handling
 thiserror = { workspace = true }
 

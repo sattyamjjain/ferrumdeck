@@ -29,6 +29,17 @@ pub struct AuditEvent {
     pub trace_id: Option<String>,
     pub span_id: Option<String>,
     pub occurred_at: DateTime<Utc>,
+    // Hash-chain tamper-evidence (migration 20260801000001). All three are
+    // `Option` so pre-migration rows — which sit outside the chain by design —
+    // still deserialize. Genesis (the first post-migration row per tenant) has
+    // `prev_hash = None` and `chain_seq = 1`. The repo derives these; callers
+    // never supply them (see `CreateAuditEvent`, which has no hash fields).
+    #[serde(default)]
+    pub prev_hash: Option<String>,
+    #[serde(default)]
+    pub record_hash: Option<String>,
+    #[serde(default)]
+    pub chain_seq: Option<i64>,
 }
 
 impl AuditEvent {

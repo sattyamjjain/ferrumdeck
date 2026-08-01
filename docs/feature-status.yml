@@ -22,18 +22,20 @@
 key_features:
   - id: audit-tamper-evidence
     readme_row: "**Audit Trail**:"
-    marker: "not tamper-evident"
-    status: "append-only (app API + DB trigger); no hash-chain"
+    marker: "tamper-evident hash-chain; not tamper-proof without an external anchor"
+    status: "append-only (app API + DB trigger) + per-tenant SHA-256 hash-chain; detectable, not tamper-proof without an external anchor"
     evidence: >-
-      The repo exposes no UPDATE/DELETE path, and migration
-      db/migrations/20260719000001_add_audit_retention_floor.sql adds trigger
-      trg_audit_events_append_only which rejects every UPDATE and rejects DELETE
-      within the 3-year retention floor. There is NO cryptographic hash-chain in
-      rust/crates/fd-audit/ (grep for hash/prev/chain in the write path is
-      empty), so the trail is not tamper-EVIDENT against a privileged DB actor
-      who could DROP the trigger or TRUNCATE the table.
+      Migration db/migrations/20260801000001_add_audit_hash_chain.sql adds
+      prev_hash/record_hash/chain_seq; rust/crates/fd-audit/src/chain.rs computes
+      a per-record SHA-256 over a canonical encoding chained to its predecessor,
+      and AuditRepo::create links each row in one FOR UPDATE transaction (plus the
+      existing append-only trigger trg_audit_events_append_only). AuditRepo::verify_chain
+      detects any insertion/deletion/edit within a tenant's chain (proven by
+      rust/crates/fd-audit/tests/hash_chain.rs). RESIDUAL: an actor who rewrites
+      the WHOLE tail can forge a self-consistent chain unless the chain head is
+      anchored out-of-band — detectable, not impossible (issue #14).
     limitations_anchor: "#project-status--limitations"
-    roadmap_issue: 8
+    roadmap_issue: 14
 
   - id: realtime-sse
     readme_row: "**Realtime run stream (SSE)**"
@@ -97,7 +99,7 @@ test_counts:
   # Suites that gate CI (unit/lint) — the honest headline.
   gating:
     rust:
-      count: 713
+      count: 718
       method: "cargo test --workspace -- --list | grep -cE ': test$'"
     python_unit:
       count: 512
@@ -108,7 +110,7 @@ test_counts:
     api_contracts:
       count: 50
       method: "uv run pytest tests/api --collect-only -q"
-  gating_total: 1878
+  gating_total: 1883
   # Live-stack suites: require `make dev-up`, skip without it, and (per the
   # README testing caveat) assert liveness more than behaviour. NOT counted in
   # the headline, reported on their own line.
