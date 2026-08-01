@@ -7,16 +7,25 @@ caller propagates W3C trace context in the MCP request `_meta`, ferrumdeck paren
 its enforcement decision span on that context, so the decision joins your trace
 instead of orphaning a new one.
 
-> **Status honesty — read first.** This targets the **MCP 2026-07-28**
-> specification revision, which is a **Release Candidate** at the time this code
-> was written — it has **not** shipped as a final release. The conventions it
-> implements come from **[SEP-414](https://modelcontextprotocol.io/seps/414-request-meta)**
-> ("Document OpenTelemetry Trace Context Propagation Conventions"), whose own
-> status is *Final / Standards Track*. This page therefore says ferrumdeck
-> **implements the SEP-414 `_meta` trace-context conventions and targets the
-> 2026-07-28 revision** — it does **not** claim "conformance" to a spec revision
-> that is not yet released. Update this wording to "conformant to MCP 2026-07-28"
-> only once that revision is final and a conformance suite has actually been run.
+> **Status honesty — read first.** ferrumdeck **implements the SEP-414 `_meta`
+> trace-context conventions and targets the MCP 2026-07-28 revision**. That
+> revision is now the **current, ratified** MCP specification — it is no longer a
+> Release Candidate: the `2026-07-28` GitHub release is `prerelease: false`
+> (published 2026-07-28), and <https://modelcontextprotocol.io/specification/latest>
+> 307-redirects to `/specification/2026-07-28`, which
+> [states](https://modelcontextprotocol.io/specification/versioning) "The current
+> protocol version is 2026-07-28" (verified live 2026-08-01). SEP-414's
+> conventions **survived ratification unchanged** — the ratified reserved-key
+> table ([basic/index](https://modelcontextprotocol.io/specification/2026-07-28/basic/index))
+> keeps `traceparent` / `tracestate` / `baggage` as the **unprefixed** exceptions
+> reserved for OpenTelemetry — so this implementation is *more* defensible now,
+> not less. SEP-414's own status is *Final / Standards Track*.
+>
+> This page still says ferrumdeck **implements / targets** those conventions and
+> deliberately does **not** claim "conformance" — on its one real remaining
+> ground: **no MCP conformance suite has been run against ferrumdeck.** Update
+> this wording to "conformant to MCP 2026-07-28" only once such a suite has
+> actually been run and passed.
 
 ## What SEP-414 specifies
 
@@ -104,8 +113,7 @@ introduced.
 
 ## What FerrumDeck does **not** guarantee
 
-- **Not a conformance claim.** See the status note above — this targets an
-  unreleased (RC) spec revision and implements the SEP-414 conventions; it is not
+- **Not a conformance claim.** See the status note above — this implements the SEP-414 conventions; it is not
   a certified conformance to MCP 2026-07-28.
 - **No emission back into `_meta`.** FerrumDeck reads inbound `_meta` and parents
   its own span; it does not (here) inject `_meta` into calls it makes onward.
@@ -139,7 +147,8 @@ export OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental
 ## References
 
 - MCP SEP-414 — <https://modelcontextprotocol.io/seps/414-request-meta>
-- MCP 2026-07-28 release candidate — <https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/>
+- MCP 2026-07-28 specification (ratified, current) — <https://modelcontextprotocol.io/specification/2026-07-28>
+- MCP 2026-07-28 `_meta` reserved-key table — <https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta>
 - W3C Trace Context — <https://www.w3.org/TR/trace-context/>
 - W3C Baggage — <https://www.w3.org/TR/baggage/>
 - OTel semantic conventions for MCP (context propagation) — <https://github.com/open-telemetry/semantic-conventions/blob/main/docs/gen-ai/mcp.md>
