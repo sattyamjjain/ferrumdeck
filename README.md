@@ -1686,6 +1686,27 @@ cd nextjs && npm run lint
 
 ## Deployment
 
+### Trust boundary
+
+Read this before you expose any port. FerrumDeck's enforcement boundary is the
+**gateway** — it applies per-agent deny-by-default policy, budgets, and Airlock
+to every tool call. The **dashboard BFF in front of it is not a second
+enforcement layer**; it is a trusted-operator surface.
+
+- **Trust boundary — the dashboard BFF performs no caller authentication.** Every
+  `/api/v1/*` route in `nextjs/` proxies to the gateway with a **single shared
+  server key** (`FD_API_KEY`, attached by `getAuthHeaders()` in
+  `nextjs/src/lib/api/config.ts`) and does **no inspection of the incoming
+  caller** — there is no `nextjs/src/middleware.ts`, and handlers such as
+  `app/api/v1/runs/route.ts` attach the key unconditionally. So **reaching the
+  dashboard port is equivalent to holding `FD_API_KEY`**, including authority to
+  `POST /v1/runs`. **⚠ Do not expose the dashboard port outside a trusted
+  network** — keep it behind a VPN, private subnet, or authenticating reverse
+  proxy — until per-caller authentication (dashboard session + SSO/RBAC +
+  API-key self-service) lands ([#10](https://github.com/sattyamjjain/ferrumdeck/issues/10)).
+  This is a positioning limit stated plainly, not a bug: a deny-by-default
+  control plane must say where its own boundary is.
+
 ### Production Checklist
 
 - [ ] **Database**: Use managed PostgreSQL with pgvector (RDS, Cloud SQL, etc.)

@@ -88,6 +88,20 @@ key_features:
     limitations_anchor: "#project-status--limitations"
     roadmap_issue: 7
 
+  - id: bff-trust-boundary
+    readme_row: "**Trust boundary"
+    marker: "the dashboard BFF performs no caller authentication"
+    status: "dashboard BFF does no caller auth; proxies with one shared FD_API_KEY"
+    evidence: >-
+      nextjs/src/lib/api/config.ts getAuthHeaders() attaches a single shared
+      FD_API_KEY; there is no nextjs/src/middleware.ts and route handlers such as
+      nextjs/src/app/api/v1/runs/route.ts proxy to the gateway without inspecting
+      the incoming caller, so reaching the dashboard port grants FD_API_KEY
+      authority (including POST /v1/runs). Per-caller auth (dashboard session +
+      SSO/RBAC + API-key self-service) is issue #10.
+    limitations_anchor: "#trust-boundary"
+    roadmap_issue: 10
+
 # ---------------------------------------------------------------------------
 # Test counts, re-derived programmatically on 2026-07-30. The README test-count
 # block must render the `gating_total` and the liveness caveat from this. Run

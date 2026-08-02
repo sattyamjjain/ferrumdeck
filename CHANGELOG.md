@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Disclosed the dashboard BFF trust boundary** (docs). The Next.js BFF performs **no caller authentication** — every `/api/v1/*` route proxies to the gateway with one shared `FD_API_KEY` and no `middleware.ts`, so reaching the dashboard port is equivalent to holding that key (including `POST /v1/runs`). A new **Trust boundary** section in the README (near Deployment) + a `docs/feature-status.yml` row now state this plainly and tell operators not to expose the dashboard port outside a trusted network until per-caller auth lands ([#10](https://github.com/sattyamjjain/ferrumdeck/issues/10)). No code change — SSO/RBAC is #10.
+
+### Removed
+- **Deleted the ungated `useMockData` / `fetchWithMockFallback` switch** (`nextjs/src/lib/api/config.ts`). `useMockData()` returned `true` whenever `NODE_ENV === "development"` — an ungated fabrication switch (unlike the `FERRUMDECK_SSE_MOCK_EVENTS`-gated path) that would silently substitute fake data if ever picked up. Both functions were dead code (zero call sites repo-wide, no tests), so they are removed rather than gated.
+
+### Fixed
+- **The eval-run POST no longer fabricates a `201 Created` for work that never ran** ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)). `POST /api/v1/evals/runs` was a stub that minted a synthetic `eval_stub_<ts>` id and returned 201, so clicking "Run Suite" gave an affirmative confirmation for a run the dashboard has no backend to start — the same fabrication class the SSE mock fix closed. It now returns **501 Not Implemented** (no invented id, body names #7), and both dashboard callers (`evals/page.tsx`, `evals/suites/[suiteId]/page.tsx`) render a "not available yet (#7)" state via a new `APIError.isNotImplemented` instead of a success toast.
+
 ## [0.7.16] - 2026-08-01
 
 ### Added

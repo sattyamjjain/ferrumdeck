@@ -15,9 +15,18 @@ export async function GET(_request: NextRequest) {
 }
 
 export async function POST(_request: NextRequest) {
-  // Stub for running eval suite - return mock response
+  // NOT a stub that fabricates success. Running an eval suite needs a gateway
+  // eval backend to dispatch to, which is not wired yet (issue #7). Returning a
+  // 201 + synthetic id would hand an operator an affirmative confirmation for
+  // work that never executed — the same fabrication class the SSE mock fix
+  // closed. Return 501 with no invented id instead.
   return NextResponse.json(
-    { eval_run_id: "eval_stub_" + Date.now() },
-    { status: 201 }
+    {
+      error: "not_implemented",
+      message:
+        "Running an eval suite is not implemented yet: the dashboard has no gateway eval backend to dispatch to, so no run was started. Tracked in issue #7.",
+      issue: "https://github.com/sattyamjjain/ferrumdeck/issues/7",
+    },
+    { status: 501 }
   );
 }

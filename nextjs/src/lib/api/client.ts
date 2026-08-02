@@ -53,6 +53,11 @@ export class APIError extends Error {
   get isNotFound(): boolean {
     return this.status === 404;
   }
+
+  /** Check if the endpoint is not implemented yet (501) */
+  get isNotImplemented(): boolean {
+    return this.status === 501;
+  }
 }
 
 // =============================================================================

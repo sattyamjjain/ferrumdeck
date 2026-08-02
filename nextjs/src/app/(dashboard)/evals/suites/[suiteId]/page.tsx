@@ -35,6 +35,7 @@ import {
   cn,
 } from "@/lib/utils";
 import { toast } from "sonner";
+import { APIError } from "@/lib/api/client";
 import type { EvalGateStatus, EvalRunStatus } from "@/types/eval";
 
 interface SuiteDetailPageProps {
@@ -95,9 +96,17 @@ export default function SuiteDetailPage({ params }: SuiteDetailPageProps) {
         description: `Eval run ${result.eval_run_id} has been queued.`,
       });
     } catch (error) {
-      toast.error("Failed to start evaluation", {
-        description: error instanceof Error ? error.message : "Unknown error",
-      });
+      if (error instanceof APIError && error.isNotImplemented) {
+        // The BFF returns 501 here — no run was started. Don't imply otherwise.
+        toast.error("Running eval suites isn't available yet", {
+          description:
+            "The dashboard has no gateway eval backend to dispatch to, so nothing was started (issue #7).",
+        });
+      } else {
+        toast.error("Failed to start evaluation", {
+          description: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
     }
   };
 

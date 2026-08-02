@@ -16,7 +16,7 @@ readme = "README.md"
 name = "fd_policy"
 
 [dependencies]
-fd-core = { path = "../fd-core", version = "0.7.16", package = "ferrumdeck-core" }
+fd-core = { path = "../fd-core", version = "0.7.17", package = "ferrumdeck-core" }
 
 # Serialization
 serde = { workspace = true }
