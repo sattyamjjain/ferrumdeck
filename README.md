@@ -282,23 +282,31 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
   of [#7](https://github.com/sattyamjjain/ferrumdeck/issues/7) still open.)
   Approving a suggestion **records** the decision; it never auto-applies a
   policy/allowlist/budget change.
-- **Audit tamper-evidence — detectable, not impossible.** The log is append-only
-  (repo API with no `UPDATE`/`DELETE` path **and** the
-  `trg_audit_events_append_only` trigger, migration `20260719000001`) **and now
+- **Audit tamper-evidence — detectable up to the last checkpoint, not tamper-proof.**
+  The log is append-only (repo API with no `UPDATE`/`DELETE` path **and** the
+  `trg_audit_events_append_only` trigger, migration `20260719000001`) **and
   hash-chained**: migration `20260801000001` adds `prev_hash`/`record_hash`/`chain_seq`,
   each row's SHA-256 commits to its predecessor over a canonical encoding
   (`rust/crates/fd-audit/src/chain.rs`), and `AuditRepo::verify_chain` catches any
-  insertion, deletion, or edit *within* a tenant's chain. **The residual
-  limitation is real and worth stating plainly:** a hash-chain makes tampering
-  **detectable, not impossible**. A privileged actor who rewrites the *entire*
-  tail — dropping the trigger and recomputing every downstream hash — can produce
-  a **self-consistent** chain, because they hold every input. Detection only bites
-  once the chain *head* is anchored to an external, append-only medium the actor
-  cannot rewrite (a signed checkpoint / transparency log / attestation — see
-  `python/packages/fd-runtime/attestation.py` and a future `fd-audit` signer).
-  That external anchor is on the [roadmap](ROADMAP.md)
-  ([#14](https://github.com/sattyamjjain/ferrumdeck/issues/14)); until it ships,
-  represent the trail as tamper-*evident*, not tamper-*proof*.
+  insertion, deletion, or edit *within* a tenant's chain. The chain alone left one
+  honest gap — a privileged actor who rewrites the *entire* tail (dropping the
+  trigger, recomputing every downstream hash) can produce a **self-consistent**
+  chain, because they hold every input. That gap is now closed by **signed head
+  checkpoints** (`rust/crates/fd-audit/src/checkpoint.rs`): a small
+  `(tenant_id, chain_seq, record_hash, checkpointed_at)` record, signed with an
+  Ed25519 key **that is not the database's**, is appended to an out-of-band sink
+  (`FileCheckpointSink` ships; the `CheckpointSink` trait takes object storage or a
+  transparency log later). `verify_against_checkpoints` proves the chain has not
+  been rewritten past the most recent checkpoint — because a record's hash
+  transitively commits to its whole prefix — and **names the checkpoint it verified
+  against**. **The guarantee, stated exactly:** tampering is detectable **up to the
+  most recent checkpoint**; records *after* it keep only the in-chain guarantee (that
+  window is reported, not hidden), a missing checkpoint **degrades to the in-chain
+  guarantee and says so** rather than silently passing, and this is *detection, not
+  prevention* — **not tamper-proof**, and only as strong as the sink being genuinely
+  out-of-band and the signing key off-box (a file sink on the DB host is a weak
+  anchor). Shipped for [#14](https://github.com/sattyamjjain/ferrumdeck/issues/14);
+  a robust remote sink + off-host key custody is the remaining hardening.
 - **Multi-tenant SaaS hardening.** Tenant isolation is enforced, but there is no
   dashboard auth/session layer, no SSO/RBAC, and no API-key self-service — treat
   the dashboard + gateway as a **trusted-operator** deployment for now.
@@ -321,8 +329,8 @@ specific `violation_type` + risk band, deny-by-default denying an unknown tool),
 but the remaining security/chaos/e2e tests still assert liveness — do not yet
 read those as proof that a given attack is blocked.
 
-**Automated test coverage.** The CI-gating unit/lint suites total **1,883**
-tests, re-derivable with `make claims-recount`: Rust **718**
+**Automated test coverage.** The CI-gating unit/lint suites total **1,890**
+tests, re-derivable with `make claims-recount`: Rust **725**
 (`cargo test --workspace -- --list`), Python unit **512** (`pytest` over the four
 `python/packages/*/tests` the CI unit job runs), frontend **603**
 (`jest`), and API-contract **50** (`pytest tests/api`). The live-stack suites —
@@ -361,7 +369,7 @@ The known gaps above are tracked in the open on the **[roadmap](ROADMAP.md)**, o
 - **Cost Tracking**: Real-time token counting and cost calculation per run
 - **Jaeger UI**: Visual trace exploration and debugging
 - **Realtime run stream (SSE)**: the dashboard subscribes to per-run / per-workspace channels for `run.forecast.updated`, `policy.decision.explained`, `policy.response.recorded`, `routing.decision.recorded`, and `coherence.divergence.detected`. **⚠ [wire shape defined; gateway→BFF push deferred](#project-status--limitations)** — the gateway does not yet push these to the BFF, so the channel carries **heartbeats only** and the console reads the values from the polled run endpoint. A synthetic generator can emit them for wire-shape development behind `FERRUMDECK_SSE_MOCK_EVENTS` — **OFF by default in every environment**, so no fabricated enforcement verdict can ever reach an operator's console. ([#5](https://github.com/sattyamjjain/ferrumdeck/issues/5))
-- **Audit Trail**: Append-only logging of every action — enforced by the repo API (no `UPDATE`/`DELETE` path), a DB trigger (`trg_audit_events_append_only`: rejects every `UPDATE`; rejects `DELETE` within the 3-year retention floor), **and a per-tenant cryptographic hash-chain** (`prev_hash`/`record_hash`/`chain_seq`; each row's SHA-256 commits to its predecessor, computed in one `FOR UPDATE` transaction), so any insertion, deletion, or edit within a chain is *detectable* by `AuditRepo::verify_chain`. **⚠ [tamper-evident hash-chain; not tamper-proof without an external anchor](#project-status--limitations)** — a hash-chain makes tampering **detectable, not impossible**: an actor who rewrites the *whole* tail can forge a self-consistent chain unless the chain head is anchored out-of-band ([#14](https://github.com/sattyamjjain/ferrumdeck/issues/14)). Don't represent it as tamper-*proof* for compliance until that anchor ships.
+- **Audit Trail**: Append-only logging of every action — enforced by the repo API (no `UPDATE`/`DELETE` path), a DB trigger (`trg_audit_events_append_only`: rejects every `UPDATE`; rejects `DELETE` within the 3-year retention floor), **a per-tenant cryptographic hash-chain** (`prev_hash`/`record_hash`/`chain_seq`; each row's SHA-256 commits to its predecessor, computed in one `FOR UPDATE` transaction) that makes any insertion/deletion/edit within a chain *detectable* by `AuditRepo::verify_chain`, **and signed out-of-band head checkpoints** (`fd-audit`'s `CheckpointSigner`/`FileCheckpointSink`) that catch even a wholesale self-consistent tail rewrite via `verify_against_checkpoints`. **⚠ [tamper-evident up to the last signed checkpoint; not tamper-proof](#project-status--limitations)** — detection, not prevention: records after the last checkpoint keep only the in-chain guarantee, a missing checkpoint degrades to it (and says so), and the anchor is only as strong as an out-of-band sink + off-host key ([#14](https://github.com/sattyamjjain/ferrumdeck/issues/14)). Don't represent it as tamper-*proof* for compliance.
 - **Tool-call firing rate**: Derived OTel signal (`ferrumdeck.metrics.tool_call_firing_rate`) tracking the share of reasoning steps that invoked at least one tool, per run + per agent over a sliding window. Surfaced on the agent overview tab with a configurable low-firing-rate threshold (default 40%) that flags model regressions or broken tool registries before they propagate. See [`docs/runbooks/tool-call-firing-rate.md`](docs/runbooks/tool-call-firing-rate.md).
 - **Debt-vs-tax cost decomposition (§2605.27320)**: Per-call `span_role ∈ {primary, retry, judge, guardrail, escalation, revalidation, monitor}` classification on every LLM/tool call, with two derived rollups per task/run — `agent.cost.token` (primary calls = debt) and `agent.cost.tax` (everything else). Dashboard panel ranks tasks by `tax / (token + tax)` descending so retry / escalation storms are visible at a glance. See [`docs/runbooks/cost-decomposition.md`](docs/runbooks/cost-decomposition.md).
 - **Claim grounding rate — grounding rate _per VeriGraph_ ([arXiv:2606.16603](https://arxiv.org/abs/2606.16603))**: A per-run reliability metric (`ferrumdeck.reliability.claim_grounding_rate`, 0.0–1.0) — the fraction of the final agent output's claims that are **reachable from a raw-data / tool-output source node** via the run's evidence graph, per VeriGraph's claim-level grounding definition. This is a **lineage to the claim-level auditability literature, not a ferrumdeck-original metric**. Computed at run completion (Rust `fd_otel::claim_grounding`, mirrored by Python `fd_evals.claim_grounding` for the eval plane, with a shared golden fixture pinning cross-plane agreement), persisted on the run row next to cost/tokens, emitted on the run span, and rendered as a stat card on the run console. **Honest scope:** the "reachable evidence path" is operationalized as a **deterministic lexical-overlap reachability proxy** (sentence-split claims; a claim is grounded when enough of its significant tokens are covered by a source node) — pure and CI-stable, **not** an LLM judge or semantic-entailment model. It is a **reliability signal only**: a project may set an optional `min_claim_grounding_rate` in its settings to *flag* (never block or kill) a run below it — off by default, preserving the deny-by-default posture for *tool permissions*, not reliability scoring. See [`docs/runbooks/claim-grounding-rate.md`](docs/runbooks/claim-grounding-rate.md).
@@ -1382,7 +1390,7 @@ against the outbound payload:
 | Tool-call payload drift | Airlock schema-drift guard against the registered `ToolVersion` JSON Schema |
 | Single-axis exploitation | Airlock behavioral-drift monitor — rolling z-score per agent |
 | Privilege escalation | Scoped API keys, tenant isolation |
-| Audit tampering | Append-only logging (app-layer + DB trigger) **and a per-tenant cryptographic hash-chain** (`prev_hash`/`record_hash`/`chain_seq`) — insertions/deletions/edits within a chain are detectable via `AuditRepo::verify_chain`. Residual: a full-tail rewrite is only caught once the chain head is externally anchored ([#14](https://github.com/sattyamjjain/ferrumdeck/issues/14)) — see [Project Status](#project-status--limitations) |
+| Audit tampering | Append-only logging (app-layer + DB trigger), **a per-tenant cryptographic hash-chain** (`prev_hash`/`record_hash`/`chain_seq`) — insertions/deletions/edits within a chain are detectable via `AuditRepo::verify_chain` — **and signed out-of-band head checkpoints** ([#14](https://github.com/sattyamjjain/ferrumdeck/issues/14)) that catch a wholesale self-consistent tail rewrite via `verify_against_checkpoints`, up to the last checkpoint. Residual: detection not prevention; the window after the last checkpoint keeps the in-chain guarantee, and the anchor needs an out-of-band sink + off-host key — see [Project Status](#project-status--limitations) |
 
 ---
 

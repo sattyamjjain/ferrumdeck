@@ -13,10 +13,12 @@
 //!
 //! **Residual limitation — detectable, not impossible.** An actor who can
 //! rewrite the *entire* tail can produce a self-consistent chain, because they
-//! hold every input. Detection only bites if the chain *head* is anchored
-//! out-of-band (a signed checkpoint / transparency log / attestation) the actor
-//! cannot rewrite. That external anchor is tracked separately (issue #14); this
-//! module is the chain it will anchor.
+//! hold every input; [`verify_chain`] cannot catch that, because nothing inside
+//! the chain is left to disagree with. Detection needs the chain *head* anchored
+//! out-of-band. That anchor now exists — signed head checkpoints in
+//! [`crate::checkpoint`], verified by [`crate::checkpoint::verify_against_checkpoints`],
+//! which catches a rewritten tail up to the most recent checkpoint. This module
+//! is the chain; that module is its anchor.
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -230,14 +232,18 @@ fn sort_value(value: &serde_json::Value) -> serde_json::Value {
 
 /// Length-prefix a byte field (8-byte big-endian length) so field boundaries
 /// are unambiguous regardless of the bytes' content.
-fn push_bytes(buf: &mut Vec<u8>, bytes: &[u8]) {
+///
+/// `pub(crate)` so the checkpoint preimage ([`crate::checkpoint`]) reuses the
+/// exact same field-boundary encoding — one definition, no chance of the two
+/// canonical forms drifting.
+pub(crate) fn push_bytes(buf: &mut Vec<u8>, bytes: &[u8]) {
     buf.extend_from_slice(&(bytes.len() as u64).to_be_bytes());
     buf.extend_from_slice(bytes);
 }
 
 /// Encode an optional field: a `0` tag for `None`, or a `1` tag followed by the
 /// length-prefixed value — so `None` and `Some("")` are distinct.
-fn push_opt(buf: &mut Vec<u8>, value: Option<&str>) {
+pub(crate) fn push_opt(buf: &mut Vec<u8>, value: Option<&str>) {
     match value {
         None => buf.push(0),
         Some(s) => {

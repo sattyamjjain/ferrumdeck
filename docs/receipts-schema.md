@@ -74,11 +74,16 @@ These are **persistence-level integrity metadata layered over** the wire
 contract, not part of it: the `fd-audit` receipts shape above is unchanged, and
 an FP-aware consumer can ignore them. They exist so a verifier
 (`AuditRepo::verify_chain`, `fd_audit::chain::verify_chain`) can detect any
-insertion, deletion, or edit within a tenant's chain. **Residual limitation:**
-detectable, not tamper-*proof* — a whole-tail rewrite is only caught once the
-chain head is externally anchored ([#14](https://github.com/sattyamjjain/ferrumdeck/issues/14)).
-Pre-migration rows sit outside the chain (`null` hashes) by design; the chain's
-genesis is the first row inserted per tenant after the migration.
+insertion, deletion, or edit within a tenant's chain. A wholesale
+self-consistent tail rewrite — which the chain alone cannot catch — is caught by
+signed out-of-band head checkpoints (`fd_audit::checkpoint`,
+`AuditRepo::verify_against_checkpoints`), shipped for
+[#14](https://github.com/sattyamjjain/ferrumdeck/issues/14). **Residual
+limitation:** detectable **up to the most recent checkpoint**, not
+tamper-*proof* — records after the last checkpoint keep only the in-chain
+guarantee, and the anchor is only as strong as an out-of-band sink + off-host
+key. Pre-migration rows sit outside the chain (`null` hashes) by design; the
+chain's genesis is the first row inserted per tenant after the migration.
 
 ## Foundation-Protocol mapping
 
