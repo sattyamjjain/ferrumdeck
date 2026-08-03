@@ -352,12 +352,22 @@ trail's value as compliance evidence (EU AI Act Art. 12/19; Colorado SB 26-189).
 **Residual risk (stated plainly):** a hash-chain makes tampering **detectable,
 not impossible**. An actor with full DB write access who rewrites the *entire*
 tail (drops the trigger, recomputes every downstream hash) can forge a
-**self-consistent** chain, because they hold every input. Detection requires
-anchoring the chain *head* to an external, append-only medium the actor cannot
-rewrite — a signed checkpoint / transparency log / attestation
-(`python/packages/fd-runtime/attestation.py` or a future `fd-audit` signer).
-Tracked as [#14](https://github.com/sattyamjjain/ferrumdeck/issues/14). Until it
-ships, treat the trail as tamper-*evident*, not tamper-*proof*.
+**self-consistent** chain, because they hold every input — the chain alone
+cannot catch that. This is now anchored: `fd-audit`'s
+`checkpoint::CheckpointSigner` signs a `(tenant_id, chain_seq, record_hash,
+checkpointed_at)` head record with an Ed25519 key **that is not the database's**
+and appends it to an out-of-band `CheckpointSink` (a `FileCheckpointSink` ships;
+the trait takes object storage / a transparency log later).
+`verify_against_checkpoints` proves the chain has not been rewritten past the
+most recent checkpoint and names the checkpoint it verified against. Shipped for
+[#14](https://github.com/sattyamjjain/ferrumdeck/issues/14). **The guarantee,
+stated exactly:** tampering is detectable **up to the most recent checkpoint**;
+records after it retain only the in-chain guarantee, a missing checkpoint
+degrades to that guarantee (and says so), and this is *detection, not
+prevention* — **not tamper-proof**, and only as strong as the sink being
+genuinely out-of-band and the signing key off-box (a file sink on the DB host is
+a weak anchor; a robust remote sink + off-host key custody is the remaining
+hardening).
 
 ### LLM Call Security Monitoring
 

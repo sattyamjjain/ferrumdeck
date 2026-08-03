@@ -66,7 +66,7 @@ is a feature.
   eval-run dashboard renders a real run end-to-end.
 - **Tracking:** [#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)
 
-### Externally anchor the audit hash-chain head (tamper-proof, not just tamper-evident)
+### Harden the audit chain-head anchor: robust remote sink + off-host key custody
 - **Shipped in 0.7.16 ([#8](https://github.com/sattyamjjain/ferrumdeck/issues/8), closed):**
   the audit trail is append-only (repo API + `trg_audit_events_append_only`
   trigger) **and hash-chained** — migration `20260801000001` adds
@@ -74,24 +74,34 @@ is a feature.
   computes a per-record SHA-256 chained to its predecessor, and
   `AuditRepo::verify_chain` detects any insertion/deletion/edit within a tenant's
   chain.
-- **Problem (the residual):** a hash-chain makes tampering **detectable, not
-  impossible**. A privileged actor who rewrites the *entire* tail — dropping the
-  trigger and recomputing every downstream hash — can produce a **self-consistent**
-  chain, because they hold every input. Detection only bites once the chain
-  *head* is anchored to an external, append-only medium the actor cannot rewrite.
+- **Shipped in 0.8.0 ([#14](https://github.com/sattyamjjain/ferrumdeck/issues/14)):**
+  the chain head is now **anchored out-of-band**. `rust/crates/fd-audit/src/checkpoint.rs`
+  signs a `(tenant_id, chain_seq, record_hash, checkpointed_at)` head record with
+  an Ed25519 key **that is not the database's** (`CheckpointSigner`), appends it to
+  an out-of-band sink (`FileCheckpointSink`; the `CheckpointSink` trait takes object
+  storage / a transparency log later), and `verify_against_checkpoints` /
+  `AuditRepo::verify_against_checkpoints` catch a wholesale self-consistent tail
+  rewrite up to the most recent checkpoint. Detectable **up to the last
+  checkpoint**; a missing checkpoint degrades to the in-chain guarantee and says so.
+- **Problem (the residual):** this is **detection, not prevention — not
+  tamper-proof**, and the anchor is only as strong as its deployment. A
+  `FileCheckpointSink` on the *same host* as the database is a **weak anchor**: a
+  root actor who rewrites `audit_events` can usually rewrite the file too and read
+  the signing key if it lives on that host. A robust anchor wants a **remote,
+  append-only medium** (object-lock bucket / transparency log) and **off-host key
+  custody** (KMS / HSM), plus a scheduled checkpoint driver so the unprotected
+  window after the last checkpoint stays small.
 - **Regulatory context:** the audit trail is the evidence base for **EU AI Act
   Art. 12/19** (record-keeping / kept logs, applicable **2026-08-02**) and
   **Colorado SB 26-189** (3-year retention floor, effective **2027-01-01**,
   <https://leg.colorado.gov/bills/sb26-189>). Retention says the records still
-  exist; the hash-chain lets a deployer show they were not altered — an external
-  anchor closes the "whole-tail rewrite" gap.
-- **Lives in:** `rust/crates/fd-audit/src/chain.rs` (the chain to anchor) +
-  `python/packages/fd-runtime/attestation.py` / a future `fd-audit` signer (the
-  anchor).
-- **Done:** the chain head (latest `record_hash` per tenant) is periodically
-  anchored out-of-band (signed checkpoint / transparency log / attestation), and
-  `verify_chain` cross-checks the anchored head so a rewritten-but-self-consistent
-  tail is caught by head divergence.
+  exist; the hash-chain + anchored head let a deployer show they were not altered.
+- **Lives in:** `rust/crates/fd-audit/src/checkpoint.rs` (the `CheckpointSink`
+  trait + signer to extend) + deployment (sink host / key custody separated from
+  the DB) + a scheduled checkpoint driver.
+- **Done:** checkpoints are written to a remote append-only medium the DB actor
+  cannot rewrite, signed by an off-host key, on a configurable schedule, and
+  `verify_against_checkpoints` is wired into an operator-facing verify path.
 - **Tracking:** [#14](https://github.com/sattyamjjain/ferrumdeck/issues/14)
 
 ---

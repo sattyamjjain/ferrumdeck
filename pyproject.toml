@@ -4,7 +4,7 @@ name = "ferrumdeck"
 # root Cargo.toml `[workspace.package] version`); the `version-release-consistency`
 # CI check fails if they drift. Not published to PyPI — installable from source
 # only (the sub-packages under python/packages/* carry the actual code).
-version = "0.7.17"
+version = "0.8.0"
 description = "AgentOps Control Plane - Python Runtime"
 readme = "README.md"
 license = "Apache-2.0"

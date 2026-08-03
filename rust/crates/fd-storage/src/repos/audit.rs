@@ -175,12 +175,14 @@ impl AuditRepo {
     /// tenant = the global chain) and delegates to [`fd_audit::verify_chain`].
     ///
     /// Detects any insertion, deletion, or in-place edit *within* the chain. It
-    /// does **not** catch a wholesale rewrite of the entire tail by an actor who
-    /// holds every input — that requires an external anchor on the chain head
-    /// (issue #14). Round-trip note: the hash binds `details` (canonicalized with
-    /// sorted keys, so JSONB reordering is harmless) and the IP in parsed form;
-    /// callers persisting exotic JSON number formats should be aware JSONB may
-    /// normalize them.
+    /// does **not**, on its own, catch a wholesale rewrite of the entire tail by
+    /// an actor who holds every input — that self-consistent forgery is caught by
+    /// [`AuditRepo::verify_against_checkpoints`], which cross-checks the chain
+    /// head against a signed out-of-band checkpoint (up to the most recent one).
+    /// Round-trip note: the hash binds `details` (canonicalized with sorted keys,
+    /// so JSONB reordering is harmless) and the IP in parsed form; callers
+    /// persisting exotic JSON number formats should be aware JSONB may normalize
+    /// them.
     #[instrument(skip(self))]
     pub async fn verify_chain(&self, tenant_id: Option<&str>) -> Result<(), AuditChainError> {
         let rows: Vec<AuditEvent> = sqlx::query_as::<_, AuditEvent>(
@@ -197,6 +199,98 @@ impl AuditRepo {
 
         let records: Vec<fd_audit::ChainRecord> = rows.iter().map(row_to_chain_record).collect();
         fd_audit::verify_chain(&records).map_err(AuditChainError::Broken)
+    }
+
+    /// Read a tenant's current chain **head** as a [`fd_audit::CheckpointBody`],
+    /// ready to sign into an out-of-band checkpoint (#14).
+    ///
+    /// Returns `None` when the tenant has no chained rows yet (nothing to
+    /// anchor). `checkpointed_at` is stamped now (microsecond-truncated). This is
+    /// the read half of the on-demand checkpoint path: read head → sign with an
+    /// off-DB key → append to a [`fd_audit::CheckpointSink`]. It is a plain read
+    /// (no `FOR UPDATE`): a concurrently-inserted newer head simply means the
+    /// next checkpoint anchors further along, which is fine.
+    #[instrument(skip(self))]
+    pub async fn head_checkpoint_body(
+        &self,
+        tenant_id: Option<&str>,
+    ) -> Result<Option<fd_audit::CheckpointBody>, sqlx::Error> {
+        use chrono::SubsecRound;
+        let tip: Option<(Option<String>, i64)> = sqlx::query_as(
+            r#"
+            SELECT record_hash, chain_seq FROM audit_events
+            WHERE tenant_id IS NOT DISTINCT FROM $1 AND chain_seq IS NOT NULL
+            ORDER BY chain_seq DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(tenant_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(tip.and_then(|(record_hash, chain_seq)| {
+            // record_hash is NULL only on a pre-migration row, which never has a
+            // chain_seq — so a chained tip always has a hash. Guard anyway.
+            record_hash.map(|record_hash| fd_audit::CheckpointBody {
+                tenant_id: tenant_id.map(str::to_string),
+                chain_seq,
+                record_hash,
+                checkpointed_at: chrono::Utc::now().trunc_subsecs(6),
+            })
+        }))
+    }
+
+    /// List the distinct tenants that have a hash-chain (including the NULL/global
+    /// chain, returned as `None`) — the set to iterate when checkpointing every
+    /// tenant's head on demand.
+    #[instrument(skip(self))]
+    pub async fn list_chain_tenants(&self) -> Result<Vec<Option<String>>, sqlx::Error> {
+        let rows: Vec<(Option<String>,)> = sqlx::query_as(
+            r#"
+            SELECT DISTINCT tenant_id FROM audit_events
+            WHERE chain_seq IS NOT NULL
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(t,)| t).collect())
+    }
+
+    /// Verify a tenant's chain **against** its out-of-band checkpoints — the
+    /// anchored verification that catches a rewritten-but-self-consistent tail,
+    /// up to the most recent checkpoint (#14).
+    ///
+    /// Reads the tenant's chained rows (same source as [`AuditRepo::verify_chain`])
+    /// and delegates to [`fd_audit::verify_against_checkpoints`], which requires
+    /// internal consistency first, then cross-checks the head against the newest
+    /// trusted checkpoint. A read failure is a `Query` error, not a tampering
+    /// signal; a `Degraded` outcome (no trusted checkpoint) is returned as data,
+    /// so the caller can see the guarantee degraded rather than assume it held.
+    #[instrument(skip(self, checkpoints, verifier))]
+    pub async fn verify_against_checkpoints(
+        &self,
+        tenant_id: Option<&str>,
+        checkpoints: &[fd_audit::Checkpoint],
+        verifier: &fd_audit::CheckpointVerifier,
+    ) -> Result<fd_audit::CheckpointOutcome, AuditChainError> {
+        let rows: Vec<AuditEvent> = sqlx::query_as::<_, AuditEvent>(
+            r#"
+            SELECT * FROM audit_events
+            WHERE tenant_id IS NOT DISTINCT FROM $1 AND chain_seq IS NOT NULL
+            ORDER BY chain_seq ASC
+            "#,
+        )
+        .bind(tenant_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AuditChainError::Query)?;
+
+        let records: Vec<fd_audit::ChainRecord> = rows.iter().map(row_to_chain_record).collect();
+        Ok(fd_audit::verify_against_checkpoints(
+            &records,
+            checkpoints,
+            verifier,
+        ))
     }
 
     /// List audit events for a run

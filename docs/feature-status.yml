@@ -22,8 +22,8 @@
 key_features:
   - id: audit-tamper-evidence
     readme_row: "**Audit Trail**:"
-    marker: "tamper-evident hash-chain; not tamper-proof without an external anchor"
-    status: "append-only (app API + DB trigger) + per-tenant SHA-256 hash-chain; detectable, not tamper-proof without an external anchor"
+    marker: "tamper-evident up to the last signed checkpoint; not tamper-proof"
+    status: "append-only (app API + DB trigger) + per-tenant SHA-256 hash-chain + signed out-of-band head checkpoints; detectable up to the last checkpoint, not tamper-proof"
     evidence: >-
       Migration db/migrations/20260801000001_add_audit_hash_chain.sql adds
       prev_hash/record_hash/chain_seq; rust/crates/fd-audit/src/chain.rs computes
@@ -31,9 +31,17 @@ key_features:
       and AuditRepo::create links each row in one FOR UPDATE transaction (plus the
       existing append-only trigger trg_audit_events_append_only). AuditRepo::verify_chain
       detects any insertion/deletion/edit within a tenant's chain (proven by
-      rust/crates/fd-audit/tests/hash_chain.rs). RESIDUAL: an actor who rewrites
-      the WHOLE tail can forge a self-consistent chain unless the chain head is
-      anchored out-of-band — detectable, not impossible (issue #14).
+      rust/crates/fd-audit/tests/hash_chain.rs). rust/crates/fd-audit/src/checkpoint.rs
+      then anchors the head out-of-band: CheckpointSigner signs
+      (tenant_id, chain_seq, record_hash, checkpointed_at) with an Ed25519 key that
+      is NOT the database's, FileCheckpointSink appends it (CheckpointSink trait),
+      and verify_against_checkpoints / AuditRepo::verify_against_checkpoints catch a
+      wholesale self-consistent tail rewrite up to the most recent checkpoint
+      (proven by rust/crates/fd-audit/tests/checkpoint_anchor.rs — the load-bearing
+      whole_tail_rewrite_after_checkpoint_is_detected). RESIDUAL: detection not
+      prevention — records after the last checkpoint keep only the in-chain
+      guarantee, a missing checkpoint degrades to it, and the anchor is only as
+      strong as an out-of-band sink + off-host key. Not tamper-proof (issue #14).
     limitations_anchor: "#project-status--limitations"
     roadmap_issue: 14
 
@@ -113,7 +121,7 @@ test_counts:
   # Suites that gate CI (unit/lint) — the honest headline.
   gating:
     rust:
-      count: 718
+      count: 725
       method: "cargo test --workspace -- --list | grep -cE ': test$'"
     python_unit:
       count: 512
@@ -124,7 +132,7 @@ test_counts:
     api_contracts:
       count: 50
       method: "uv run pytest tests/api --collect-only -q"
-  gating_total: 1883
+  gating_total: 1890
   # Live-stack suites: require `make dev-up`, skip without it, and (per the
   # README testing caveat) assert liveness more than behaviour. NOT counted in
   # the headline, reported on their own line.
