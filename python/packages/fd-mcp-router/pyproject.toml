@@ -1,6 +1,9 @@
 [project]
 name = "fd-mcp-router"
-version = "0.8.0"
+version = "0.8.1"
+# Workspace-internal, not a PyPI distribution. Rejects an accidental `twine
+# upload`; install from source (uv sync), not `pip install fd-mcp-router`.
+classifiers = ["Private :: Do Not Upload"]
 description = "FerrumDeck MCP tool router - deny-by-default tool execution"
 requires-python = ">=3.12"
 dependencies = [

@@ -1,13 +1,22 @@
 [package]
-name = "fd-audit"
-description = "FerrumDeck audit log: append-only event trail"
+name = "ferrumdeck-audit"
+description = "FerrumDeck audit trail: append-only event log, a per-tenant SHA-256 hash-chain, and signed out-of-band chain-head checkpoints (tamper-evidence up to the last checkpoint)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage = "https://github.com/sattyamjjain/ferrumdeck"
+keywords = ["agent", "audit", "tamper-evidence", "hash-chain", "compliance"]
+categories = ["development-tools"]
+readme = "README.md"
+
+# Published as `ferrumdeck-audit`; the Rust import path stays `fd_audit`.
+[lib]
+name = "fd_audit"
 
 [dependencies]
-fd-core = { path = "../fd-core", package = "ferrumdeck-core" }
+fd-core = { path = "../fd-core", version = "0.8.1", package = "ferrumdeck-core" }
 
 # Serialization
 serde = { workspace = true }

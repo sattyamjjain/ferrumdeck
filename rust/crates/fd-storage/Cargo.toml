@@ -10,7 +10,7 @@ license.workspace = true
 fd-core = { path = "../fd-core", package = "ferrumdeck-core" }
 # Audit hash-chain: the canonical record encoding + verifier live in fd-audit
 # (pure, no DB); this repo computes record_hash at insert and verifies on read.
-fd-audit = { path = "../fd-audit" }
+fd-audit = { path = "../fd-audit", package = "ferrumdeck-audit" }
 
 # Database
 sqlx = { workspace = true }

@@ -61,6 +61,8 @@ assert!(engine.evaluate_tool_call_with(&allowlist, "unknown").is_denied());     
 
 Prefer the engine directly (no umbrella)? `cargo add ferrumdeck-policy` — the import path is still `use fd_policy::…`. Primitives only: `ferrumdeck-core` (`use fd_core::…`). All three are Apache-2.0. (Published as `ferrumdeck*` because the bare `fd-core` name is taken on crates.io by an unrelated crate; the Rust import paths are unchanged.)
 
+The 0.8.0 headline feature — the audit trail + out-of-band **chain-head checkpoint anchoring** (#14: `verify_against_checkpoints`, `CheckpointSigner`) — ships as **`ferrumdeck-audit`** (import path `fd_audit`), wired into the umbrella as an **optional feature** so it doesn't bloat the lean engine: `cargo add ferrumdeck --features audit`. The remaining crates (`fd-registry`, `fd-storage`, and the gateway service) are **workspace-internal today** — they build from a clone but are not published.
+
 > **Python plane: install from source only.** Only the Rust enforcement engine is published to a package registry (crates.io). The Python data-plane packages (`fd-runtime`, `fd-worker`, `fd-mcp-router`, `fd-mcp-tools`, `fd-evals`, `fd-cli`) and the workspace-root `ferrumdeck` package are **not on PyPI** — their version numbers are internal workspace versions, not PyPI releases. Install them from a clone with [`uv`](https://docs.astral.sh/uv/): `uv sync`.
 
 ---
@@ -329,10 +331,10 @@ specific `violation_type` + risk band, deny-by-default denying an unknown tool),
 but the remaining security/chaos/e2e tests still assert liveness — do not yet
 read those as proof that a given attack is blocked.
 
-**Automated test coverage.** The CI-gating unit/lint suites total **1,890**
+**Automated test coverage.** The CI-gating unit/lint suites total **1,899**
 tests, re-derivable with `make claims-recount`: Rust **725**
 (`cargo test --workspace -- --list`), Python unit **512** (`pytest` over the four
-`python/packages/*/tests` the CI unit job runs), frontend **603**
+`python/packages/*/tests` the CI unit job runs), frontend **612**
 (`jest`), and API-contract **50** (`pytest tests/api`). The live-stack suites —
 `tests/security` (70), `tests/chaos` (16), `tests/e2e` (43) — need `make dev-up`,
 **skip without it**, and (per the caveat above) assert liveness more than

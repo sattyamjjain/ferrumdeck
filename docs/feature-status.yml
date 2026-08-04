@@ -127,12 +127,12 @@ test_counts:
       count: 512
       method: "uv run pytest python/packages/{fd-runtime,fd-mcp-router,fd-worker,fd-evals}/tests --collect-only -q"
     frontend:
-      count: 603
+      count: 612
       method: "cd nextjs && npm test -- --watchAll=false --ci  (jest 'Tests:' total)"
     api_contracts:
       count: 50
       method: "uv run pytest tests/api --collect-only -q"
-  gating_total: 1890
+  gating_total: 1899
   # Live-stack suites: require `make dev-up`, skip without it, and (per the
   # README testing caveat) assert liveness more than behaviour. NOT counted in
   # the headline, reported on their own line.

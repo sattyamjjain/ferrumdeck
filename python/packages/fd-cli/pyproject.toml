@@ -1,6 +1,9 @@
 [project]
 name = "fd-cli"
-version = "0.8.0"
+version = "0.8.1"
+# Workspace-internal, not a PyPI distribution. Rejects an accidental `twine
+# upload`; install from source (uv sync), not `pip install fd-cli`.
+classifiers = ["Private :: Do Not Upload"]
 description = "FerrumDeck CLI - Command line tool for interacting with the control plane"
 requires-python = ">=3.12"
 dependencies = [

@@ -36,3 +36,12 @@ pub use fd_policy::*;
 /// The underlying [`ferrumdeck-policy`] crate, for fully-qualified access
 /// (`ferrumdeck::policy::…`).
 pub use fd_policy as policy;
+
+/// The audit trail + out-of-band chain-head checkpoint anchoring, from
+/// [`ferrumdeck-audit`](https://crates.io/crates/ferrumdeck-audit). Gated behind
+/// the optional `audit` feature (`cargo add ferrumdeck --features audit`); the
+/// access path is `ferrumdeck::audit::…` (the crate's own import path is
+/// `fd_audit`). This is where `verify_against_checkpoints`, `CheckpointSigner`,
+/// and the hash-chain `verify_chain` live.
+#[cfg(feature = "audit")]
+pub use fd_audit as audit;
