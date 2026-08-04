@@ -1,6 +1,6 @@
 [project]
 name = "fd-evals"
-version = "0.8.0"
+version = "0.8.1"
 description = "FerrumDeck Evaluation Framework - Deterministic eval harness for agent workflows"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -10,6 +10,9 @@ authors = [
 ]
 keywords = ["ferrumdeck", "evals", "agents", "evaluation", "testing"]
 classifiers = [
+    # Workspace-internal, not a PyPI distribution. Rejects an accidental `twine
+    # upload`; install from source (uv sync), not `pip install fd-evals`.
+    "Private :: Do Not Upload",
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",

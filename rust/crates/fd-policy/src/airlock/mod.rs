@@ -33,8 +33,13 @@
 //!    - Per-run tracking with automatic cleanup
 //!
 //! 3. **Data Exfiltration Shield** (`exfiltration.rs`)
+//!    - Credential DLP (`credential_dlp::scan_json`, default-on): scans the
+//!      outbound payload for secrets **first**, so a leaked key is blocked before
+//!      the domain allowlist is even consulted (fires even for an allow-listed host)
 //!    - Domain whitelist for network tools
 //!    - Blocks raw IP addresses (prevents C2 connections)
+//!    - Per-domain data budget (`data_budget_per_domain_bytes`, opt-in): caps
+//!      cumulative outbound bytes per `(run_id, domain)`
 //!    - URL extraction from nested JSON payloads
 //!
 //! The schema-drift guard is seeded at gateway boot from the `tool_versions`
