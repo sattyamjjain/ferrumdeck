@@ -1,0 +1,20 @@
+# Single source of truth for the GitHub repository "About" description.
+#
+# Why this file exists: the GitHub description and the README had drifted into a
+# contradiction one click apart — the description said "production-grade" while
+# the README says the project is early-stage and not production-hardened. The
+# README is the honest one, so the description is pinned here and checked.
+#
+# The `repo-description-consistency` job in
+# .github/workflows/version-release-consistency.yml fails at release time (push
+# to main / schedule) if the live GitHub description drifts from `description`
+# below. GitHub's "About" field is not writable from CI without a PAT, so after
+# changing this value you must paste it into the repo Settings by hand:
+#
+#     GitHub -> the repo -> About (gear icon) -> Description
+#
+# `make repo-description` prints the exact value to paste.
+#
+# Kept as a single-line double-quoted scalar so the release check can extract it
+# with `sed` and needs no YAML library on the CI runner.
+description: "AgentOps control plane for AI agent execution. Rust policy plane, hash-chained audit, deny-by-default tool allowlists and budget enforcement, eval gating in CI. Single maintainer, moving fast, read the README before you deploy it."

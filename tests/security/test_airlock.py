@@ -68,9 +68,7 @@ class TestRcePatternsDetected:
         decision = check_tool(created_run, tool, {"code": code})
         _assert_detected(decision, "rcepattern")
 
-    def test_rce_nested_in_json_is_flagged(
-        self, check_tool, created_run: str
-    ) -> None:
+    def test_rce_nested_in_json_is_flagged(self, check_tool, created_run: str) -> None:
         """SEC-AIR-009: an RCE pattern buried in a nested object is still found —
         the inspector flattens the whole payload, so nesting is not evasion."""
         decision = check_tool(
@@ -103,12 +101,33 @@ class TestExfiltrationDetected:
             "http://127.0.0.1/data",
         ],
     )
-    def test_private_ip_is_flagged(
-        self, check_tool, created_run: str, ip_url: str
-    ) -> None:
+    def test_private_ip_is_flagged(self, check_tool, created_run: str, ip_url: str) -> None:
         """SEC-AIR-012: private/loopback IP destinations are flagged as raw-IP use."""
         decision = check_tool(created_run, "http_request", {"url": ip_url, "method": "GET"})
         _assert_detected(decision, "ipaddressused")
+
+
+# ==========================================================================
+# Credential DLP (SEC-AIR-017) — a secret in an outbound payload is reported as
+# `credentialleak`, even to an ordinary host, because credential DLP runs BEFORE
+# the domain/IP check. (Runnable companion at the inspector boundary:
+# rust/crates/fd-policy/tests/airlock_decisions.rs.)
+# ==========================================================================
+class TestCredentialDlpDetected:
+    def test_secret_in_outbound_payload_is_flagged(self, check_tool, created_run: str) -> None:
+        """A leaked credential in a network tool's payload is `credentialleak` at
+        Critical risk. The AWS documentation example access-key id is a well-known
+        non-secret placeholder that the AWS-key detector matches."""
+        decision = check_tool(
+            created_run,
+            "http_request",
+            {
+                "url": "https://api.example.com/collect",
+                "method": "POST",
+                "body": {"aws_key": "AKIAIOSFODNN7EXAMPLE"},
+            },
+        )
+        _assert_detected(decision, "credentialleak")
 
 
 # ==========================================================================
@@ -152,7 +171,9 @@ class TestShadowEnforceSemantics:
 # tautologies.
 # ==========================================================================
 class TestDeferredAirlockScenarios:
-    @pytest.mark.skip(reason="obfuscation-evasion assertion pending live-stack confirmation — see #6")
+    @pytest.mark.skip(
+        reason="obfuscation-evasion assertion pending live-stack confirmation — see #6"
+    )
     def test_base64_and_unicode_obfuscation(self) -> None:  # pragma: no cover
         ...
 
@@ -160,6 +181,16 @@ class TestDeferredAirlockScenarios:
     def test_unauthorized_domain(self) -> None:  # pragma: no cover
         ...
 
-    @pytest.mark.skip(reason="stateful velocity/loop trip thresholds need live-stack tuning — see #6")
+    @pytest.mark.skip(
+        reason="stateful velocity/loop trip thresholds need live-stack tuning — see #6"
+    )
     def test_velocity_and_loop_detection(self) -> None:  # pragma: no cover
+        ...
+
+    @pytest.mark.skip(
+        reason="coherence divergence is scored over a run's trajectory (submitted "
+        "steps), not a single check-tool call, so it needs a live run to drive — "
+        "see #6"
+    )
+    def test_coherence_divergence(self) -> None:  # pragma: no cover
         ...

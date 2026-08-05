@@ -326,20 +326,27 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
 `tests/e2e` suites require a live stack (`make dev-up`) and skip without it.
 Hardening them to assert behaviour (not liveness) is in progress
 ([#6](https://github.com/sattyamjjain/ferrumdeck/issues/6)): `test_airlock.py`
-and `test_policy_engine.py` now assert the actual enforcement decision (the
-specific `violation_type` + risk band, deny-by-default denying an unknown tool),
-but the remaining security/chaos/e2e tests still assert liveness — do not yet
-read those as proof that a given attack is blocked.
+(RCE, raw-IP exfil, credential DLP), `test_policy_engine.py`,
+`test_input_validation.py` (command injection), and `test_owasp_llm.py`
+(deny-by-default tool policy) now assert the actual enforcement **decision** — the
+specific `violation_type` + risk band, or `allowed=false` — and the `tests/chaos`
+suite's simulated no-ops are now explicit skips naming the fault-injection
+plumbing they need, not green tautologies. The Airlock layer decisions also have
+a runnable, no-Docker backbone in
+`rust/crates/fd-policy/tests/airlock_decisions.rs` +
+`airlock_layers_fire.rs`. Still liveness-only and deferred on #6: `tests/e2e`,
+and the stateful/obfuscation cases (velocity, coherence, base64/unicode
+evasion) — do not yet read those as proof that a given attack is blocked.
 
-**Automated test coverage.** The CI-gating unit/lint suites total **1,899**
-tests, re-derivable with `make claims-recount`: Rust **725**
+**Automated test coverage.** The CI-gating unit/lint suites total **1,903**
+tests, re-derivable with `make claims-recount`: Rust **729**
 (`cargo test --workspace -- --list`), Python unit **512** (`pytest` over the four
 `python/packages/*/tests` the CI unit job runs), frontend **612**
 (`jest`), and API-contract **50** (`pytest tests/api`). The live-stack suites —
-`tests/security` (70), `tests/chaos` (16), `tests/e2e` (43) — need `make dev-up`,
-**skip without it**, and (per the caveat above) assert liveness more than
-behaviour, so they are **excluded from that headline**; `tests/integration` (81)
-is likewise live-stack and non-gating. These counts live in the single source
+`tests/security` (76), `tests/chaos` (14), `tests/e2e` (43) — need `make dev-up`,
+**skip without it**, and (per the caveat above) are still being converted from
+liveness to behaviour, so they are **excluded from that headline**;
+`tests/integration` (81) is likewise live-stack and non-gating. These counts live in the single source
 [`docs/feature-status.yml`](docs/feature-status.yml) and are held to the README by
 the claims-integrity CI check (`make check-claims`).
 

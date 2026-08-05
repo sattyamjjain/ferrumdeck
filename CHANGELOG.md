@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > that captured them. Dates are the tag dates; entries are terse, one per merged
 > change.
 
+## [Unreleased]
+
+### Fixed
+- **The repo description said production-grade while the README said alpha. The README was right.** The two were one click apart on the same product. The GitHub "About" description now renders from a single source (`.github/repo-metadata.yml`) that says what the project is and what it runs without a maturity adjective, and a release-time check (`repo-description-consistency` in `version-release-consistency.yml`) fails loudly if the live GitHub description ever drifts from it again. `make repo-description` prints the value to paste into Settings (the "About" field is not writable from CI without a PAT).
+- **The security and chaos suites asserted that the service survived hostile input. They now assert what the policy plane decided.** The security tests POSTed to a path the gateway does not serve and asserted `status_code in (200, 201, 400, 422)` — a range that passes whether the attack is accepted or blocked. `test_airlock.py` (RCE, raw-IP exfil, and now **credential DLP**), `test_input_validation.py` (command injection), and `test_owasp_llm.py` (deny-by-default tool policy) now drive the real `POST /v1/runs/{id}/check-tool` endpoint and assert the **decision** — the specific Airlock `violation_type` + risk band, or `allowed=false` — with a runnable, no-Docker backbone at the inspector boundary (`rust/crates/fd-policy/tests/airlock_decisions.rs`, joining `airlock_layers_fire.rs`). The chaos suite injected *no* fault ("in a real chaos test, we would kill Postgres ... for now") and asserted a wide up-or-down status range; those simulated no-ops are now explicit skips naming the fault-injection plumbing they need (Docker kill/pause, `tc`, cgroups), not green tautologies. Cases that still need a live stack — `tests/e2e`, velocity/coherence, base64/unicode obfuscation — are skipped with reasons and left on [#6](https://github.com/sattyamjjain/ferrumdeck/issues/6), which stays open.
+
+### Added
+- **`ferrumdeck-audit` is packaged for crates.io.** The hash-chain plus signed checkpoints landed on 2026-08-01 (closing [#8](https://github.com/sattyamjjain/ferrumdeck/issues/8)), but the crate name that carries them was still unclaimed and unpublished — the 0.8.0/0.8.1 headline feature was unreachable from any published artifact. The crate now has full crates.io metadata (description, license, repository, readme, keywords, categories) and a verified `cargo publish --dry-run`; publishing it (and the umbrella, which reaches it via the optional `audit` feature) needs a crates.io token and is done outside CI.
+
 ## [0.8.1] - 2026-08-04
 
 ### Fixed

@@ -354,3 +354,10 @@ check-claims:
 # docs/feature-status.yml. Run after adding/removing tests, then update the source.
 claims-recount:
 	uv run python scripts/check_claims_integrity.py --recount
+
+# Print the canonical repo "About" description (docs/../.github/repo-metadata.yml)
+# for pasting into GitHub Settings. The repo-description-consistency CI job fails
+# at release time if the live GitHub description drifts from this value.
+.PHONY: repo-description
+repo-description:
+	@sed -n 's/^description: *"\(.*\)"$$/\1/p' .github/repo-metadata.yml

@@ -121,7 +121,7 @@ test_counts:
   # Suites that gate CI (unit/lint) — the honest headline.
   gating:
     rust:
-      count: 725
+      count: 729
       method: "cargo test --workspace -- --list | grep -cE ': test$'"
     python_unit:
       count: 512
@@ -132,13 +132,13 @@ test_counts:
     api_contracts:
       count: 50
       method: "uv run pytest tests/api --collect-only -q"
-  gating_total: 1899
+  gating_total: 1903
   # Live-stack suites: require `make dev-up`, skip without it, and (per the
   # README testing caveat) assert liveness more than behaviour. NOT counted in
   # the headline, reported on their own line.
   liveness:
-    security: 70
-    chaos: 16
+    security: 76
+    chaos: 14
     e2e: 43
     integration: 81
     method: "uv run pytest tests/<suite> --collect-only -q (skip at runtime without a live gateway)"

@@ -138,3 +138,45 @@ jobs:
             exit 1
           fi
           echo "Every v*.*.* tag has a matching GitHub Release."
+
+  repo-description-consistency:
+    name: GitHub description matches .github/repo-metadata.yml
+    # The GitHub "About" description is a deployed setting, not part of the PR
+    # diff, and CI cannot write it without a PAT. So this runs at release time
+    # (push to main / schedule / dispatch), NOT on pull_request — on a PR it
+    # would always fail until an operator syncs the setting by hand. It exists
+    # because the description once said "production-grade" while the README said
+    # early-stage; this fails loudly if they ever diverge again.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare the live GitHub description to the pinned source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Pinned value (single-line double-quoted scalar → sed, no YAML dep).
+          pinned="$(sed -n 's/^description: *"\(.*\)"$/\1/p' .github/repo-metadata.yml)"
+          if [ -z "$pinned" ]; then
+            echo "::error::Could not read description from .github/repo-metadata.yml"
+            exit 1
+          fi
+
+          # Live GitHub "About" description, whitespace-normalised for comparison.
+          live="$(gh repo view "${{ github.repository }}" --json description -q '.description // ""' \
+            | tr '\n' ' ' | tr -s ' ' | sed 's/^ *//; s/ *$//')"
+          pinned_norm="$(printf '%s' "$pinned" | tr '\n' ' ' | tr -s ' ' | sed 's/^ *//; s/ *$//')"
+
+          echo "pinned: $pinned_norm"
+          echo "live:   $live"
+
+          if [ "$pinned_norm" != "$live" ]; then
+            echo "::error::The GitHub repo description has drifted from .github/repo-metadata.yml. Paste the pinned value into GitHub → the repo → About → Description (run 'make repo-description' to print it). This guards against the repo advertising a maturity claim the README contradicts."
+            exit 1
+          fi
+          echo "The GitHub description matches the pinned source."
