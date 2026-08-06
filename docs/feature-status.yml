@@ -63,11 +63,15 @@ key_features:
   - id: eval-framework-dashboard
     readme_row: "**Evaluation Framework**:"
     marker: "[dashboard data BFF-stubbed"
-    status: "eval framework runs; dashboard eval data is stubbed"
+    status: "eval framework runs; suites list served from disk, runs + regression still not implemented (501)"
     evidence: >-
-      nextjs/src/app/api/v1/evals/{suites,runs,regression-report}/route.ts each
-      begin with "// Stub API route ... returns empty data until backend is
-      implemented" and return empty arrays.
+      GET /api/v1/evals/suites now serves the real on-disk suite definitions
+      (evals/suites/*.yaml, with real task counts from the datasets) via
+      nextjs/src/lib/evals/suite-loader.ts, or 501 if the evals dir is not found —
+      never an empty 200. But /api/v1/evals/{runs,regression-report} still return
+      501 (not_implemented, #7), so the dashboard's eval round-trip — running a
+      suite, run history, regression — is not wired: those tabs render the
+      not-implemented notice.
     limitations_anchor: "#project-status--limitations"
     roadmap_issue: 7
 
@@ -127,12 +131,12 @@ test_counts:
       count: 512
       method: "uv run pytest python/packages/{fd-runtime,fd-mcp-router,fd-worker,fd-evals}/tests --collect-only -q"
     frontend:
-      count: 612
+      count: 613
       method: "cd nextjs && npm test -- --watchAll=false --ci  (jest 'Tests:' total)"
     api_contracts:
       count: 50
       method: "uv run pytest tests/api --collect-only -q"
-  gating_total: 1903
+  gating_total: 1904
   # Live-stack suites: require `make dev-up`, skip without it, and (per the
   # README testing caveat) assert liveness more than behaviour. NOT counted in
   # the headline, reported on their own line.

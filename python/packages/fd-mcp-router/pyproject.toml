@@ -1,6 +1,6 @@
 [project]
 name = "fd-mcp-router"
-version = "0.8.2"
+version = "0.8.3"
 # Workspace-internal, not a PyPI distribution. Rejects an accidental `twine
 # upload`; install from source (uv sync), not `pip install fd-mcp-router`.
 classifiers = ["Private :: Do Not Upload"]
