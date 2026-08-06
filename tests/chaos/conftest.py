@@ -3,14 +3,20 @@
 import os
 import subprocess
 import time
-from typing import Generator
+from collections.abc import Generator
 
 import httpx
 import pytest
 
 # Test configuration
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8080")
-API_KEY = os.getenv("FD_API_KEY", "fd_test_key")
+# The seeded dev key (db/migrations/20241223000002_seed_dev_data.sql). The old
+# default "fd_test_key" is not seeded, so every authenticated chaos request 401'd
+# — matching the fix already made in tests/security/conftest.py.
+API_KEY = os.getenv("FD_API_KEY", "fd_dev_key_abc123")
+# Agent seeded by the dev migration, with a known allowlist (git_read/...). Used
+# to create a run so the enforcement path can be exercised under a fault.
+SEED_AGENT_ID = os.getenv("FD_SEED_AGENT_ID", "agt_01JFVX0000000000000000001")
 
 
 def wait_for_service(url: str, timeout: int = 30) -> bool:
@@ -31,9 +37,7 @@ def wait_for_service(url: str, timeout: int = 30) -> bool:
 def ensure_services_running() -> None:
     """Ensure required services are running before chaos tests."""
     if not wait_for_service(GATEWAY_URL, timeout=5):
-        pytest.skip(
-            "Gateway service not running. Start with: make quickstart"
-        )
+        pytest.skip("Gateway service not running. Start with: make quickstart")
 
 
 @pytest.fixture(scope="session")

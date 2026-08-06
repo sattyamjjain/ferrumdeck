@@ -338,10 +338,10 @@ a runnable, no-Docker backbone in
 and the stateful/obfuscation cases (velocity, coherence, base64/unicode
 evasion) — do not yet read those as proof that a given attack is blocked.
 
-**Automated test coverage.** The CI-gating unit/lint suites total **1,903**
+**Automated test coverage.** The CI-gating unit/lint suites total **1,904**
 tests, re-derivable with `make claims-recount`: Rust **729**
 (`cargo test --workspace -- --list`), Python unit **512** (`pytest` over the four
-`python/packages/*/tests` the CI unit job runs), frontend **612**
+`python/packages/*/tests` the CI unit job runs), frontend **613**
 (`jest`), and API-contract **50** (`pytest tests/api`). The live-stack suites —
 `tests/security` (76), `tests/chaos` (14), `tests/e2e` (43) — need `make dev-up`,
 **skip without it**, and (per the caveat above) are still being converted from
@@ -389,7 +389,7 @@ The known gaps above are tracked in the open on the **[roadmap](ROADMAP.md)**, o
 - **Deterministic IDs**: ULID-based identifiers for time-ordered, collision-resistant tracking
 
 ### Quality
-- **Evaluation Framework**: Deterministic offline test suites for agent workflows (the `fd-evals` framework runs the reproducible benchmarks above). **⚠ [dashboard data BFF-stubbed](#project-status--limitations)** — the dashboard's `/api/v1/evals/*` routes return empty until a gateway eval backend lands ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
+- **Evaluation Framework**: Deterministic offline test suites for agent workflows (the `fd-evals` framework runs the reproducible benchmarks above). **⚠ [dashboard data BFF-stubbed](#project-status--limitations)** — `GET /api/v1/evals/suites` now serves the real on-disk suite definitions, but `/runs` and `/regression-report` still return 501 until a gateway eval backend lands, so the eval round-trip (running a suite, run history, regression) is not wired ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
 - **Regression Gating**: the eval suite reports quality regressions between versions. **⚠ [PR gate covers the 3 deterministic suites; LLM-judged suite stays nightly](#project-status--limitations)** — `ci.yml`'s `eval-regression` job runs the injection-defense / ASB / governed-vs-ungoverned suites + the real `fd_policy` engine pins on every push + PR (no services, no secrets), so a golden-fixture or engine-pin regression blocks a merge. The LLM-judged smoke/regression suite still runs nightly in `evals.yml`, not on PRs ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
 - **Baseline Comparisons**: Track performance across versions. **⚠ [dashboard data BFF-stubbed](#project-status--limitations)** — the baseline view reads the same stubbed `/api/v1/evals/*` data ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
 - **Per-harness eval dimension (Harness-Bench)**: fd-evals reports at the `(model × harness_config)` level — same model under different harness configs can produce different scores. Each run records its `tools_available`, `permission_tier`, `state_recovery`, and `tracing` config alongside the existing baseline, the dashboard groups results by `(model × harness)` with a side-by-side Recharts bar chart, and `DeltaReport` exposes a per-dimension diff (added/removed tools, tier change, recovery change). See [`docs/runbooks/harness-config.md`](docs/runbooks/harness-config.md).
