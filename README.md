@@ -338,8 +338,8 @@ a runnable, no-Docker backbone in
 and the stateful/obfuscation cases (velocity, coherence, base64/unicode
 evasion) — do not yet read those as proof that a given attack is blocked.
 
-**Automated test coverage.** The CI-gating unit/lint suites total **1,904**
-tests, re-derivable with `make claims-recount`: Rust **729**
+**Automated test coverage.** The CI-gating unit/lint suites total **1,905**
+tests, re-derivable with `make claims-recount`: Rust **730**
 (`cargo test --workspace -- --list`), Python unit **512** (`pytest` over the four
 `python/packages/*/tests` the CI unit job runs), frontend **613**
 (`jest`), and API-contract **50** (`pytest tests/api`). The live-stack suites —
