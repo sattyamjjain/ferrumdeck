@@ -11,6 +11,20 @@
 //! most recent checkpoint. See the guarantee note on [`checkpoint`] for exactly
 //! what is and is not proven (detectable up to the last checkpoint; the window
 //! after it keeps the in-chain guarantee; not tamper-proof).
+//!
+//! ## Usage
+//!
+//! Reachable from the [`ferrumdeck`](https://crates.io/crates/ferrumdeck) umbrella
+//! under the optional `audit` feature (`cargo add ferrumdeck --features audit`),
+//! or directly as `ferrumdeck-audit` (import path stays `fd_audit`):
+//!
+//! ```ignore
+//! use ferrumdeck::audit::{CheckpointSigner, verify_against_checkpoints};
+//! let signer = CheckpointSigner::from_seed("key-1", &[7u8; 32]);      // key is NOT the DB's
+//! let checkpoint = signer.sign(head_body);                           // sign the chain head
+//! let outcome = verify_against_checkpoints(&records, &[checkpoint], &verifier);
+//! assert!(outcome.is_verified());                                    // chain not rewritten past it
+//! ```
 
 pub mod chain;
 pub mod checkpoint;

@@ -180,3 +180,38 @@ jobs:
             exit 1
           fi
           echo "The GitHub description matches the pinned source."
+
+  umbrella-not-behind-policy:
+    name: Published ferrumdeck is not behind ferrumdeck-policy
+    # The `ferrumdeck` umbrella exposes the enforcement engine (ferrumdeck-policy)
+    # and, via the optional `audit` feature, ferrumdeck-audit. If the published
+    # umbrella trails the published policy crate, `cargo add ferrumdeck` resolves
+    # to a version behind the engine it is supposed to expose. This is a crates.io
+    # state check, not a repo-diff check, so it runs at release time (push to main
+    # / schedule / dispatch), not on PRs.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Compare published umbrella vs policy versions
+        run: |
+          set -euo pipefail
+          fetch() {
+            curl -s "https://crates.io/api/v1/crates/$1" -H "User-Agent: ferrumdeck-ci" \
+              | python3 -c "import sys,json; print(json.load(sys.stdin).get('crate',{}).get('max_version',''))"
+          }
+          umbrella="$(fetch ferrumdeck)"
+          policy="$(fetch ferrumdeck-policy)"
+          echo "published ferrumdeck=$umbrella  ferrumdeck-policy=$policy"
+          if [ -z "$umbrella" ] || [ -z "$policy" ]; then
+            echo "::error::could not fetch published versions from crates.io"
+            exit 1
+          fi
+          # The umbrella must be >= policy. `sort -V` puts the lower SemVer first.
+          lowest="$(printf '%s\n%s\n' "$umbrella" "$policy" | sort -V | head -1)"
+          if [ "$umbrella" != "$policy" ] && [ "$lowest" = "$umbrella" ]; then
+            echo "::error::published ferrumdeck ($umbrella) trails ferrumdeck-policy ($policy). The umbrella exposes an engine/feature version it is behind, so 'cargo add ferrumdeck' gets stale bits. Publish ferrumdeck (and ferrumdeck-audit) at the current version. Expected red until that publish happens."
+            exit 1
+          fi
+          echo "OK: published ferrumdeck ($umbrella) is not behind ferrumdeck-policy ($policy)."
