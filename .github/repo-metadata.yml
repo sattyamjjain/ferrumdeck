@@ -17,4 +17,4 @@
 #
 # Kept as a single-line double-quoted scalar so the release check can extract it
 # with `sed` and needs no YAML library on the CI runner.
-description: "AgentOps control plane for AI agent execution. Rust policy plane, hash-chained audit, deny-by-default tool allowlists and budget enforcement, eval gating in CI. Single maintainer, moving fast, read the README before you deploy it."
+description: "AgentOps control plane for AI agent execution. Rust policy plane, hash-chained audit, deny-by-default tool allowlists and budget enforcement, eval gating in CI. Single maintainer, moving fast, read the README before you deploy it. Docs: https://sattyamjjain.github.io/ferrumdeck/"

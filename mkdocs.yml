@@ -1,0 +1,99 @@
+# MkDocs site for FerrumDeck. The 28 files under docs/ — 5 ADRs, 14 runbooks, the
+# threat model, the enforce-vs-observe benchmark and the receipts schema — were only
+# readable by cloning the repo. This renders them at
+# https://sattyamjjain.github.io/ferrumdeck/ , published by .github/workflows/docs.yml
+# (`mkdocs gh-deploy` on push to main). Enable Pages once with source = gh-pages branch.
+site_name: FerrumDeck
+site_description: >-
+  A deterministic, in-path enforcement plane for AI agents — deny-by-default tool
+  policy, Airlock RASP, per-run budget enforcement, and a hash-chained audit trail.
+site_url: https://sattyamjjain.github.io/ferrumdeck/
+repo_url: https://github.com/sattyamjjain/ferrumdeck
+repo_name: sattyamjjain/ferrumdeck
+edit_uri: edit/main/docs/
+copyright: Licensed under Apache-2.0
+
+# docs/feature-status.yml is the claims-integrity source, not a page — keep it out of
+# the build so it never renders as documentation.
+exclude_docs: |
+  feature-status.yml
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.tracking
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - footnotes
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Architecture: architecture/overview.md
+  - Runbooks:
+      - Budget Forecast: runbooks/budget-forecast.md
+      - Champion / Challenger Promotion: runbooks/champion-challenger-promotion.md
+      - Claim Grounding Rate: runbooks/claim-grounding-rate.md
+      - Coherence Divergence: runbooks/coherence-divergence.md
+      - Cost Decomposition: runbooks/cost-decomposition.md
+      - Database Migration: runbooks/database-migration.md
+      - Gateway Scaling: runbooks/gateway-scaling.md
+      - Graduated Response Levels: runbooks/graduated-response-levels.md
+      - Harness Config: runbooks/harness-config.md
+      - Incident Response: runbooks/incident-response.md
+      - Policy Conflict Resolution: runbooks/policy-conflict-resolution.md
+      - Routing Decision Audit: runbooks/routing-decision-audit.md
+      - Tool-Call Firing Rate: runbooks/tool-call-firing-rate.md
+      - Worker Failure Recovery: runbooks/worker-failure-recovery.md
+  - Benchmarks:
+      - Methodology: BENCHMARK.md
+      - Enforce vs Observe: benchmarks/enforce-vs-observe.md
+      - Enforcement Latency: benchmarks/enforcement-latency.md
+  - Reference:
+      - MCP Trace Conformance: mcp-trace-conformance.md
+      - Receipts Schema: receipts-schema.md
+  - Security:
+      - Threat Model: security/threat-model.md
+  - ADRs:
+      - ADR-0001 · Control / Data Plane Separation: adr/0001-control-data-plane-separation.md
+      - ADR-0002 · Redis Streams for Queues: adr/0002-redis-streams-for-queues.md
+      - ADR-0003 · Deny-by-Default Tools: adr/0003-deny-by-default-tools.md
+      - ADR-0004 · OTel GenAI Conventions: adr/0004-otel-genai-conventions.md
+      - ADR-0005 · Colorado SB26-189 ADMT: adr/0005-colorado-sb26-189-admt.md

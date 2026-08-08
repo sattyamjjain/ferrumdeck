@@ -1,6 +1,6 @@
 # FerrumDeck Documentation
 
-Welcome to the FerrumDeck documentation. FerrumDeck is a production-grade platform for running agentic AI workflows with deterministic governance.
+Welcome to the FerrumDeck documentation. FerrumDeck is a deterministic, in-path **enforcement** plane for AI agents — deny-by-default tool policy, per-run budget enforcement, Airlock RASP, and a hash-chained audit trail, all in the request path. It is **early / alpha, built primarily by one maintainer**; read the [project status & limitations](https://github.com/sattyamjjain/ferrumdeck#project-status--limitations) before you rely on it.
 
 ## Getting Started
 

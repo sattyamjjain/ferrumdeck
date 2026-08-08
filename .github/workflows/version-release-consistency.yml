@@ -176,42 +176,73 @@ jobs:
           echo "live:   $live"
 
           if [ "$pinned_norm" != "$live" ]; then
-            echo "::error::The GitHub repo description has drifted from .github/repo-metadata.yml. Paste the pinned value into GitHub → the repo → About → Description (run 'make repo-description' to print it). This guards against the repo advertising a maturity claim the README contradicts."
+            echo "::error::The GitHub repo description has drifted from .github/repo-metadata.yml. Paste the exact string printed below into GitHub → the repo → About (gear) → Description. This guards against the repo advertising a maturity claim the README contradicts."
+            echo "----- paste this into GitHub → About → Description -----"
+            printf '%s\n' "$pinned"
+            echo "-------------------------------------------------------"
             exit 1
           fi
           echo "The GitHub description matches the pinned source."
 
-  umbrella-not-behind-policy:
-    name: Published ferrumdeck is not behind ferrumdeck-policy
-    # The `ferrumdeck` umbrella exposes the enforcement engine (ferrumdeck-policy)
-    # and, via the optional `audit` feature, ferrumdeck-audit. If the published
-    # umbrella trails the published policy crate, `cargo add ferrumdeck` resolves
-    # to a version behind the engine it is supposed to expose. This is a crates.io
-    # state check, not a repo-diff check, so it runs at release time (push to main
-    # / schedule / dispatch), not on PRs.
+  umbrella-not-behind-deps:
+    name: Published ferrumdeck is not behind any crate it re-exports
+    # The `ferrumdeck` umbrella re-exports the enforcement engine (ferrumdeck-policy)
+    # and, via the optional `audit` feature, ferrumdeck-audit. The release fails if the
+    # published umbrella trails EITHER crate, or if it advertises the `audit` feature
+    # while ferrumdeck-audit is unpublished — in every one of those cases
+    # `cargo add ferrumdeck [--features audit]` resolves to stale bits or fails to
+    # resolve at all. This is a crates.io state check, not a repo-diff check, so it runs
+    # at release time (push to main / schedule / dispatch), not on PRs. Expected red
+    # until the umbrella + audit crate are published at parity with policy (#22).
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - name: Compare published umbrella vs policy versions
+      - name: Compare published umbrella against every crate it re-exports
         run: |
           set -euo pipefail
           fetch() {
             curl -s "https://crates.io/api/v1/crates/$1" -H "User-Agent: ferrumdeck-ci" \
               | python3 -c "import sys,json; print(json.load(sys.stdin).get('crate',{}).get('max_version',''))"
           }
+          # `sort -V` puts the lower SemVer first; used to test "$1 < $2".
+          lower() { printf '%s\n%s\n' "$1" "$2" | sort -V | head -1; }
+
           umbrella="$(fetch ferrumdeck)"
+          if [ -z "$umbrella" ]; then
+            echo "::error::could not fetch the published ferrumdeck version from crates.io"
+            exit 1
+          fi
+          echo "published ferrumdeck (umbrella) = $umbrella"
+          problems=0
+
+          # ferrumdeck-policy — always re-exported. The umbrella must be >= it.
           policy="$(fetch ferrumdeck-policy)"
-          echo "published ferrumdeck=$umbrella  ferrumdeck-policy=$policy"
-          if [ -z "$umbrella" ] || [ -z "$policy" ]; then
-            echo "::error::could not fetch published versions from crates.io"
+          echo "published ferrumdeck-policy = ${policy:-<none>}"
+          if [ -z "$policy" ]; then
+            echo "::error::ferrumdeck-policy is not published, yet the umbrella re-exports it."
+            problems=1
+          elif [ "$umbrella" != "$policy" ] && [ "$(lower "$umbrella" "$policy")" = "$umbrella" ]; then
+            echo "::error::published ferrumdeck ($umbrella) trails ferrumdeck-policy ($policy): 'cargo add ferrumdeck' gets an engine older than the policy crate. Publish the umbrella at >= $policy."
+            problems=1
+          fi
+
+          # ferrumdeck-audit — re-exported via the optional `audit` feature. Because the
+          # umbrella ADVERTISES that feature, the audit crate must exist and must not be
+          # ahead of the umbrella, or `cargo add ferrumdeck --features audit` breaks.
+          audit="$(fetch ferrumdeck-audit)"
+          echo "published ferrumdeck-audit = ${audit:-<none>}"
+          if [ -z "$audit" ]; then
+            echo "::error::the umbrella advertises an 'audit' feature but ferrumdeck-audit is not published (name unclaimed): 'cargo add ferrumdeck --features audit' cannot resolve. Publish ferrumdeck-audit (#22)."
+            problems=1
+          elif [ "$umbrella" != "$audit" ] && [ "$(lower "$umbrella" "$audit")" = "$umbrella" ]; then
+            echo "::error::published ferrumdeck ($umbrella) trails ferrumdeck-audit ($audit): the 'audit' feature exposes a version the umbrella is behind. Publish the umbrella at >= $audit."
+            problems=1
+          fi
+
+          if [ "$problems" -ne 0 ]; then
+            echo "::error::published ferrumdeck is behind a crate it re-exports, or that crate is unpublished. Publish in dependency order — core -> policy -> audit -> umbrella — all at the current workspace version. Expected red until that publish happens (#22)."
             exit 1
           fi
-          # The umbrella must be >= policy. `sort -V` puts the lower SemVer first.
-          lowest="$(printf '%s\n%s\n' "$umbrella" "$policy" | sort -V | head -1)"
-          if [ "$umbrella" != "$policy" ] && [ "$lowest" = "$umbrella" ]; then
-            echo "::error::published ferrumdeck ($umbrella) trails ferrumdeck-policy ($policy). The umbrella exposes an engine/feature version it is behind, so 'cargo add ferrumdeck' gets stale bits. Publish ferrumdeck (and ferrumdeck-audit) at the current version. Expected red until that publish happens."
-            exit 1
-          fi
-          echo "OK: published ferrumdeck ($umbrella) is not behind ferrumdeck-policy ($policy)."
+          echo "OK: published ferrumdeck ($umbrella) is not behind ferrumdeck-policy ($policy) or ferrumdeck-audit ($audit)."

@@ -1,0 +1,43 @@
+name: Docs
+
+# Render the MkDocs site from docs/ and publish it to GitHub Pages on every push to
+# main that touches the docs. `mkdocs gh-deploy` builds the site and force-pushes it to
+# the gh-pages branch using the built-in GITHUB_TOKEN — no PAT needed. One manual step
+# is required once: Settings -> Pages -> Source = "Deploy from a branch" -> gh-pages / (root),
+# after which the site serves at https://sattyamjjain.github.io/ferrumdeck/ .
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+# gh-deploy pushes the built site to the gh-pages branch of this repo.
+permissions:
+  contents: write
+
+# Never let two deploys race the gh-pages branch.
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gh-deploy updates the gh-pages branch; needs history
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install MkDocs + Material
+        run: pip install "mkdocs-material>=9.5,<10"
+
+      - name: Build & deploy to gh-pages
+        run: mkdocs gh-deploy --force --no-history
