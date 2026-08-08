@@ -4,7 +4,7 @@ name = "ferrumdeck"
 # root Cargo.toml `[workspace.package] version`); the `version-release-consistency`
 # CI check fails if they drift. Not published to PyPI — installable from source
 # only (the sub-packages under python/packages/* carry the actual code).
-version = "0.8.3"
+version = "0.8.4"
 # Workspace-internal, not a PyPI distribution. This classifier makes an
 # accidental `twine upload` fail (PyPI rejects "Private :: Do Not Upload").
 classifiers = ["Private :: Do Not Upload"]
