@@ -62,14 +62,13 @@ assert!(engine.evaluate_tool_call_with(&allowlist, "unknown").is_denied());     
 
 Prefer the engine directly (no umbrella)? `cargo add ferrumdeck-policy` — the import path is still `use fd_policy::…`. Primitives only: `ferrumdeck-core` (`use fd_core::…`). All three are Apache-2.0. (Published as `ferrumdeck*` because the bare `fd-core` name is taken on crates.io by an unrelated crate; the Rust import paths are unchanged.)
 
-The 0.8.0 headline feature — the audit trail + out-of-band **chain-head checkpoint anchoring** (#14: `verify_against_checkpoints`, `CheckpointSigner`) — lives in **`ferrumdeck-audit`** (import path `fd_audit`), wired into the umbrella behind an **optional `audit` feature** so it doesn't bloat the lean engine. **`ferrumdeck-audit` is not on crates.io yet** ([#22](https://github.com/sattyamjjain/ferrumdeck/issues/22)), so `cargo add ferrumdeck --features audit` does **not** resolve today — until it's published, depend on the umbrella from git with the feature enabled, which pulls the audit crate from the same workspace:
+The 0.8.0 headline feature — the audit trail + out-of-band **chain-head checkpoint anchoring** (#14: `verify_against_checkpoints`, `CheckpointSigner`) — ships as **`ferrumdeck-audit`** (import path `fd_audit`), wired into the umbrella as an **optional `audit` feature** so it doesn't bloat the lean engine:
 
-```toml
-[dependencies]
-ferrumdeck = { git = "https://github.com/sattyamjjain/ferrumdeck", features = ["audit"] }
+```bash
+cargo add ferrumdeck --features audit
 ```
 
-Once `ferrumdeck-audit` is published, `cargo add ferrumdeck --features audit` becomes the one-line form. The remaining crates (`fd-registry`, `fd-storage`, and the gateway service) are **workspace-internal today** — they build from a clone but are not published.
+access path `ferrumdeck::audit` (e.g. `ferrumdeck::audit::CheckpointSigner`, `ferrumdeck::audit::verify_against_checkpoints`). The remaining crates (`fd-registry`, `fd-storage`, and the gateway service) are **workspace-internal today** — they build from a clone but are not published.
 
 > **Python plane: install from source only.** Only the Rust enforcement engine is published to a package registry (crates.io). The Python data-plane packages (`fd-runtime`, `fd-worker`, `fd-mcp-router`, `fd-mcp-tools`, `fd-evals`, `fd-cli`) and the workspace-root `ferrumdeck` package are **not on PyPI** — their version numbers are internal workspace versions, not PyPI releases. Install them from a clone with [`uv`](https://docs.astral.sh/uv/): `uv sync`.
 
