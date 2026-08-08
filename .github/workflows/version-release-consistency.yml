@@ -176,7 +176,10 @@ jobs:
           echo "live:   $live"
 
           if [ "$pinned_norm" != "$live" ]; then
-            echo "::error::The GitHub repo description has drifted from .github/repo-metadata.yml. Paste the pinned value into GitHub → the repo → About → Description (run 'make repo-description' to print it). This guards against the repo advertising a maturity claim the README contradicts."
+            echo "::error::The GitHub repo description has drifted from .github/repo-metadata.yml. Paste the exact string printed below into GitHub → the repo → About (gear) → Description. This guards against the repo advertising a maturity claim the README contradicts."
+            echo "----- paste this into GitHub → About → Description -----"
+            printf '%s\n' "$pinned"
+            echo "-------------------------------------------------------"
             exit 1
           fi
           echo "The GitHub description matches the pinned source."
