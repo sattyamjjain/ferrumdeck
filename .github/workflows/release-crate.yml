@@ -3,8 +3,9 @@ name: Release Crate
 # Publishes the FerrumDeck enforcement engine to crates.io on a version tag.
 # Requires a `CARGO_REGISTRY_TOKEN` repository secret (a crates.io API token for
 # an account that owns — or will claim on first publish — the `ferrumdeck-core`,
-# `ferrumdeck-policy`, and `ferrumdeck` crate names). `workflow_dispatch` lets you
-# run it manually after adding the secret, without cutting a new tag.
+# `ferrumdeck-policy`, `ferrumdeck-audit`, and `ferrumdeck` crate names).
+# `workflow_dispatch` lets you run it manually after adding the secret, without
+# cutting a new tag.
 
 on:
   push:
@@ -44,10 +45,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy (published crates)
-        run: cargo clippy -p ferrumdeck-core -p ferrumdeck-policy -p ferrumdeck --all-targets -- -D warnings
+        run: cargo clippy -p ferrumdeck-core -p ferrumdeck-policy -p ferrumdeck-audit -p ferrumdeck --all-targets -- -D warnings
 
       - name: Test (published crates)
-        run: cargo test -p ferrumdeck-core -p ferrumdeck-policy -p ferrumdeck
+        run: cargo test -p ferrumdeck-core -p ferrumdeck-policy -p ferrumdeck-audit -p ferrumdeck
 
       # Provenance for conformity / audit reviewers: cargo-auditable embeds the
       # dependency SBOM into a compiled binary. The published crates are source
@@ -68,14 +69,22 @@ jobs:
           path: target/release/examples/enforce
           if-no-files-found: warn
 
-      # Publish in dependency order: core -> policy -> umbrella. `cargo publish`
-      # waits for each crate to appear in the index before returning, so the next
-      # crate can resolve the one just published.
+      # Publish in dependency order: core -> policy -> audit -> umbrella. `cargo
+      # publish` waits for each crate to appear in the index before returning, so
+      # the next crate can resolve the one just published. The umbrella depends on
+      # ferrumdeck-audit through its optional `audit` feature, so audit MUST be on
+      # crates.io before the umbrella publishes — otherwise `cargo publish -p
+      # ferrumdeck` cannot resolve `ferrumdeck-audit` and the release half-lands
+      # (core + policy published, audit + umbrella not). This step is what makes a
+      # `v*.*.*` tag publish all four crates instead of failing at the umbrella.
       - name: Publish ferrumdeck-core
         run: cargo publish -p ferrumdeck-core --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
 
       - name: Publish ferrumdeck-policy
         run: cargo publish -p ferrumdeck-policy --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
+
+      - name: Publish ferrumdeck-audit
+        run: cargo publish -p ferrumdeck-audit --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
 
       - name: Publish ferrumdeck (umbrella)
         run: cargo publish -p ferrumdeck --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
