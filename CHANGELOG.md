@@ -8,13 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > **Release/tag reconciliation (2026-07-19).** Earlier entries had accumulated in
 > a single `[Unreleased]` block while six version bumps shipped, so the history
 > below was reconstructed from `git log` between the tags that actually exist:
-> **v0.7.2, v0.7.3, v0.7.4, v0.7.6**. Versions **0.2.0–0.7.1** and **0.7.5** were
+> **v0.6.0, v0.7.2, v0.7.3, v0.7.4, v0.7.6** (v0.6.0 is the earliest tag and has
+> its own entry below). The other versions in **0.2.0–0.7.1**, plus **0.7.5**, were
 > bumped in `Cargo.toml` but **never tagged**; rather than invent release dates,
 > those are called out explicitly and their changes folded into the nearest tag
 > that captured them. Dates are the tag dates; entries are terse, one per merged
 > change.
 
 ## [Unreleased]
+
+### Fixed
+- **The advertised docs site was a 404 for a full release cycle — 0.8.4's notes claimed it shipped; it had not.** GitHub Pages had never been enabled (`GET /repos/.../pages` → 404), so `mkdocs gh-deploy` force-pushed the built site to `gh-pages` with nowhere to serve it. Pages is now enabled (Settings → Pages → Deploy from a branch → `gh-pages`) and <https://sattyamjjain.github.io/ferrumdeck/> returns 200. A new `docs-link-liveness.yml` canary collects that URL from all three places that advertise it — the repo "About" homepage field, the pinned description in `.github/repo-metadata.yml`, and the README mkdocs badge — asserts they agree, and fails if it stops returning 200 (on push to main, weekly, and on demand). It is the check that would have caught the 404.
+- **The changelog skipped shipped releases.** The top was an un-promoted `[Unreleased]` block while `v0.8.4` shipped (tag + release), so the history silently omitted 0.8.4 — now promoted to `## [0.8.4]`. 0.8.2/0.8.3 were never tagged (recorded as such via the file's own "not tagged" convention, not invented). A new `tag-has-changelog` CI job (companion to `tag-has-release`) asserts every `v*.*.*` tag has a matching `## [x.y.z]` heading; it immediately surfaced that **v0.6.0 — the actual first tagged release (2026-06-29)** — had no entry and was falsely filed under "never tagged" in three places, now corrected with a real `## [0.6.0]` entry.
+- **The README install section described a state that was broken until 0.8.4, and the crates.io page pinned an incompatible version.** `cargo add ferrumdeck --features audit` only resolved once `ferrumdeck-audit` was published (0.8.4); the section now says so and carries a machine-readable current-version marker asserted against the workspace version by a test (`rust/crates/ferrumdeck/tests/readme_current_version.rs`). The crates.io-facing crate README advertised `ferrumdeck = "0.7"` — semver-incompatible with the published 0.8.x, so that example would not resolve to the current engine — bumped to `"0.8"` and given an audit-feature one-liner; a second test asserts that constraint tracks the workspace major.minor.
+
+### Added
+- **The evals dashboard read path is served by a gateway backend, not a stub ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).** New `GET /v1/evals/runs` and `GET /v1/evals/regression-report` read the real on-disk eval reports (`evals/reports/<suite>-<date>.json`), projecting a common summary across the per-suite heterogeneous schemas (`asb`/`injection_defense` `block_rate_under_attack`, `governed-benchmark` `governed_block_pct`) and comparing each suite's two most recent runs — naming suites with insufficient history so "0 regressions" is never confused with "we never looked". The BFF `/api/v1/evals/{runs,regression-report}` proxy them; on an unreachable gateway they fall back to an honest 501 naming #7, never a fabricated empty 200, so the `eval-no-fabricated-success` guard stays green. **Disclosure kept:** these are repo artifacts read from local disk; a deployed gateway container does not carry `evals/reports/`, so the endpoints return `501 NO_EVAL_STORE` in production. The end-to-end live round-trip is **not yet verified**, so **#7 stays open** and this disclosure stands until it is verified on a live stack. The BFF-no-caller-auth boundary ([#10](https://github.com/sattyamjjain/ferrumdeck/issues/10)) is untouched. 7 new gateway unit tests.
+
+### Changed
+- **The umbrella's `audit` feature stays opt-in, now with an explicit trade-off note.** Decision: a plain `cargo add ferrumdeck` is the lean enforcement engine; the audit hash-chain + signed checkpoints — after-the-fact tamper-evidence, pulling in Ed25519 — sit behind `--features audit`. The README states what the default omits and when to opt in (EU AI Act Art. 12/19, Colorado SB 26-189), rather than silently expanding every consumer's dependency surface by making it default.
+- **Reframed [#5](https://github.com/sattyamjjain/ferrumdeck/issues/5) and removed its `good first issue` label.** Pushing `policy.response.recorded` over SSE requires building the gateway's realtime push path first — no run-channel event is pushed today (all are recorded as tracing events; see `emit_coherence_sse` in `rust/services/gateway/src/handlers/runs.rs`), and the BFF SSE route only emits synthetic events behind an off-by-default flag. That is cross-cutting infrastructure (the same push path #7's live updates need), not a newcomer task; mislabeling it invites a newcomer into a trap. The issue stays open on the roadmap.
+- Workspace + all planes bumped **0.8.4 → 0.8.5** (root `Cargo.toml`, the four crate dep pins, `pyproject.toml` + six `python/packages/*`, `src/ferrumdeck/__init__.py`, `nextjs/package.json`, `uv.lock`, `package-lock.json`). Rust test headline **730 → 740** (3 README-guard + 7 eval-backend tests); gating total **1,905 → 1,915**.
+
+## [0.8.4] - 2026-08-08
 
 ### Fixed
 - **README line 64 told people to run `cargo add ferrumdeck --features audit`. That command had never worked — until this release ([#22](https://github.com/sattyamjjain/ferrumdeck/issues/22)).** `ferrumdeck-audit` was not on crates.io, the name was unclaimed, and the published umbrella (0.8.0) had no features at all. Three commits since 4 August said the crate was prepped, claimed or reached; none of them published it, because publishing needs a crates.io token and the token was never the thing being fixed. **Published now** — `ferrumdeck-core`, `ferrumdeck-policy`, `ferrumdeck-audit` (name claimed) and the `ferrumdeck` umbrella with its `audit` feature, all at **0.8.4** — and **smoke-tested from a scratch project** (`cargo new` → `cargo add ferrumdeck --features audit` → `cargo build`, plus a `ferrumdeck::audit::CheckpointSigner` reference that compiles), not from a dry-run. Workspace was 0.8.3, the last tag was v0.8.1 and the umbrella crate was 0.8.0 — behind the `ferrumdeck-policy` it re-exports; all planes are bumped and all four crates republished at **0.8.4** (root `Cargo.toml`, the four dep pins, root + six `python/packages/*` `pyproject.toml`, `src/ferrumdeck/__init__.py`, `nextjs/package.json`, `uv.lock` / `package-lock.json`). The `umbrella-not-behind-deps` guard — broadened from policy-only to every re-exported crate (policy **and** audit, including the "feature advertised but crate unpublished" case) — now passes green instead of reporting after the fact. The git tag `v0.8.4` + GitHub Release land on the merge commit.
@@ -27,6 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **One real chaos test, replacing a simulated no-op: database-unavailable → the policy plane fails closed ([#6](https://github.com/sattyamjjain/ferrumdeck/issues/6)).** `tests/chaos/test_failure_injection.py::TestDatabaseUnavailableFailsClosed` creates a run, `docker pause`s Postgres, and asserts `check-tool` does **not** return `allowed=true` — deny-by-default forbids authorizing a tool the control plane can no longer verify against current policy — then `docker unpause`s in a `finally`. Skips cleanly without Docker/gateway. Fail-open under dependency loss is the failure mode an auditor asks about first, so this one real test is worth more than the five simulated ones, which stay explicit skips naming the plumbing they need. Also corrected the chaos conftest's unseeded default API key (`fd_test_key` → the seeded `fd_dev_key_abc123`). [#6](https://github.com/sattyamjjain/ferrumdeck/issues/6) updated to a coverage map of what is covered vs. what remains.
 - **A release-time guard that the published `ferrumdeck` umbrella is not behind any crate it re-exports** (`version-release-consistency.yml`). Broadened from policy-only: it now fails a release if the published umbrella trails `ferrumdeck-policy` **or** `ferrumdeck-audit`, or if it advertises the optional `audit` feature while `ferrumdeck-audit` is unpublished — the exact state that makes `cargo add ferrumdeck --features audit` unresolvable. Plus a six-line usage snippet on the `ferrumdeck-audit` docs.rs page showing the whole path (`cargo add ferrumdeck --features audit` → `ferrumdeck::audit::CheckpointSigner` + `verify_against_checkpoints`).
 - **The 28 files under `docs/` are a published site now, not clone-only.** `mkdocs.yml` (Material theme) renders the 5 ADRs, 14 runbooks, the threat model, the enforce-vs-observe benchmark and the receipts schema, and `.github/workflows/docs.yml` deploys them to GitHub Pages via `mkdocs gh-deploy` on push to main, at <https://sattyamjjain.github.io/ferrumdeck/> — linked from the README and the umbrella crate's `documentation` field. Enabling Pages (Settings → Pages → source = gh-pages) is a one-time manual step.
+
+## [0.8.2] – [0.8.3] — not tagged
+
+These workspace versions appear in `Cargo.toml` history but were **never tagged
+or released**. The whole `v0.8.1..v0.8.4` span of real changes shipped under the
+single **[0.8.4]** entry above; 0.8.2 and 0.8.3 were intermediate in-tree bumps
+along the way. Rather than invent release dates or split the changelog to match
+version numbers that never became artifacts, they are called out here and folded
+into [0.8.4] — the same treatment as the **[0.2.0] – [0.7.1]** block below.
 
 ## [0.8.1] - 2026-08-04
 
@@ -172,7 +197,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.2] - 2026-07-04
 
-_First tagged release. Consolidates the untagged `0.1.0 → 0.7.2` governance/enforcement build-out (117 commits); the intermediate version numbers below were never tagged._
+_Consolidates the untagged span up to 0.7.2 (governance/enforcement build-out, 117 commits). The **first tagged release was [0.6.0]** below (2026-06-29); the versions between it and 0.7.2 were never tagged._
 
 ### Added
 - **Coherence-divergence monitor** (`fd_policy::airlock::coherence`, Strained Coherence): trajectory-level Airlock signal; graduated R1–R3 enforcement, wired live into the gateway run stream, with an SSE event + drift demo.
@@ -195,16 +220,29 @@ _First tagged release. Consolidates the untagged `0.1.0 → 0.7.2` governance/en
 - `docs/receipts-schema.md` mapping the audit shape to Foundation Protocol primitives (+ schema-drift golden).
 
 ### Changed
-- Workspace stepped `0.2.0 → 0.3.0 → 0.4.0 → 0.5.0 → 0.6.0 → 0.7.0 → 0.7.1 → 0.7.2` (none tagged before 0.7.2); Python data-plane versions synced up from a stranded `0.1.0` to match the other planes.
+- Workspace stepped `0.2.0 → 0.3.0 → 0.4.0 → 0.5.0 → 0.6.0 → 0.7.0 → 0.7.1 → 0.7.2` (only **0.6.0** was tagged in that span — see its entry below); Python data-plane versions synced up from a stranded `0.1.0` to match the other planes.
 
 ### Fixed
 - ~50 fixes across CI/test hardening, dashboard stabilization (sidebar tests, module docs, health), the Axum 0.8 migration, and clippy/format cleanup. (Consolidated; the untagged pre-0.7.2 range was not sectioned per-commit.)
 
-## [0.2.0] – [0.7.1] — not tagged
+## [0.6.0] - 2026-06-29
+
+_The first tagged release_ — the point where all three planes (Rust control plane,
+Python data plane, Next.js dashboard) first reported the same version. Its feature
+set (the R1–R3 reversibility ladder, the coherence-divergence monitor, the
+champion-challenger promotion gate, delegation-aware budget leases, claim-grounding
+and firing-rate metrics, debt-vs-tax cost decomposition) is enumerated in detail
+under **[0.7.2]** below, which consolidated the untagged `0.1.0 → 0.7.2` build-out.
+This entry exists because 0.6.0 was genuinely tagged and released (2026-06-29) and
+earlier revisions of this file had omitted it, mis-filing it under the "not tagged"
+range below. See the [v0.6.0 release](https://github.com/sattyamjjain/ferrumdeck/releases/tag/v0.6.0).
+
+## [0.2.0] – [0.5.x], [0.6.1] – [0.7.1] — not tagged
 
 These workspace versions appear in `Cargo.toml` history but were **never tagged
-or released**, so no honest release date can be assigned to them. Their changes
-are consolidated into **[0.7.2]** above (the first tag that captured them).
+or released**, so no honest release date can be assigned to them — unlike
+**[0.6.0]** above, the one tagged release in this range. Their changes are
+consolidated into **[0.7.2]** above (the first tag after 0.6.0 that captured them).
 
 ## [0.1.0] - 2026-01-15
 

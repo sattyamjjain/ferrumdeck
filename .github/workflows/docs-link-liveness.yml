@@ -1,0 +1,96 @@
+name: Docs Link Liveness
+
+# The docs site URL (https://sattyamjjain.github.io/ferrumdeck/) is advertised in
+# three places: the repo "About" homepage field, the pinned description in
+# .github/repo-metadata.yml ("Docs: <url>"), and the README's mkdocs Docs badge.
+# It shipped as a 404 for a full release cycle because GitHub Pages was never
+# enabled, while 0.8.4's notes claimed the docs site was live. This job is the
+# canary that would have caught that: it collects the URL from all three sources,
+# asserts they agree, and fails if the site returns anything but 200.
+#
+# Runs on push to main (catches a badge/description/homepage edit that points at a
+# dead URL), on a weekly schedule (catches Pages being disabled or the site going
+# down with no commit), and on demand. It reads the live homepage field via `gh`,
+# which needs a token and is not available to fork PRs, so — like the other
+# GitHub-state guards — it does not run on pull_request.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "README.md"
+      - ".github/repo-metadata.yml"
+      - ".github/workflows/docs-link-liveness.yml"
+      - "mkdocs.yml"
+      - "docs/**"
+  schedule:
+    - cron: "23 7 * * 1" # Mondays, 07:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs-url-is-live:
+    name: Advertised docs URL returns 200
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect the advertised docs URL from all three sources and probe it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # 1. Pinned description in repo-metadata.yml ("... Docs: <url>").
+          desc_url="$(grep -oE 'Docs: https://[^ "]+' .github/repo-metadata.yml | sed 's/^Docs: //' || true)"
+
+          # 2. README mkdocs Docs badge target: [![Docs](<img>)](<target>).
+          readme_url="$(sed -nE 's#.*\[!\[Docs\]\([^)]*\)\]\(([^)]*)\).*#\1#p' README.md | head -1 || true)"
+
+          # 3. Live GitHub "About" homepage field.
+          home_url="$(gh repo view "${{ github.repository }}" --json homepageUrl -q '.homepageUrl' || true)"
+
+          echo "description URL : ${desc_url:-<none>}"
+          echo "README badge URL: ${readme_url:-<none>}"
+          echo "homepage field  : ${home_url:-<none>}"
+
+          problems=0
+          for u in "$desc_url" "$readme_url" "$home_url"; do
+            if [ -z "$u" ]; then
+              echo "::error::one of the three advertised-docs-URL sources is empty — expected all three to carry the docs URL."
+              problems=1
+            fi
+          done
+
+          # They should all be the same URL. A divergence is itself a drift bug.
+          uniq_count="$(printf '%s\n' "$desc_url" "$readme_url" "$home_url" | sed '/^$/d' | sort -u | wc -l | tr -d ' ')"
+          if [ "$uniq_count" != "1" ]; then
+            echo "::error::the docs URL differs across the description, README badge, and homepage field — they must all point to the same site."
+            problems=1
+          fi
+
+          # Probe every distinct non-empty URL. Retry a few times so a Pages/CDN
+          # blip doesn't red the build; only a persistent non-200 fails.
+          while IFS= read -r u; do
+            [ -z "$u" ] && continue
+            code=""
+            for attempt in 1 2 3 4 5; do
+              code="$(curl -sS -o /dev/null -w '%{http_code}' -L --max-time 20 "$u" || echo 000)"
+              [ "$code" = "200" ] && break
+              echo "  attempt $attempt: $u -> $code (retrying)"
+              sleep 10
+            done
+            if [ "$code" = "200" ]; then
+              echo "  OK  $u -> 200"
+            else
+              echo "::error::advertised docs URL is not live: $u returned $code (expected 200). Enable GitHub Pages (Settings -> Pages -> gh-pages branch) or fix the link."
+              problems=1
+            fi
+          done < <(printf '%s\n' "$desc_url" "$readme_url" "$home_url" | sed '/^$/d' | sort -u)
+
+          if [ "$problems" -ne 0 ]; then
+            exit 1
+          fi
+          echo "All advertised docs URLs agree and return 200."

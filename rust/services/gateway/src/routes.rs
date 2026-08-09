@@ -92,6 +92,14 @@ pub fn build_router(state: AppState) -> Router {
                 .route("/runs/{run_id}/cancel", post(handlers::runs::cancel_run))
                 .route("/runs/{run_id}/steps", get(handlers::runs::list_steps))
                 .route("/runs/{run_id}/routing", get(handlers::runs::get_routing))
+                // Eval-read (issue #7): serve real on-disk eval reports, or an
+                // honest 501 NO_EVAL_STORE when no reports dir is reachable — see
+                // handlers::evals for the deployment caveat that keeps #7 open.
+                .route("/evals/runs", get(handlers::evals::list_eval_runs))
+                .route(
+                    "/evals/regression-report",
+                    get(handlers::evals::eval_regression_report),
+                )
                 // Training-signal export (read: projects the run's trace into
                 // a redacted JSONL; POST carries optional score overrides)
                 .route(
