@@ -6,6 +6,9 @@ name: Version & Release Consistency
 #   1. version-parity   — the Rust workspace version and the root Python version
 #                         must agree (unless an explicit opt-out marker is present).
 #   2. tag-has-release  — every `v*.*.*` git tag must have a matching GitHub Release.
+#   3. tag-has-changelog — every `v*.*.*` git tag must have a matching `## [x.y.z]`
+#                          heading in CHANGELOG.md, so the release history can never
+#                          skip a version that actually shipped (0.8.4 did).
 #
 # Runs on pushes/PRs to main (so drift is caught before it compounds), on a weekly
 # schedule (so an un-released tag can't sit unnoticed), and on demand.
@@ -138,6 +141,50 @@ jobs:
             exit 1
           fi
           echo "Every v*.*.* tag has a matching GitHub Release."
+
+  tag-has-changelog:
+    name: Every tag has a CHANGELOG heading
+    # Companion to tag-has-release: a tag can have a GitHub Release yet still be
+    # missing from CHANGELOG.md. 0.8.4 shipped (tag + release) while the changelog
+    # top was still an un-promoted [Unreleased] block, so the history skipped it.
+    # This is a repo-diff check (CHANGELOG is versioned), so unlike the GitHub-state
+    # jobs below it runs on pull_request too — a missing entry is caught before merge.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the full tag history
+
+      - name: Check tags against CHANGELOG headings
+        run: |
+          set -euo pipefail
+
+          tags="$(git tag --list 'v*.*.*' | sort -u)"
+          if [ -z "$tags" ]; then
+            echo "No v*.*.* tags — nothing to check."
+            exit 0
+          fi
+
+          missing=""
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+            ver="${tag#v}"
+            # Fixed-string match on the exact heading token '## [x.y.z]'. The
+            # never-tagged blocks use a range form ('## [0.8.2] – [0.8.3] …') that
+            # this token search does not treat as a real heading for 0.8.2, which is
+            # correct: 0.8.2/0.8.3 are not tags, so they are not required here.
+            if ! grep -Fq "## [${ver}]" CHANGELOG.md; then
+              missing="$missing $tag"
+            fi
+          done <<<"$tags"
+
+          if [ -n "$missing" ]; then
+            echo "::error::These tags have no matching '## [x.y.z]' heading in CHANGELOG.md:$missing — promote [Unreleased] or add an entry so the changelog can't skip a shipped version."
+            exit 1
+          fi
+          echo "Every v*.*.* tag has a matching CHANGELOG heading."
 
   repo-description-consistency:
     name: GitHub description matches .github/repo-metadata.yml
