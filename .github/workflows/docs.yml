@@ -2,9 +2,11 @@ name: Docs
 
 # Render the MkDocs site from docs/ and publish it to GitHub Pages on every push to
 # main that touches the docs. `mkdocs gh-deploy` builds the site and force-pushes it to
-# the gh-pages branch using the built-in GITHUB_TOKEN — no PAT needed. One manual step
-# is required once: Settings -> Pages -> Source = "Deploy from a branch" -> gh-pages / (root),
-# after which the site serves at https://sattyamjjain.github.io/ferrumdeck/ .
+# the gh-pages branch using the built-in GITHUB_TOKEN — no PAT needed. Pages is now
+# ENABLED (Settings -> Pages -> Deploy from a branch -> gh-pages / (root), enabled
+# 2026-08-09), so the site serves at https://sattyamjjain.github.io/ferrumdeck/ .
+# That URL is canaried by .github/workflows/docs-link-liveness.yml, which fails if
+# it ever stops returning 200 (e.g. if Pages is disabled again).
 
 on:
   push:
