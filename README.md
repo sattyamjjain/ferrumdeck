@@ -72,6 +72,8 @@ cargo add ferrumdeck --features audit
 
 access path `ferrumdeck::audit` (e.g. `ferrumdeck::audit::CheckpointSigner`, `ferrumdeck::audit::verify_against_checkpoints`). The remaining crates (`fd-registry`, `fd-storage`, and the gateway service) are **workspace-internal today** — they build from a clone but are not published.
 
+> **What the default omits, and why `audit` is opt-in.** A plain `cargo add ferrumdeck` gives you the enforcement engine — deny-by-default tool policy, per-run budgets, Airlock RASP — but **not** the audit hash-chain and signed chain-head checkpoints, which sit behind `--features audit`. That's deliberate, not an oversight: the audit trail is a separate concern from the in-path allow/deny decision (it pulls in Ed25519 signing and is about *after-the-fact tamper-evidence*, not *stopping the call*), so the default stays the lean policy engine most callers reach for. Turn it on when you need tamper-evident record-keeping — e.g. **EU AI Act Art. 12/19** logging or **Colorado SB 26-189** retention.
+
 > **Python plane: install from source only.** Only the Rust enforcement engine is published to a package registry (crates.io). The Python data-plane packages (`fd-runtime`, `fd-worker`, `fd-mcp-router`, `fd-mcp-tools`, `fd-evals`, `fd-cli`) and the workspace-root `ferrumdeck` package are **not on PyPI** — their version numbers are internal workspace versions, not PyPI releases. Install them from a clone with [`uv`](https://docs.astral.sh/uv/): `uv sync`.
 
 ---

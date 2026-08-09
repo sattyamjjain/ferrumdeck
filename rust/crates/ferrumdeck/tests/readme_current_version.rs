@@ -54,6 +54,34 @@ fn readme_current_version_matches_workspace() {
 }
 
 #[test]
+fn crate_readme_dep_example_matches_workspace_major_minor() {
+    // The crates.io-facing crate README shows a `ferrumdeck = "X.Y"` dependency
+    // example. It had drifted to "0.7" while the crate was already 0.8.x — a
+    // constraint that would not resolve to the current engine. Assert its
+    // major.minor tracks the workspace version.
+    let readme_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("README.md");
+    let readme = std::fs::read_to_string(&readme_path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", readme_path.display()));
+
+    let needle = "ferrumdeck = \"";
+    let start = readme
+        .find(needle)
+        .expect("crate README must show a `ferrumdeck = \"X.Y\"` dependency example")
+        + needle.len();
+    let constraint: String = readme[start..].chars().take_while(|c| *c != '"').collect();
+
+    let workspace = env!("CARGO_PKG_VERSION");
+    let ws_major_minor: String = workspace.split('.').take(2).collect::<Vec<_>>().join(".");
+
+    assert_eq!(
+        constraint, ws_major_minor,
+        "crate README pins `ferrumdeck = {constraint:?}` but the workspace is at \
+         {workspace:?} (major.minor {ws_major_minor:?}) — a stale constraint won't \
+         resolve to the current engine. Update rust/crates/ferrumdeck/README.md."
+    );
+}
+
+#[test]
 fn version_marker_is_parseable() {
     // Guards the extractor itself against a malformed marker.
     assert_eq!(

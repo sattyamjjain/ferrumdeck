@@ -12,7 +12,7 @@ dependency gets you the engine.
 
 ```toml
 [dependencies]
-ferrumdeck = "0.7"
+ferrumdeck = "0.8"
 ```
 
 ```rust
@@ -32,6 +32,11 @@ assert!(engine.evaluate_tool_call_with(&allowlist, "unknown").is_denied());
 What's inside (from `ferrumdeck-policy`): deny-by-default tool allowlists, Airlock
 RASP (anti-RCE + data-exfiltration, shadow/enforce), the R1–R3 reversibility
 ladder, budget gates, and an EU AI Act Article 50 transparency rule.
+
+Need the tamper-evident audit trail (append-only hash-chain + signed chain-head
+checkpoints)? It's an **optional feature** — `cargo add ferrumdeck --features audit`,
+reached at `ferrumdeck::audit` (e.g. `ferrumdeck::audit::CheckpointSigner`). Off by
+default so the base install stays the lean enforcement engine.
 
 Prefer the pieces directly? `ferrumdeck-policy` (the engine) and `ferrumdeck-core`
 (primitives) are published separately.
