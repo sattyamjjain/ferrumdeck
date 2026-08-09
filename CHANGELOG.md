@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-08-09
+
 ### Fixed
 - **The advertised docs site was a 404 for a full release cycle — 0.8.4's notes claimed it shipped; it had not.** GitHub Pages had never been enabled (`GET /repos/.../pages` → 404), so `mkdocs gh-deploy` force-pushed the built site to `gh-pages` with nowhere to serve it. Pages is now enabled (Settings → Pages → Deploy from a branch → `gh-pages`) and <https://sattyamjjain.github.io/ferrumdeck/> returns 200. A new `docs-link-liveness.yml` canary collects that URL from all three places that advertise it — the repo "About" homepage field, the pinned description in `.github/repo-metadata.yml`, and the README mkdocs badge — asserts they agree, and fails if it stops returning 200 (on push to main, weekly, and on demand). It is the check that would have caught the 404.
 - **The changelog skipped shipped releases.** The top was an un-promoted `[Unreleased]` block while `v0.8.4` shipped (tag + release), so the history silently omitted 0.8.4 — now promoted to `## [0.8.4]`. 0.8.2/0.8.3 were never tagged (recorded as such via the file's own "not tagged" convention, not invented). A new `tag-has-changelog` CI job (companion to `tag-has-release`) asserts every `v*.*.*` tag has a matching `## [x.y.z]` heading; it immediately surfaced that **v0.6.0 — the actual first tagged release (2026-06-29)** — had no entry and was falsely filed under "never tagged" in three places, now corrected with a real `## [0.6.0]` entry.
