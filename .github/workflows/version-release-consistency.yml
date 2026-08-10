@@ -9,6 +9,9 @@ name: Version & Release Consistency
 #   3. tag-has-changelog — every `v*.*.*` git tag must have a matching `## [x.y.z]`
 #                          heading in CHANGELOG.md, so the release history can never
 #                          skip a version that actually shipped (0.8.4 did).
+#   4. changelog-issue-refs — every open/closed issue claim in the CHANGELOG
+#                          [Unreleased] section must match live GitHub issue state
+#                          (an entry once said "#5 stays open" while #5 was closed).
 #
 # Runs on pushes/PRs to main (so drift is caught before it compounds), on a weekly
 # schedule (so an un-released tag can't sit unnoticed), and on demand.
@@ -185,6 +188,24 @@ jobs:
             exit 1
           fi
           echo "Every v*.*.* tag has a matching CHANGELOG heading."
+
+  changelog-issue-refs:
+    name: CHANGELOG [Unreleased] issue claims match GitHub
+    # Repo-diff + live-issue-state check. Only the [Unreleased] section is checked:
+    # a released section is frozen history whose issue-state claims were true at
+    # release time, so checking it against current state would flag correct history
+    # as drift. Runs on PRs too (drift caught before merge) using the built-in token.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check CHANGELOG [Unreleased] issue references against GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/check_changelog_issue_refs.py
 
   repo-description-consistency:
     name: GitHub description matches .github/repo-metadata.yml
