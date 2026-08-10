@@ -51,6 +51,7 @@ help:
 	@echo "  make bench-enforcement - Benchmark the enforcement decision-path latency (criterion)"
 	@echo "  make bench-enforce-vs-observe - Observability blind-spot: record-only vs in-path gate"
 	@echo "  make bench-governed - Governed-vs-ungoverned: governance overhead + % unsafe blocked"
+	@echo "  make reproduce-spend-gate - Reproduce the AP2 + x402 spend-gate figures + assert no drift"
 	@echo "  make demo-x402    - x402 spend gate halting an over-budget autonomous payment"
 	@echo ""
 	@echo "Clean:"
@@ -305,6 +306,10 @@ bench-governed:
 	@echo "Running governed-vs-ungoverned benchmark (overhead + blocked %, deterministic, offline)..."
 	uv run python -m fd_evals governed-benchmark
 
+reproduce-spend-gate:
+	@echo "Reproducing the AP2 + x402 spend-gate figures from a clean clone..."
+	./scripts/reproduce-spend-gate.sh
+
 demo-x402:
 	@echo "Running x402 spend-gate demo (simulate + gate + record; no real money, self-verifying)..."
 	cargo run --quiet -p ferrumdeck --example x402_spend_gate
@@ -335,7 +340,7 @@ clean-docker:
 # CI Helpers
 # =============================================================================
 
-ci-check: check-claims
+ci-check: check-claims check-changelog-issues
 	@echo "Running CI checks..."
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
@@ -349,6 +354,14 @@ ci-check: check-claims
 check-claims:
 	@echo "Checking claims integrity (README/ROADMAP vs docs/feature-status.yml)..."
 	uv run python scripts/check_claims_integrity.py
+
+# Changelog honesty: every open/closed issue claim in the CHANGELOG [Unreleased]
+# section must match live GitHub issue state (guards against the class where an
+# entry says "#N stays open" while #N is closed, or vice versa). Network-resilient
+# — warns and passes if GitHub is unreachable, fails only on a real mismatch.
+check-changelog-issues:
+	@echo "Checking CHANGELOG [Unreleased] issue references against GitHub..."
+	uv run python scripts/check_changelog_issue_refs.py
 
 # Re-derive the test counts (shells out to pytest/cargo) and verify them against
 # docs/feature-status.yml. Run after adding/removing tests, then update the source.

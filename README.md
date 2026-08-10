@@ -23,6 +23,8 @@ An LLM step costs hundreds of ms to seconds; ~1 µs of in-path governance is ~6 
 - **Spend-overrun** (fixed safe-PR trajectory, 4 injected unsafe actions): **4/4 blocked vs 0/4 ungoverned**, and the governed run costs **54% *less*** (85¢ vs 184¢) because stopping the RCE / exfil / denied-tool / runaway loop saves more than the ~1 µs/decision + audit overhead.
 - **Payment-governance** (an agent overspends an [AP2](https://github.com/google-agentic-commerce/AP2) mandate / [x402](https://x402.org) call): **3/3 unsafe mandates blocked**, **$150.95 → $0.40** — each blocked on a distinct control (bad Ed25519 signature, over-ceiling, out-of-scope merchant), every verdict **audit-logged** (`ferrumdeck.decision` span + W3C `traceparent`).
 
+**Check both spend figures yourself in one command:** `make reproduce-spend-gate` drives the AP2 gate + the x402 example + the governed benchmark from a clean clone, prints the before/after spend and the Wilson intervals, and exits non-zero if any number drifts from the documented $150.95 → $0.40 / 184¢ → 85.4¢.
+
 Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_BENCHMARK_RESULTS.md`](python/packages/fd-evals/GOVERNED_BENCHMARK_RESULTS.md). Each control mapped to the five risk categories in the **CISA/NSA (Five Eyes) _Careful Adoption of Agentic AI Services_ (May 2026)** guidance — and the transparency control tied to **EU AI Act Article 50, enforceable 2026-08-02** — in [`fd-evals/CONTROLS_CROSSWALK.md`](python/packages/fd-evals/CONTROLS_CROSSWALK.md). Reproduce: `make eval-injection-defense` · `make bench-governed`; method + numbers also in [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
 
 **x402 spend gate — budget enforcement for autonomous payments.** The [x402 protocol](https://x402.org) (Coinbase-contributed, now stewarded by the [x402 Foundation under the Linux Foundation](https://www.linuxfoundation.org/press/linux-foundation-announces-operational-launch-of-x402-foundation-to-standardize-internet-native-payments-for-ai-agents-and-applications), 2026-07-14; [Cloudflare's Monetization Gateway](https://blog.cloudflare.com/monetization-gateway/) began charging agents per access over it 2026-07-01) lets an agent pay for a paywalled resource inline — the server answers with **HTTP `402 Payment Required`** and a stablecoin quote, and the agent pays and retries. FerrumDeck extends the *same* per-agent budget that caps token spend to that new category: it prices the 402 quote in cents (a first-class cost event on the same ledger as inference), checks it against the **remaining** budget **before** the payment is authorized, and **hard-stops** (deny + one alert) if paying would breach the ceiling. It moves no money — a `simulate → gate → record` demo only. This is the same posture platform vendors are converging on ([Databricks Unity AI Gateway](https://www.databricks.com/blog/ai-governance-data-ai-summit-2026-whats-new-unity-ai-gateway) hard spend caps over any model/agent/MCP service; [FinOps FOCUS 1.4](https://siliconangle.com/2026/06/08/focus-specification-ai-cost-accountability-finopsx/) extending cost accounting to AI token/agent economics), done deny-by-default in-path. Run it: `cargo run -p ferrumdeck --example x402_spend_gate` — [examples/x402-spend-gate](examples/x402-spend-gate/README.md) (`fd_policy::x402`).
@@ -46,7 +48,7 @@ Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_
 
 The enforcement engine is published — you can depend on it, not just clone it. One dependency via the umbrella crate:
 
-> **Current version: `v0.8.5`.** <!-- x-current-version: 0.8.5 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
+> **Current version: `v0.8.6`.** <!-- x-current-version: 0.8.6 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
 
 ```bash
 cargo add ferrumdeck
@@ -349,8 +351,8 @@ a runnable, no-Docker backbone in
 and the stateful/obfuscation cases (velocity, coherence, base64/unicode
 evasion) — do not yet read those as proof that a given attack is blocked.
 
-**Automated test coverage.** The CI-gating unit/lint suites total **1,915**
-tests, re-derivable with `make claims-recount`: Rust **740**
+**Automated test coverage.** The CI-gating unit/lint suites total **1,916**
+tests, re-derivable with `make claims-recount`: Rust **741**
 (`cargo test --workspace -- --list`), Python unit **512** (`pytest` over the four
 `python/packages/*/tests` the CI unit job runs), frontend **613**
 (`jest`), and API-contract **50** (`pytest tests/api`). The live-stack suites —
