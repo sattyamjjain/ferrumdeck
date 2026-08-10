@@ -6,16 +6,17 @@
 //!
 //! ## Deployment caveat — why #7 stays disclosed
 //!
-//! These reports are **repo artifacts read from the local filesystem**. A
-//! `make run-gateway` process (cwd = repo root) resolves them; a deployed gateway
-//! container does **not** carry `evals/reports/`, and eval results are not yet
-//! persisted to a durable store. So in any environment without the reports
-//! directory these endpoints return `501 { code: "NO_EVAL_STORE" }` — never an
-//! empty `200 { runs: [] }`, which would read as "no runs exist" (the fabricated-
-//! success class the SSE mock and eval-run POST fixes already closed). This is the
-//! read path #7 asks for, but the end-to-end live round-trip (BFF → gateway →
-//! durable store → dashboard) is **not yet verified**, so the #7 disclosure in the
-//! changelog/README and the open issue stay until it is.
+//! These reports are file-backed run records. A `make run-gateway` process
+//! (cwd = repo root) resolves `evals/reports/`, and the gateway **image now bakes
+//! the committed reports** (`deploy/docker/Dockerfile.gateway` copies them and sets
+//! `FD_EVALS_REPORTS_DIR`), so a deployed container serves real data rather than
+//! `501`. When no reports directory is reachable at all these endpoints still return
+//! `501 { code: "NO_EVAL_STORE" }` — never an empty `200 { runs: [] }`, which would
+//! read as "no runs exist" (the fabricated-success class the SSE mock and eval-run
+//! POST fixes already closed). The store is **read-only committed records**: a run
+//! *dispatched* at request time has nowhere to persist yet, so the end-to-end live
+//! round-trip (dispatch → gateway → durable store → dashboard) is **not yet
+//! verified** and the #7 disclosure stays until it is confirmed on a live stack.
 
 use std::path::{Path, PathBuf};
 
@@ -415,6 +416,32 @@ mod tests {
             load_eval_runs(&missing),
             Err(EvalReadError::Io(_))
         ));
+    }
+
+    #[test]
+    fn committed_reports_are_served_from_the_repo_store() {
+        // The reports committed under evals/reports/ (and baked into the gateway
+        // image) must be readable by the exact code path the endpoint uses. If a
+        // real artifact were ever dropped, load_eval_runs would return empty and
+        // this fails — that is the point (a fresh clone must be non-empty). Repo
+        // root is three levels up from this crate.
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../evals/reports");
+        let runs = load_eval_runs(&dir).expect("read committed evals/reports");
+        assert!(
+            !runs.is_empty(),
+            "evals/reports/ must ship at least one real run record, not just .gitkeep"
+        );
+        let asb = runs
+            .iter()
+            .find(|r| r.suite == "asb")
+            .expect("a committed asb run record");
+        let m = asb
+            .primary_metric
+            .as_ref()
+            .expect("asb run has a block-rate primary metric");
+        assert_eq!(m.name, "block_rate_under_attack");
+        assert!((0.0..=1.0).contains(&m.rate));
     }
 
     #[test]

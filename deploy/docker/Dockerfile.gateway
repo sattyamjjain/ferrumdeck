@@ -41,6 +41,14 @@ WORKDIR /app
 # Copy the compiled binary from builder
 COPY --from=builder /app/target/release/gateway /app/gateway
 
+# Bake the committed eval reports into the image so a deployed gateway serves
+# GET /v1/evals/* with real data instead of 501 NO_EVAL_STORE (issue #7). These
+# are deterministic, offline run records committed under evals/reports/ (produced
+# by `make eval-asb` / `eval-injection-defense` / `bench-governed`). FD_EVALS_REPORTS_DIR
+# points the reader straight at them rather than relying on the working directory.
+COPY evals/reports/ /app/evals/reports/
+ENV FD_EVALS_REPORTS_DIR=/app/evals/reports
+
 # Set ownership
 RUN chown -R ferrumdeck:ferrumdeck /app
 
