@@ -48,7 +48,7 @@ Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_
 
 The enforcement engine is published — you can depend on it, not just clone it. One dependency via the umbrella crate:
 
-> **Current version: `v0.8.5`.** <!-- x-current-version: 0.8.5 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
+> **Current version: `v0.8.6`.** <!-- x-current-version: 0.8.6 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
 
 ```bash
 cargo add ferrumdeck
@@ -351,8 +351,8 @@ a runnable, no-Docker backbone in
 and the stateful/obfuscation cases (velocity, coherence, base64/unicode
 evasion) — do not yet read those as proof that a given attack is blocked.
 
-**Automated test coverage.** The CI-gating unit/lint suites total **1,915**
-tests, re-derivable with `make claims-recount`: Rust **740**
+**Automated test coverage.** The CI-gating unit/lint suites total **1,916**
+tests, re-derivable with `make claims-recount`: Rust **741**
 (`cargo test --workspace -- --list`), Python unit **512** (`pytest` over the four
 `python/packages/*/tests` the CI unit job runs), frontend **613**
 (`jest`), and API-contract **50** (`pytest tests/api`). The live-stack suites —

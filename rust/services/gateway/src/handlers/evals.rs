@@ -184,7 +184,7 @@ fn no_store_response() -> Response {
         Json(json!({
             "error": {
                 "code": "NO_EVAL_STORE",
-                "message": "No eval-results store is reachable from this gateway: evals/reports was not found (a deployed gateway does not carry repo artifacts, and eval results are not yet persisted to a durable store). No runs are returned rather than an empty list — an empty list would read as 'no runs exist'. Tracked in issue #7.",
+                "message": "No eval-results store is reachable from this gateway: evals/reports was not found (set FD_EVALS_REPORTS_DIR, or run from a tree that has it; the gateway image bakes the committed reports, but eval results are not yet persisted to a durable store). No runs are returned rather than an empty list — an empty list would read as 'no runs exist'. Tracked in issue #7.",
                 "issue": "https://github.com/sattyamjjain/ferrumdeck/issues/7"
             }
         })),
@@ -425,8 +425,7 @@ mod tests {
         // real artifact were ever dropped, load_eval_runs would return empty and
         // this fails — that is the point (a fresh clone must be non-empty). Repo
         // root is three levels up from this crate.
-        let dir =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../evals/reports");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../evals/reports");
         let runs = load_eval_runs(&dir).expect("read committed evals/reports");
         assert!(
             !runs.is_empty(),

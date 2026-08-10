@@ -16,7 +16,7 @@ readme = "README.md"
 name = "fd_audit"
 
 [dependencies]
-fd-core = { path = "../fd-core", version = "0.8.5", package = "ferrumdeck-core" }
+fd-core = { path = "../fd-core", version = "0.8.6", package = "ferrumdeck-core" }
 
 # Serialization
 serde = { workspace = true }

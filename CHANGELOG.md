@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Issue #5 was auto-closed as completed by a stray closing keyword in the merge that shipped 0.8.5, but the SSE push it tracks was never built, so it has been re-opened and stays open on the roadmap. Changelog issue references in the `[Unreleased]` section are now checked against the GitHub API in CI (`scripts/check_changelog_issue_refs.py`, wired into `make ci-check` and the version-release-consistency workflow): an open or closed claim that contradicts the live issue state fails the build.
+- `GET /v1/evals/runs` and `GET /v1/evals/regression-report` returned `501 NO_EVAL_STORE` in a deployed container because the image carried no eval reports. A file-backed eval store, a directory of deterministic offline run records under `evals/reports/` with one record committed so a fresh clone is non-empty, is now baked into the gateway image and served. Verified by gateway unit tests and a local read; the deployed-container round trip via `make dev-up` is the remaining step still tracked in #7.
+
+### Added
+- `scripts/reproduce-spend-gate.sh` and `make reproduce-spend-gate`. Reproduces the AP2 and x402 spend-gate figures from a clean clone, with prerequisite checks and a non-zero exit if the numbers drift outside the tolerance recorded in the docs.
+
+### Changed
+- Workspace and all planes bumped 0.8.5 to 0.8.6.
+
 ## [0.8.5] - 2026-08-09
 
 ### Fixed
