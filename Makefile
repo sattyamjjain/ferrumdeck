@@ -51,6 +51,7 @@ help:
 	@echo "  make bench-enforcement - Benchmark the enforcement decision-path latency (criterion)"
 	@echo "  make bench-enforce-vs-observe - Observability blind-spot: record-only vs in-path gate"
 	@echo "  make bench-governed - Governed-vs-ungoverned: governance overhead + % unsafe blocked"
+	@echo "  make reproduce-spend-gate - Reproduce the AP2 + x402 spend-gate figures + assert no drift"
 	@echo "  make demo-x402    - x402 spend gate halting an over-budget autonomous payment"
 	@echo ""
 	@echo "Clean:"
@@ -304,6 +305,10 @@ bench-enforce-vs-observe:
 bench-governed:
 	@echo "Running governed-vs-ungoverned benchmark (overhead + blocked %, deterministic, offline)..."
 	uv run python -m fd_evals governed-benchmark
+
+reproduce-spend-gate:
+	@echo "Reproducing the AP2 + x402 spend-gate figures from a clean clone..."
+	./scripts/reproduce-spend-gate.sh
 
 demo-x402:
 	@echo "Running x402 spend-gate demo (simulate + gate + record; no real money, self-verifying)..."

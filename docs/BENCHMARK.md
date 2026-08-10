@@ -84,6 +84,9 @@ trace. See [`docs/mcp-trace-conformance.md`](mcp-trace-conformance.md).
 ## Reproduce
 
 ```bash
+# One command reproduces both sellable figures and fails if either drifts:
+#   AP2 payment $150.95 -> $0.40, and spend-overrun 184.0c -> 85.4c.
+make reproduce-spend-gate
 make bench-governed
 # or, with a saved report (evals/reports/governed-benchmark-<date>.{json,md}):
 uv run python -m fd_evals governed-benchmark -o evals/reports/governed-benchmark.json
