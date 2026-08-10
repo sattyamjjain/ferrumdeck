@@ -37,7 +37,7 @@ from pathlib import Path
 
 CHANGELOG = Path(__file__).resolve().parent.parent / "CHANGELOG.md"
 
-CLOSING_KEYWORD = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b", re.I)
+CLOSING_REF_RE = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b", re.I)
 OPEN_SIGNAL = re.compile(
     r"\b(?:open|stays open|still open|remains open|tracked|roadmap|"
     r"not implemented|unbuilt|pending|deferred|wip)\b",
@@ -68,7 +68,7 @@ def classify_claims(section: str) -> dict[int, str]:
     """Map issue number -> 'closed' | 'open' for refs that make an explicit claim."""
     claims: dict[int, str] = {}
     # Closed claims win (a closing keyword is a deliberate declaration).
-    for m in CLOSING_KEYWORD.finditer(section):
+    for m in CLOSING_REF_RE.finditer(section):
         claims[int(m.group(1))] = "closed"
     # Open claims, per line, for refs not already claimed closed.
     for line in section.splitlines():
