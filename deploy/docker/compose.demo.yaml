@@ -1,0 +1,111 @@
+# FerrumDeck — one-command demo against the PUBLISHED images.
+#
+# Unlike compose.dev.yaml (which builds gateway/worker from source and needs the
+# Rust + Python toolchains), this pulls the pre-built multi-arch images from GHCR,
+# so a reviewer needs only Docker. Pin a version with FERRUMDECK_VERSION, else
+# :latest. The gateway seeds the dev API key (fd_dev_key_abc123) via its startup
+# migrations, which is what examples/demo/run-demo.sh authenticates with.
+#
+#   FERRUMDECK_VERSION=0.8.6 docker compose -f deploy/docker/compose.demo.yaml up -d
+#   COMPOSE_FILE=deploy/docker/compose.demo.yaml ./examples/demo/run-demo.sh
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: fd-postgres
+    environment:
+      POSTGRES_USER: ferrumdeck
+      POSTGRES_PASSWORD: ferrumdeck
+      POSTGRES_DB: ferrumdeck
+    volumes:
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ferrumdeck"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ferrumdeck
+
+  redis:
+    image: redis:7-alpine
+    container_name: fd-redis
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ferrumdeck
+
+  # Jaeger accepts OTLP directly (COLLECTOR_OTLP_ENABLED), so the demo needs no
+  # separate otel-collector — the gateway exports straight to it.
+  jaeger:
+    image: jaegertracing/all-in-one:1.53
+    container_name: fd-jaeger
+    ports:
+      - "16686:16686" # Jaeger UI — run-demo checks decisions land here
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - ferrumdeck
+
+  gateway:
+    image: ghcr.io/sattyamjjain/ferrumdeck-gateway:${FERRUMDECK_VERSION:-latest}
+    container_name: fd-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://ferrumdeck:ferrumdeck@postgres:5432/ferrumdeck
+      REDIS_URL: redis://redis:6379
+      GATEWAY_PORT: "8080"
+      RUST_LOG: info
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ferrumdeck
+
+  worker:
+    image: ghcr.io/sattyamjjain/ferrumdeck-worker:${FERRUMDECK_VERSION:-latest}
+    container_name: fd-worker
+    environment:
+      CONTROL_PLANE_URL: http://gateway:8080
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://ferrumdeck:ferrumdeck@postgres:5432/ferrumdeck
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+      SANDBOX_MODE: subprocess
+      PYTHONUNBUFFERED: "1"
+      # Seeded dev key — the worker reports step results back to the gateway.
+      FD_API_KEY: fd_dev_key_abc123
+      # Optional: only the end-to-end agent path (demo Part B) needs an LLM key.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MCP_CONFIG_PATH: /app/config/mcp-config.json
+    depends_on:
+      gateway:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ../../config/mcp-config.json:/app/config/mcp-config.json:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://gateway:8080/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    networks:
+      - ferrumdeck
+
+networks:
+  ferrumdeck:
+    driver: bridge

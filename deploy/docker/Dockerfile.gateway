@@ -4,7 +4,9 @@
 # =============================================================================
 # Stage 1: Build
 # =============================================================================
-FROM rust:1.85-bookworm AS builder
+# Base pinned by digest (not tag) for reproducible, tamper-evident builds.
+# rust:1.85-bookworm as of 2026-08-12.
+FROM rust:1.85-bookworm@sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4 AS builder
 
 WORKDIR /app
 
@@ -14,8 +16,10 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Cargo manifests first for layer caching
-COPY Cargo.toml Cargo.lock ./
+# Copy Cargo manifests first for layer caching. Cargo.lock is gitignored in this
+# repo, so it is NOT copied here; the release build below generates it. This lets
+# the image build from any clone (CI or a stranger) with no pre-existing lockfile.
+COPY Cargo.toml ./
 COPY rust/crates/ rust/crates/
 COPY rust/services/ rust/services/
 COPY db/migrations/ db/migrations/
@@ -26,7 +30,8 @@ RUN cargo build --release --package gateway
 # =============================================================================
 # Stage 2: Runtime
 # =============================================================================
-FROM debian:bookworm-slim AS runtime
+# Runtime base pinned by digest. debian:bookworm-slim as of 2026-08-12.
+FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS runtime
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \

@@ -27,7 +27,11 @@ cd "$(git rev-parse --show-toplevel)"
 GATEWAY="${GATEWAY:-http://localhost:8080}"
 KEY="${FD_API_KEY:-fd_dev_key_abc123}"          # seeded dev key (read/write/admin)
 AGENT="${FD_AGENT:-agt_01JFVX0000000000000000001}"   # seeded "Safe PR Agent"
-COMPOSE=(docker compose --env-file .env -f deploy/docker/compose.dev.yaml)
+# Default: build from source (compose.dev.yaml). Set COMPOSE_FILE to
+# deploy/docker/compose.demo.yaml to run against the published GHCR images with no
+# Rust/Node toolchain (that is what QUICKSTART.md and the demo CI job use).
+COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker/compose.dev.yaml}"
+COMPOSE=(docker compose --env-file .env -f "$COMPOSE_FILE")
 SUF="$(date +%s)"                                # per-run suffix → re-runnable
 PASS=0; FAIL=0
 
