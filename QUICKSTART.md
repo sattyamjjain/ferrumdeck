@@ -1,15 +1,50 @@
 # FerrumDeck Quick Start Guide
 
-Get FerrumDeck running locally in 5 minutes.
+Run the governance demo in ~5 minutes. Start with the **published images** (Docker
+only — no Rust, no Node, no `make`); the from-source path is below it.
 
-## Prerequisites
+## Fastest: run the published images (Docker only)
+
+You need **Docker** and **git** (to fetch the compose file and the demo script) —
+nothing else. Both images are **multi-arch (amd64 + arm64)**, so this runs natively
+on Apple silicon.
+
+```bash
+git clone https://github.com/sattyamjjain/ferrumdeck && cd ferrumdeck
+cp .env.example .env      # ANTHROPIC_API_KEY is optional for the deterministic demo
+
+# Pull + boot the pre-built gateway + worker + postgres/redis/jaeger from GHCR
+# (:latest, or pin a release with FERRUMDECK_VERSION=0.8.6):
+docker compose -f deploy/docker/compose.demo.yaml up -d
+
+# Verify the four control-plane guarantees against the REAL gateway API:
+COMPOSE_FILE=deploy/docker/compose.demo.yaml ./examples/demo/run-demo.sh
+
+# Teardown:
+docker compose -f deploy/docker/compose.demo.yaml down -v
+```
+
+The images are `ghcr.io/sattyamjjain/ferrumdeck-gateway` and
+`ghcr.io/sattyamjjain/ferrumdeck-worker`, published on every release tag and
+digest-pinned to their base images. `run-demo.sh` proves deny-by-default tool
+policy, the approval gate, the immutable audit trail, and OTel spans in Jaeger
+(<http://localhost:16686>). A live, CI-generated transcript is in
+[`examples/demo/`](examples/demo/README.md).
+
+> The deterministic checks (demo Part A) need **no** LLM key. Only the optional
+> end-to-end agent path (Part B) needs `ANTHROPIC_API_KEY` in `.env`.
+
+---
+
+## From source (for development)
+
+Build the gateway and worker yourself. This path needs the toolchains:
 
 - **Docker** - [Install Docker](https://docs.docker.com/get-docker/)
 - **Rust 1.80+** - `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 - **Python 3.12+** - Check with `python3 --version`
 - **uv** - `curl -LsSf https://astral.sh/uv/install.sh | sh`
-
-## Quick Start
+- **Node 20+** - for the dashboard
 
 ### 1. Clone and Setup
 
@@ -32,7 +67,7 @@ cp .env.example .env
 
 # Option B: Manual startup
 make install      # Install dependencies
-make dev-up       # Start Docker services
+make dev-up       # Start Docker services (builds gateway/worker from source)
 ```
 
 ### 3. Start the Dashboard

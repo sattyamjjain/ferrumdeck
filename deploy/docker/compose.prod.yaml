@@ -21,7 +21,7 @@ services:
   # Gateway - Rust Control Plane API
   # =============================================================================
   gateway:
-    image: ${GATEWAY_IMAGE:-ghcr.io/ferrumdeck/gateway:latest}
+    image: ${GATEWAY_IMAGE:-ghcr.io/sattyamjjain/ferrumdeck-gateway:latest}
     restart: unless-stopped
     ports:
       - "${GATEWAY_PORT:-8080}:8080"
@@ -110,7 +110,7 @@ services:
   # Worker - Python Agent Executor
   # =============================================================================
   worker:
-    image: ${WORKER_IMAGE:-ghcr.io/ferrumdeck/worker:latest}
+    image: ${WORKER_IMAGE:-ghcr.io/sattyamjjain/ferrumdeck-worker:latest}
     restart: unless-stopped
     environment:
       # Control plane connection
