@@ -41,6 +41,13 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Least privilege: read the repo, and open/refresh a single tracking issue when a
+# scheduled run fails, so a red cron is never silent (the failure that cost three
+# days to diagnose). No write access to repo contents.
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   eval:
     name: Run Evaluations
@@ -72,6 +79,21 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Preflight — required secrets
+        run: |
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            {
+              echo "## ❌ ANTHROPIC_API_KEY is not set — cannot run the LLM-judged evals"
+              echo ""
+              echo "This is a **configuration** problem, not a code bug. Set the secret at"
+              echo "**Settings → Secrets and variables → Actions → ANTHROPIC_API_KEY**."
+              echo "A tracking issue is opened/updated by this run on a scheduled failure."
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Missing ANTHROPIC_API_KEY::Config issue, not code — set the ANTHROPIC_API_KEY repo secret."
+            exit 1
+          fi
+          echo "ANTHROPIC_API_KEY is present."
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -114,29 +136,65 @@ jobs:
         env:
           FD_CONTROL_PLANE_URL: http://localhost:8080
           REDIS_URL: redis://localhost:6379
+          # The worker reports step results back to the gateway and must
+          # authenticate; without FD_API_KEY it logs "cannot report results to
+          # control plane" and the run never completes. Seeded dev key.
+          FD_API_KEY: fd_dev_key_abc123
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           uv run python -m fd_worker &
           sleep 3
 
       - name: Run evaluations
+        id: run_evals
         env:
           FD_CONTROL_PLANE_URL: http://localhost:8080
+          # ROOT CAUSE of the nightly going red: the runner sends
+          # `Authorization: Bearer $FD_API_KEY` only when FD_API_KEY is set
+          # (fd_evals/runner.py). Unset, it sent no header and the gateway 401'd
+          # POST /v1/runs with "Missing Authorization header". This seeded dev key
+          # is accepted (legacy-hash deadline is 2027-01-01, not passed).
+          FD_API_KEY: fd_dev_key_abc123
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
+          set -o pipefail
           SUITE="${{ inputs.suite || 'smoke' }}"
           RUNS="${{ inputs.runs || '1' }}"
           PARALLEL="${{ inputs.parallel || '2' }}"
+          # Export the suite so the failure-explainer step can name it.
+          echo "EVAL_SUITE=$SUITE" >> "$GITHUB_ENV"
 
-          echo "Running eval suite: $SUITE"
-          echo "Runs per task: $RUNS"
-          echo "Parallel workers: $PARALLEL"
-
+          echo "Running eval suite: $SUITE  (runs=$RUNS, parallel=$PARALLEL)"
+          mkdir -p evals/reports
+          # Tee the whole run to a log so a failure still leaves an artifact that
+          # names which case broke (pipefail keeps the eval's exit code).
           uv run python -m fd_evals run \
             --suite "$SUITE" \
             --runs "$RUNS" \
             --parallel "$PARALLEL" \
-            --output "evals/reports/eval_${SUITE}_$(date +%Y%m%d_%H%M%S).json"
+            --output "evals/reports/eval_${SUITE}_$(date +%Y%m%d_%H%M%S).json" \
+            2>&1 | tee "evals/reports/eval-output-${SUITE}.log"
+
+      - name: Explain failure (which suite + which case)
+        if: failure() && steps.run_evals.conclusion == 'failure'
+        run: |
+          log="evals/reports/eval-output-${EVAL_SUITE:-smoke}.log"
+          {
+            echo "## ❌ Nightly eval run failed"
+            echo ""
+            echo "**Suite:** \`${EVAL_SUITE:-unknown}\`"
+            echo ""
+            if [ -f "$log" ]; then
+              echo "**Failing cases / first errors:**"
+              echo '```'
+              grep -E "Task .* failed:|ControlPlaneError|UNAUTHORIZED|Missing Authorization|[0-9]{3} (Unauthorized|Forbidden)|Traceback|Error:" "$log" | head -30 || echo "(no per-case failure lines captured)"
+              echo '```'
+              echo ""
+              echo "Full output + any partial report are in the **eval-reports-${{ github.run_number }}** artifact."
+            else
+              echo "The run failed before producing eval output (see the step logs above)."
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Generate summary
         run: |
@@ -182,11 +240,31 @@ jobs:
           EOF
 
       - name: Upload reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: eval-reports-${{ github.run_number }}
           path: evals/reports/
           retention-days: 90
+
+      - name: Open/refresh tracking issue on scheduled failure
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Nightly eval workflow is failing"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body="The scheduled \`Evaluations\` workflow failed ($(date -u +%Y-%m-%dT%H:%MZ)). Run: ${run_url}
+
+          The eval report and full output are attached as the \`eval-reports-${{ github.run_number }}\` artifact, and the run summary names the failing suite/case. If the preflight flagged a missing ANTHROPIC_API_KEY this is a config issue (set the secret); otherwise it is a code/stack failure to investigate."
+          existing="$(gh issue list --state open --search "${title} in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body" && echo "Refreshed tracking issue #${existing}"
+          else
+            gh issue create --title "$title" --body "$body" \
+              && echo "Opened tracking issue" \
+              || echo "::warning::could not open tracking issue (check issues:write permission)"
+          fi
 
       - name: Check regression
         if: github.event_name == 'schedule'
