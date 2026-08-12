@@ -127,6 +127,14 @@ jobs:
           REDIS_URL: redis://localhost:6379
           GATEWAY_PORT: 8080
           RUST_LOG: info
+          # The eval harness drives the gateway hard: parallel workers poll run +
+          # step status once a second (DEFAULT_POLL_INTERVAL=1.0s) on a single
+          # tenant, which blows past the default 100/min per-tenant limit and 429s
+          # (the 401 auth bug had masked this — no request ever reached the
+          # limiter). CI gets a generous limit, exactly as compose.dev raises it for
+          # dev; production keeps the defaults.
+          RATE_LIMIT_PER_MINUTE: "100000"
+          PRE_AUTH_RATE_LIMIT_PER_MINUTE: "10000"
         run: |
           ./target/release/gateway &
           sleep 5
