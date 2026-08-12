@@ -5,8 +5,10 @@
 # Stage 1: Build
 # =============================================================================
 # Base pinned by digest (not tag) for reproducible, tamper-evident builds.
-# rust:1.85-bookworm as of 2026-08-12.
-FROM rust:1.85-bookworm@sha256:e51d0265072d2d9d5d320f6a44dde6b9ef13653b035098febd68cce8fa7c0bc4 AS builder
+# rust:1.90-bookworm as of 2026-08-13. Must be >= 1.88: transitive deps raised
+# their MSRV (e.g. home 0.5.12 needs 1.88, icu_* 2.2.0 need 1.86), so the previous
+# 1.85 base failed the release build with "rustc 1.85.1 is not supported".
+FROM rust:1.90-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f AS builder
 
 WORKDIR /app
 
