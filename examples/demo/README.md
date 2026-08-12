@@ -42,14 +42,15 @@ the fd-evals smoke suite, exercising live **budget auto-kill** (the worker's
 
 ## Captured output
 
-> **Honesty note.** This README was authored in an environment **without a
-> running Docker daemon**, so I did **not** boot the live stack here. The script
-> was statically validated (`bash -n` + `shellcheck`, both clean) and every
-> request shape is taken from the real handlers (`handlers::runs::check_tool_policy`,
-> `handlers::registry::create_agent_version`). The **golden-trace replay below
-> is real output I ran** (it needs no stack); the live `check-tool` /
-> `audit_events` transcript is produced when *you* run the script. I have not
-> pasted a fabricated stack transcript.
+> **Live transcript (CI-generated, not hand-pasted).** The `check-tool` /
+> `audit_events` transcript from an actual boot of the stack is produced by CI, not
+> written by hand: the [`demo-quickstart`](../../.github/workflows/demo-quickstart.yml)
+> workflow runs this script on a schedule against the **published GHCR images** and
+> commits the dated output to [`TRANSCRIPT.md`](TRANSCRIPT.md). (This supersedes the
+> earlier note that no stack had been booted here.) The **golden-trace replay below
+> is real output** and needs no stack. If `TRANSCRIPT.md` still says "pending", the
+> first post-release run has not landed yet — run the script yourself (see the top of
+> [QUICKSTART.md](../../QUICKSTART.md)) for the same `✓`/`✗` output live.
 
 **Golden-trace replay — actually run (`uv run pytest …test_tool_call_firing_rate_golden.py`):**
 
