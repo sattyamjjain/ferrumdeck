@@ -1,19 +1,23 @@
 name: Publish Images
 
-# Builds the gateway + worker container images multi-arch (amd64 + arm64, so an
-# Apple-silicon reviewer can pull natively) and pushes them to GHCR on a version
-# tag. This is what lets a stranger run the demo with `docker compose` and no Rust,
-# Node, or make toolchain (see QUICKSTART.md). Base images are digest-pinned in the
-# Dockerfiles. `workflow_dispatch` builds a sha-tagged image for testing without a
-# tag. After the first push the packages must be made PUBLIC (once), or an
-# anonymous `docker pull` fails — see QUICKSTART / the PR notes.
+# Builds the gateway + worker images for amd64 AND arm64 and pushes them to GHCR
+# on a version tag, so a stranger (incl. Apple-silicon) can run the demo with just
+# Docker (see QUICKSTART.md). Each arch is built on its OWN native runner
+# (ubuntu-latest for amd64, ubuntu-24.04-arm for arm64) rather than under QEMU —
+# emulating an arm64 Rust release build takes hours. The per-arch images are pushed
+# by digest, then merged into one multi-arch manifest tagged with the version.
+#
+# Base images are digest-pinned in the Dockerfiles. `workflow_dispatch` with an
+# empty version builds sha-tagged images for testing; pass `version` to (re)publish
+# at a released version after a fix without re-cutting the git tag. After the first
+# push the packages must be made PUBLIC once, or anonymous `docker pull` fails.
 on:
   push:
     tags: ["v*.*.*"]
   workflow_dispatch:
     inputs:
       version:
-        description: "Explicit version to tag the images (e.g. 0.8.6). Use to (re)publish images at a released version after a Dockerfile fix, without re-cutting the git tag or re-publishing crates. Empty = sha tag only."
+        description: "Explicit version to tag the images (e.g. 0.8.6). Re-publish at a released version after a Dockerfile fix, without re-cutting the git tag or re-publishing crates. Empty = sha tag only."
         required: false
         default: ""
 
@@ -22,22 +26,19 @@ permissions:
   packages: write
 
 jobs:
-  publish:
-    name: Build & push ${{ matrix.image }}
-    runs-on: ubuntu-latest
+  build:
+    name: Build ${{ matrix.image }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - image: ferrumdeck-gateway
-            dockerfile: deploy/docker/Dockerfile.gateway
-          - image: ferrumdeck-worker
-            dockerfile: deploy/docker/Dockerfile.worker
+          - { image: ferrumdeck-gateway, dockerfile: deploy/docker/Dockerfile.gateway, arch: amd64, platform: linux/amd64, runner: ubuntu-latest }
+          - { image: ferrumdeck-gateway, dockerfile: deploy/docker/Dockerfile.gateway, arch: arm64, platform: linux/arm64, runner: ubuntu-24.04-arm }
+          - { image: ferrumdeck-worker, dockerfile: deploy/docker/Dockerfile.worker, arch: amd64, platform: linux/amd64, runner: ubuntu-latest }
+          - { image: ferrumdeck-worker, dockerfile: deploy/docker/Dockerfile.worker, arch: arm64, platform: linux/arm64, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up QEMU (for arm64 emulation)
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -49,7 +50,61 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Image metadata (tags + labels)
+      - name: Build + push by digest (native ${{ matrix.arch }})
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.description=FerrumDeck ${{ matrix.image }}
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image }}-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Merge ${{ matrix.image }} manifest
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [ferrumdeck-gateway, ferrumdeck-worker]
+    steps:
+      - name: Download this image's per-arch digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-${{ matrix.image }}-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata (tags)
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -60,21 +115,15 @@ jobs:
             type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') || inputs.version != '' }}
             type=sha
-          # Links the package to this repo so it inherits the source, and so
-          # `make public` applies to the right package.
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.description=FerrumDeck ${{ matrix.image }}
 
-      - name: Build & push (linux/amd64, linux/arm64)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          provenance: true
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+      - name: Create + push the multi-arch manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}@sha256:%s ' *)
+
+      - name: Inspect
+        run: |
+          docker buildx imagetools inspect \
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ inputs.version || steps.meta.outputs.version }}
