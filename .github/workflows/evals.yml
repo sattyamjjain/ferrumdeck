@@ -149,6 +149,16 @@ jobs:
           # control plane" and the run never completes. Seeded dev key.
           FD_API_KEY: fd_dev_key_abc123
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # The safe-PR agent does its work through MCP tools (GitHub, etc.).
+          # Without the MCP config + a GitHub token the agent has no tools, so it
+          # produces near-empty output and every scorer fails at ~0. Mirror the
+          # dev worker (compose.dev.yaml). SANDBOX_MODE=subprocess because there is
+          # no docker-in-docker here.
+          MCP_CONFIG_PATH: ${{ github.workspace }}/config/mcp-config.json
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_PERSONAL_ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SANDBOX_MODE: subprocess
+          DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
         run: |
           uv run python -m fd_worker &
           sleep 3
