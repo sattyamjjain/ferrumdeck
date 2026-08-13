@@ -141,7 +141,14 @@ fi
 
 # -----------------------------------------------------------------------------
 hdr "7. Golden-trace replay (deterministic metric wire-contract regression — pure, no stack)"
-uv run pytest python/packages/fd-evals/tests/test_tool_call_firing_rate_golden.py -q 2>&1 | tail -3
+# Parts 7-8 are local deterministic proofs that need the Python toolchain (uv), not
+# the gateway. The Docker-only quickstart (checks 1-6 above, all via the gateway
+# API) does not have uv, so skip them cleanly there rather than hard-failing.
+if command -v uv >/dev/null 2>&1; then
+  uv run pytest python/packages/fd-evals/tests/test_tool_call_firing_rate_golden.py -q 2>&1 | tail -3
+else
+  echo "  (skipped — needs uv/Python; the governed API checks above are the Docker-only core)"
+fi
 
 # -----------------------------------------------------------------------------
 hdr "8. Coherence-divergence live-fire (deterministic — a drifting run is caught + R-tiered)"
@@ -149,10 +156,14 @@ hdr "8. Coherence-divergence live-fire (deterministic — a drifting run is caug
 # live gateway runs on each step; shows the divergence, the R1-R3 rung, and the
 # shadow/enforce response + the coherence.divergence.detected SSE shape. Pure,
 # self-verifying (exits non-zero if the drift is NOT caught).
-if uv run python examples/demo/coherence-drift.py; then
-  ok "coherence divergence fired on the drifting run and mapped to an R-tier"
+if command -v uv >/dev/null 2>&1; then
+  if uv run python examples/demo/coherence-drift.py; then
+    ok "coherence divergence fired on the drifting run and mapped to an R-tier"
+  else
+    bad "coherence-divergence proof failed"
+  fi
 else
-  bad "coherence-divergence proof failed"
+  echo "  (skipped — needs uv/Python; deterministic dev extra, not part of the Docker-only core)"
 fi
 echo "  Live signal (Part B / real agentic run): a divergence writes an"
 echo "  audit_events row with violation_type=coherence_divergence, emits the SSE"
