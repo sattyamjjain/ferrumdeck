@@ -3,9 +3,9 @@
 <!-- AUTO-MANAGED: module-description -->
 ## Purpose
 
-The evals directory contains configuration and data for the FerrumDeck evaluation framework. Evals test agent behaviors, measure quality, and ensure governance compliance.
-
-**Role**: Define test suites, datasets, and scoring criteria for evaluating agent performance.
+Configuration and data for the eval + benchmark framework. This directory holds suites, datasets, agent definitions
+and reports; the code that runs them lives in `python/packages/fd-evals`. Two distinct kinds of run live here:
+LLM-backed quality suites (smoke, regression) and deterministic offline governance benchmarks that gate PRs.
 
 <!-- END AUTO-MANAGED -->
 
@@ -14,96 +14,65 @@ The evals directory contains configuration and data for the FerrumDeck evaluatio
 
 ```
 evals/
-├── suites/                   # Test suite definitions
-│   ├── smoke.yaml            # Quick smoke tests
-│   └── regression.yaml       # Full regression suite
-├── datasets/                 # Test data
-│   └── safe-pr-agent/        # Safe PR Agent test cases
-│       └── *.json            # Input/expected output pairs
-├── agents/                   # Agent configurations
-│   └── safe-pr-agent/        # Agent definitions for testing
-│       └── *.yaml            # Agent config files
-├── scorers/                  # Custom scorer configs
-│   └── *.yaml                # Scorer parameters
-└── reports/                  # Generated reports (gitignored)
-    ├── *.json                # Raw eval results
-    └── *.html                # Rendered reports
+├── suites/
+│   ├── smoke.yaml              # Quick end-to-end validation (needs ANTHROPIC_API_KEY)
+│   ├── regression.yaml         # Full regression
+│   ├── asb/suite.yaml          # Agent Security Bench + EU AI Act Art.50 (offline, seeded)
+│   └── injection_defense/      # Prompt-injection defense benchmark (offline, no LLM)
+├── datasets/
+│   ├── safe-pr-agent/          # Task inputs for the reference agent
+│   ├── asb/ · injection_defense/
+│   └── governed_benchmark/     # Governed vs ungoverned overhead comparison
+├── agents/safe-pr-agent/       # Agent definition under test
+├── reports/                    # Run output (JSON) — inputs to delta/report commands
+└── enforce_vs_observe.py       # Enforce-vs-shadow comparison entry point
 ```
 
-**Framework Code**: The evaluation framework implementation is in `python/packages/fd-evals/`.
+Suite YAML shape: `name`, `description`, `datasets` (path + optional `filter`), `scorers` (typed entries),
+`settings` (`timeout_ms`, `max_parallel`).
 
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: conventions -->
 ## Module-Specific Conventions
 
-### Suite Definition
-```yaml
-# suites/smoke.yaml
-name: Smoke Suite
-description: Quick validation tests
-tasks:
-  - dataset: datasets/safe-pr-agent/basic.json
-    scorers:
-      - type: pr_quality
-        config:
-          check_description: true
-          check_files: true
-```
+- **Two tiers, different rules.** Governance benchmarks (`asb`, `injection_defense`, `governed_benchmark`,
+  `enforce_vs_observe`) must be deterministic, offline, seeded, and LLM-free so CI can gate on them. Quality suites
+  (`smoke`, `regression`) may call an LLM and require `ANTHROPIC_API_KEY`.
+- Never fabricate a run. Reports must come from an actual execution — the repo has explicit CI gates and past fixes
+  against mock or synthesized eval output.
+- Datasets are versioned JSON with `tasks[]` carrying `id`, `input`, `expected`, `metadata`.
+- Scorers are referenced by `type` in suite YAML and registered in `fd_evals/scorers/__init__.py`.
+- Paths inside suite YAML are relative to `evals/`.
 
-### Dataset Format
-```json
-{
-  "tasks": [
-    {
-      "id": "task-001",
-      "input": "Review this PR...",
-      "expected": { "contains": ["LGTM", "approved"] },
-      "metadata": { "difficulty": "easy" }
-    }
-  ]
-}
-```
-
-### Running Evals
 ```bash
-# Run smoke suite
-make eval-run
-
-# Run full regression
-make eval-run-full
-
-# Run specific suite
-FD_API_KEY=fd_dev_key_abc123 uv run python -m fd_evals run \
-  --suite evals/suites/smoke.yaml \
-  --agent agt_01JFVX0000000000000000001
-
-# Generate report from latest results
-make eval-report
+make eval-run                 # smoke, against agt_01JFVX0000000000000000001
+make eval-run-full            # regression
+make eval-asb                 # offline, --seed 0
+make eval-injection-defense   # offline, no LLM
+make bench-governed           # overhead + blocked % vs ungoverned
+make eval-report              # report from the latest results
 ```
-
-### Built-in Scorers
-- `code_quality` - Syntax, style, complexity
-- `security` - Vulnerability detection
-- `files` - File operation validation
-- `pr_quality` - Pull request quality
-- `llm_judge` - LLM-as-judge scoring
 
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: dependencies -->
 ## Key Dependencies
 
-Evals use the `fd-evals` package from `python/packages/fd-evals/`.
+Runner package `fd-evals` (`python/packages/fd-evals`) depends on:
 
-| Component | Purpose |
-|-----------|---------|
-| `fd_evals.runner` | Execute evaluation suites |
-| `fd_evals.suite` | Suite loading and management |
-| `fd_evals.task` | Task definitions |
-| `fd_evals.scorers` | Built-in scoring functions |
-| `fd_evals.replay` | Replay previous runs |
-| `fd_evals.delta` | Compare eval runs |
+| Dependency | Role |
+|---|---|
+| `fd-runtime` | Workflow models, gateway client, tracing |
+| `httpx` | Gateway API calls |
+| `pydantic` ≥2 | Task / report / scorer result models |
+| `pyyaml` | Suite configuration parsing |
+| `jsonschema` | Schema-validity scoring |
+| `typer` + `rich` | CLI and report rendering |
+| `opentelemetry-sdk` | Spans for eval runs |
+
+Invoked as `uv run python -m fd_evals <command>`; a running gateway is required for suites that execute agents,
+but the offline governance benchmarks need neither a gateway nor an API key.
 
 <!-- END AUTO-MANAGED -->
 
