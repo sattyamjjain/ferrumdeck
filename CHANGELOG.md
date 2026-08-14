@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Migration status logging had never worked (#34).** `fd_storage::migrations::log_migration_status()` returned `Err` on every call since it was written, because it decoded `_sqlx_migrations.checksum` — a `BYTEA` column — into an `i64`. The caller downgrades that to `tracing::warn!`, so nothing ever failed and nobody noticed: the per-migration `info!` the function exists to emit has never once appeared in any log, and an unconditional `fd_storage::migrations` WARN on every gateway startup trained readers to ignore the one channel a genuine migration problem would use. It is a runtime-typed `query_as`, not the compile-time-checked `query_as!` macro, so the mismatch was invisible at build time too. The checksum was bound and immediately discarded, so it is no longer selected. Migrations themselves always applied correctly; only the logging was broken. Two `#[ignore]`d integration tests added and verified both ways against a live database — they pass with the fix and fail without it with the exact production `ColumnDecode` error.
+
 ## [0.8.7] - 2026-08-14
 
 ### Fixed
