@@ -1,7 +1,7 @@
 # FerrumDeck - Development Makefile
 # ================================
 
-.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image
+.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image eval-health eval-health-check
 
 # Default target
 help:
@@ -46,6 +46,8 @@ help:
 	@echo "  make eval-run     - Run smoke evaluation suite"
 	@echo "  make eval-run-full- Run full regression suite"
 	@echo "  make eval-report  - Generate report from latest results"
+	@echo "  make eval-health  - Regenerate docs/eval-health.md from evals/reports/"
+	@echo "  make eval-health-check - Fail if docs/eval-health.md is stale"
 	@echo "  make eval-injection-defense - Run the offline injection-defense benchmark"
 	@echo "  make eval-asb     - Run the offline ASB + EU AI Act Art.50 benchmark"
 	@echo "  make bench-enforcement - Benchmark the enforcement decision-path latency (criterion)"
@@ -285,6 +287,16 @@ eval-report:
 	else \
 		echo "No eval results found in evals/reports/"; \
 	fi
+
+# Regenerate docs/eval-health.md from the committed report files. The nightly
+# runs this too; `eval-health-check` fails if the committed page is stale.
+eval-health:
+	@echo "Regenerating docs/eval-health.md from evals/reports/..."
+	uv run python scripts/gen_eval_health.py
+
+eval-health-check:
+	@echo "Checking docs/eval-health.md is up to date..."
+	uv run python scripts/gen_eval_health.py --check
 
 eval-injection-defense:
 	@echo "Running injection-defense benchmark (deterministic, offline, no LLM)..."

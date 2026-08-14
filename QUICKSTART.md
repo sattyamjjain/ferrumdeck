@@ -289,5 +289,11 @@ make db-migrate    # Run migrations
 
 1. **Explore the API** - Check out `/docs/api/` for full API documentation
 2. **Create Custom Agents** - Define agents in `/evals/agents/`
-3. **Run Evaluations** - Test agent quality with `make eval-run`
-4. **Add MCP Tools** - Extend capabilities in `/python/packages/fd-mcp-tools/`
+3. **Run Evaluations** - Test agent quality with `make eval-run`. Add
+   `--min-score <floor>` to fail the run when the average score drops below a
+   floor; a breach means the harness stopped observing what it asserts on.
+4. **Check Eval Health** - `make eval-health` regenerates
+   [`docs/eval-health.md`](docs/eval-health.md) from the committed report files:
+   per eval, the last run date, pass/fail, score and consecutive-pass streak.
+   Evals that have never passed are labelled as such rather than omitted.
+5. **Add MCP Tools** - Extend capabilities in `/python/packages/fd-mcp-tools/`

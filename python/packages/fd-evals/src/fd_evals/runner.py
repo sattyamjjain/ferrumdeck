@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -296,18 +297,28 @@ class EvalRunner:
                     steps = response.json()
                     context["steps"] = steps
                     context["step_count"] = len(steps)
+                    self._enrich_context_from_steps(context, steps)
             except Exception as e:
                 logger.warning(f"Failed to fetch steps for run {run_id}: {e}")
 
             return run_id, output, context
 
     def _build_run_context(self, run_data: dict[str, Any]) -> dict[str, Any]:
-        """Build context dictionary from run data."""
+        """Build context dictionary from run data.
+
+        ``tool_calls`` is a *list* of tool-call records, not a count. The
+        policy and allowlist scorers iterate it; a bare integer here silently
+        made every tool-related assertion vacuous. The count lives in
+        ``tool_call_count``.
+        """
         return {
             "status": run_data.get("status"),
             "input_tokens": run_data.get("input_tokens", 0),
             "output_tokens": run_data.get("output_tokens", 0),
-            "tool_calls": run_data.get("tool_calls", 0),
+            "tool_calls": [],
+            "tool_call_count": run_data.get("tool_calls", 0) or 0,
+            "audit_events": run_data.get("audit_events") or [],
+            "execution_time_ms": run_data.get("execution_time_ms", 0) or 0,
             "cost_cents": run_data.get("cost_cents", 0) / 100.0,  # Convert to cents
             "trace_id": run_data.get("trace_id"),
             "started_at": run_data.get("started_at"),
@@ -315,6 +326,53 @@ class EvalRunner:
             "project_id": run_data.get("project_id"),
             "agent_version_id": run_data.get("agent_version_id"),
         }
+
+    @staticmethod
+    def _enrich_context_from_steps(context: dict[str, Any], steps: list[dict[str, Any]]) -> None:
+        """Derive scorer-visible fields from the run's steps, in place.
+
+        The control plane exposes tool activity as steps, so this is where the
+        policy/allowlist/budget scorers get something real to assert on.
+        """
+        if not isinstance(steps, list):
+            return
+
+        tool_calls: list[dict[str, Any]] = []
+        audit_events: list[dict[str, Any]] = []
+
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            step_type = str(step.get("step_type") or step.get("type") or "").upper()
+            if step_type == "TOOL" or step.get("tool_name"):
+                tool_calls.append(
+                    {
+                        "name": step.get("tool_name") or step.get("name"),
+                        "status": step.get("status"),
+                        "step_id": step.get("id"),
+                        "input": step.get("input"),
+                        "output": step.get("output"),
+                        "policy_decision": step.get("policy_decision"),
+                    }
+                )
+            decision = step.get("policy_decision")
+            if decision:
+                audit_events.append(
+                    {
+                        "step_id": step.get("id"),
+                        "decision": decision,
+                        "tool_name": step.get("tool_name"),
+                    }
+                )
+
+        context["tool_calls"] = tool_calls
+        context["tool_call_count"] = len(tool_calls)
+        if audit_events:
+            context["audit_events"] = audit_events
+
+        elapsed = sum(int(s.get("duration_ms") or 0) for s in steps if isinstance(s, dict))
+        if elapsed and not context.get("execution_time_ms"):
+            context["execution_time_ms"] = elapsed
 
     def _execute_mock_run(
         self,
@@ -365,6 +423,7 @@ class EvalRunner:
         agent_id: str,
         max_tasks: int | None = None,
         timeout_ms: int = 300000,
+        task_filter: Callable[[EvalTask], bool] | None = None,
     ) -> EvalRunSummary:
         """Run a full evaluation on a dataset.
 
@@ -373,6 +432,8 @@ class EvalRunner:
             agent_id: ID of the agent to evaluate.
             max_tasks: Maximum number of tasks to run (for testing).
             timeout_ms: Maximum time per task.
+            task_filter: Optional predicate; only tasks it accepts are run.
+                Used to honour a suite's ``filter:`` block.
 
         Returns:
             EvalRunSummary with all results and metrics.
@@ -384,6 +445,8 @@ class EvalRunner:
         dataset_name = Path(dataset_path).parent.name
 
         tasks = self.load_tasks(dataset_path)
+        if task_filter is not None:
+            tasks = [t for t in tasks if task_filter(t)]
         if max_tasks:
             tasks = tasks[:max_tasks]
 

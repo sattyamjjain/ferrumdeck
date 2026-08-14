@@ -48,7 +48,7 @@ Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_
 
 The enforcement engine is published — you can depend on it, not just clone it. One dependency via the umbrella crate:
 
-> **Current version: `v0.8.6`.** <!-- x-current-version: 0.8.6 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
+> **Current version: `v0.8.7`.** <!-- x-current-version: 0.8.7 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
 
 ```bash
 cargo add ferrumdeck
@@ -297,6 +297,13 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
   of [#7](https://github.com/sattyamjjain/ferrumdeck/issues/7) still open.)
   Approving a suggestion **records** the decision; it never auto-applies a
   policy/allowlist/budget change.
+- **Eval gating — deterministic suites gate PRs; the LLM-backed nightly does
+  not yet.** [`docs/eval-health.md`](docs/eval-health.md) is generated from the
+  committed report files on every nightly run and shows, per eval, the last run
+  date, pass/fail, score and consecutive-pass streak. An eval that has never
+  passed is labelled **NEVER PASSED** in its own row. Read that page before
+  trusting any eval-gating claim here — it is the evidence, and it currently
+  shows the safe-PR smoke/regression suites as gaps rather than passes.
 - **Audit tamper-evidence — detectable up to the last checkpoint, not tamper-proof.**
   The log is append-only (repo API with no `UPDATE`/`DELETE` path **and** the
   `trg_audit_events_append_only` trigger, migration `20260719000001`) **and

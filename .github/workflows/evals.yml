@@ -38,6 +38,12 @@ on:
         default: '2'
         type: string
 
+      min_score:
+        description: 'Fail if the average score drops below this floor (harness-wiring guard)'
+        required: false
+        default: '0.01'
+        type: string
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -45,7 +51,8 @@ env:
 # scheduled run fails, so a red cron is never silent (the failure that cost three
 # days to diagnose). No write access to repo contents.
 permissions:
-  contents: read
+  # contents: write so the nightly can commit the regenerated eval-health page.
+  contents: write
   issues: write
 
 jobs:
@@ -176,10 +183,17 @@ jobs:
           mkdir -p evals/reports
           # Tee the whole run to a log so a failure still leaves an artifact that
           # names which case broke (pipefail keeps the eval's exit code).
+          # --min-score is the harness-wiring regression guard. The safe-PR eval
+          # scored exactly 0.12 on every task for forty consecutive nightlies
+          # because three of its four scorers read run-context fields the control
+          # plane never populated (#31). A floor breach exits 2 and means the
+          # harness stopped observing what it asserts on -- not that the agent
+          # got worse.
           uv run python -m fd_evals run \
             --suite "$SUITE" \
             --runs "$RUNS" \
             --parallel "$PARALLEL" \
+            --min-score "${{ inputs.min_score || '0.01' }}" \
             --output "evals/reports/eval_${SUITE}_$(date +%Y%m%d_%H%M%S).json" \
             2>&1 | tee "evals/reports/eval-output-${SUITE}.log"
 
@@ -247,12 +261,34 @@ jobs:
           print(summary)
           EOF
 
+      # Runs even when the eval failed: a red nightly is exactly when the
+      # health page needs to say so. The page is generated from the committed
+      # report files, never hand-written.
+      - name: Regenerate eval-health page
+        if: always()
+        run: uv run python scripts/gen_eval_health.py
+
+      - name: Commit eval-health page
+        if: always() && github.event_name == 'schedule' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/eval-health.md
+          if git diff --cached --quiet; then
+            echo "Eval health unchanged — nothing to commit."
+          else
+            git commit -m "docs(evals): refresh eval health $(date -u +%Y-%m-%d) [skip ci]"
+            git push
+          fi
+
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: eval-reports-${{ github.run_number }}
-          path: evals/reports/
+          path: |
+            evals/reports/
+            docs/eval-health.md
           retention-days: 90
 
       - name: Open/refresh tracking issue on scheduled failure

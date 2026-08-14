@@ -4,6 +4,7 @@ from fd_evals.scorers.base import BaseScorer, CompositeScorer
 from fd_evals.scorers.code_quality import LintScorer, TypeCheckScorer
 from fd_evals.scorers.files import FilesChangedScorer, FilesCreatedScorer
 from fd_evals.scorers.llm_judge import CodeQualityJudge, LLMJudgeScorer, PRQualityJudge
+from fd_evals.scorers.output_match import ExpectedOutputMatchScorer
 from fd_evals.scorers.pr import PRCreatedScorer
 from fd_evals.scorers.schema import SchemaScorer
 from fd_evals.scorers.security import (
@@ -18,6 +19,7 @@ __all__ = [
     "BudgetComplianceScorer",
     "CodeQualityJudge",
     "CompositeScorer",
+    "ExpectedOutputMatchScorer",
     "FilesChangedScorer",
     "FilesCreatedScorer",
     "LintScorer",
