@@ -19,6 +19,7 @@ from fd_evals.scorers import (
     PRCreatedScorer,
     TestPassScorer,
 )
+from fd_evals.suite import SuiteError, load_suite
 from fd_evals.task import EvalRunSummary
 
 app = typer.Typer(
@@ -31,7 +32,15 @@ console = Console()
 
 
 def get_default_scorers():
-    """Get the default set of scorers."""
+    """Fallback scorers for a bare dataset run (no suite).
+
+    NOTE: these read ``run_context`` keys (``files_changed``, ``pr_url``,
+    ``test_results``, ``lint_results``) that the control plane does not
+    surface on a run. They are only meaningful under ``--mock``. A real run
+    scored with these caps at 0.125 regardless of agent behaviour, which is
+    what made the nightly safe-PR eval report 0% for forty consecutive runs.
+    Prefer ``--suite``, which loads the assertions the suite actually declares.
+    """
     return [
         FilesChangedScorer(weight=1.0),
         PRCreatedScorer(weight=1.0),
@@ -127,6 +136,16 @@ def run_eval(
         bool,
         typer.Option("--mock", help="Use mock execution (skip control plane, for testing)"),
     ] = False,
+    min_score: Annotated[
+        float | None,
+        typer.Option(
+            "--min-score",
+            help=(
+                "Fail (exit 2) if the average score is below this floor. "
+                "Guards against harness-wiring regressions that silently zero the eval."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Run an evaluation against a dataset or suite.
 
@@ -138,9 +157,27 @@ def run_eval(
         fd-evals run evals/datasets/safe-pr-agent/tasks.jsonl
     """
     # Resolve dataset from suite or direct path
+    loaded_suite = None
+    task_filter = None
     if suite:
-        resolved_dataset = _resolve_suite_path(suite)
+        try:
+            loaded_suite = load_suite(suite)
+        except SuiteError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        resolved_dataset = loaded_suite.dataset_path
+        task_filter = lambda t: loaded_suite.matches(t.category, t.tags)  # noqa: E731
         console.print(f"[cyan]Running suite: {suite}[/cyan]")
+        if loaded_suite.categories:
+            console.print(f"  Filter: categories={loaded_suite.categories}")
+        if loaded_suite.scorer_names:
+            console.print(f"  Scorers: {', '.join(loaded_suite.scorer_names)}")
+        else:
+            console.print("  [yellow]Suite declares no scorers; falling back to defaults[/yellow]")
+        if loaded_suite.unobservable:
+            console.print(
+                f"  [yellow]Warning: {', '.join(loaded_suite.unobservable)} read run fields "
+                f"the control plane does not surface; they will score 0.[/yellow]"
+            )
     elif dataset:
         if not dataset.exists():
             raise typer.BadParameter(f"Dataset not found: {dataset}")
@@ -156,8 +193,12 @@ def run_eval(
     if mock:
         console.print("  [yellow]Mock mode: enabled (skipping control plane)[/yellow]")
 
+    scorers = loaded_suite.scorers if (loaded_suite and loaded_suite.scorers) else None
+    if scorers is None:
+        scorers = get_default_scorers()
+
     runner = EvalRunner(
-        scorers=get_default_scorers(),
+        scorers=scorers,
         control_plane_url=control_plane,
         api_key=api_key,
         use_mock=mock,
@@ -167,7 +208,8 @@ def run_eval(
         dataset_path=resolved_dataset,
         agent_id=agent_id,
         max_tasks=max_tasks,
-        timeout_ms=timeout,
+        timeout_ms=(loaded_suite.timeout_ms if loaded_suite else timeout),
+        task_filter=task_filter,
     )
 
     # Display results
@@ -177,6 +219,19 @@ def run_eval(
     if output:
         runner.save_report(summary, output)
         console.print(f"\n[green]Report saved to: {output}[/green]")
+
+    # A score floor is the regression guard for harness wiring. The safe-PR
+    # eval sat at exactly 0.12 for forty nightly runs because three of its
+    # four scorers read run fields that were never populated; an average of
+    # zero (or a floor breach) means the harness is broken, not the agent.
+    if min_score is not None and summary.average_score < min_score:
+        console.print(
+            f"\n[red]Average score {summary.average_score:.3f} is below the "
+            f"--min-score floor of {min_score:.3f}.[/red]\n"
+            "[red]A floor breach usually means harness wiring, not agent quality: "
+            "check that the suite's scorers can observe the fields they assert on.[/red]"
+        )
+        raise typer.Exit(2)
 
     # Exit with non-zero if any tasks failed
     if summary.failed_tasks > 0:
