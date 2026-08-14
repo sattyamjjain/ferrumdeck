@@ -36,13 +36,21 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateE
 }
 
 /// Log the current migration status.
+///
+/// Selects only `version`. The previous implementation also selected
+/// `checksum` into an `i64`, but `_sqlx_migrations.checksum` is `BYTEA`, so the
+/// decode failed on every call and the caller swallowed it into a warning —
+/// meaning the per-migration `info!` below had never once been emitted, and a
+/// `fd_storage::migrations` WARN was unconditional noise rather than a signal.
+/// The checksum was bound and immediately discarded, so it is simply not
+/// selected now. See issue #34.
 async fn log_migration_status(pool: &PgPool) -> Result<(), sqlx::Error> {
-    let rows: Vec<(String, i64)> =
-        sqlx::query_as("SELECT version::text, checksum FROM _sqlx_migrations ORDER BY version")
+    let versions: Vec<String> =
+        sqlx::query_scalar("SELECT version::text FROM _sqlx_migrations ORDER BY version")
             .fetch_all(pool)
             .await?;
 
-    for (version, _checksum) in rows {
+    for version in versions {
         info!(version = %version, "Applied migration");
     }
 
@@ -76,4 +84,75 @@ pub async fn migrations_pending(pool: &PgPool) -> Result<bool, sqlx::migrate::Mi
     let total_migrations = migrator.migrations.len() as i64;
 
     Ok(applied_count < total_migrations)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test for #34.
+    ///
+    /// `log_migration_status` returned `Err` on every call for the life of the
+    /// function, because it decoded the `BYTEA` `checksum` column into an
+    /// `i64`. The caller downgraded that to a `warn!`, so nothing failed and
+    /// nobody noticed — the intended per-migration `info!` was never emitted.
+    ///
+    /// Ignored by default because it needs a live migrated database:
+    ///   make dev-up && cargo test -p fd-storage -- --ignored
+    #[tokio::test]
+    #[ignore = "requires a live Postgres (make dev-up)"]
+    async fn log_migration_status_succeeds_against_a_migrated_database() {
+        let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://ferrumdeck:ferrumdeck@localhost:5433/ferrumdeck".into()
+        });
+        let pool = PgPool::connect(&url)
+            .await
+            .expect("connect to the dev database");
+
+        run_migrations(&pool).await.expect("migrations apply");
+
+        // The assertion that matters: this must be Ok, not a swallowed Err.
+        log_migration_status(&pool)
+            .await
+            .expect("migration status logging must succeed, not warn");
+
+        // And it must actually have rows to log, otherwise the assertion above
+        // would pass vacuously against an empty table.
+        let versions: Vec<String> =
+            sqlx::query_scalar("SELECT version::text FROM _sqlx_migrations ORDER BY version")
+                .fetch_all(&pool)
+                .await
+                .expect("read applied migrations");
+        assert!(
+            !versions.is_empty(),
+            "expected at least one applied migration to log"
+        );
+    }
+
+    /// Pins the column type that caused #34: if `checksum` is ever selected
+    /// again, it must not be decoded as an integer.
+    #[tokio::test]
+    #[ignore = "requires a live Postgres (make dev-up)"]
+    async fn migrations_checksum_column_is_bytea() {
+        let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+            "postgres://ferrumdeck:ferrumdeck@localhost:5433/ferrumdeck".into()
+        });
+        let pool = PgPool::connect(&url)
+            .await
+            .expect("connect to the dev database");
+        run_migrations(&pool).await.expect("migrations apply");
+
+        let data_type: String = sqlx::query_scalar(
+            "SELECT data_type FROM information_schema.columns \
+             WHERE table_name = '_sqlx_migrations' AND column_name = 'checksum'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("read checksum column type");
+
+        assert_eq!(
+            data_type, "bytea",
+            "checksum is {data_type}, not bytea — the #34 decode assumption changed"
+        );
+    }
 }
