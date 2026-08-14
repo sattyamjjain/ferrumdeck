@@ -3,113 +3,70 @@
 <!-- AUTO-MANAGED: module-description -->
 ## Purpose
 
-The Python workspace implements the **Data Plane** for FerrumDeck - the execution layer that runs agent steps. It handles LLM calls, tool execution via MCP, and step orchestration with full observability.
-
-**Role**: Stateless workers that consume jobs from Redis queue, execute steps, and report results back to the control plane.
+The execution side. Workers pull steps off the Redis stream and actually run them — LLM completions via litellm,
+tool calls routed through MCP — while every gating decision is delegated to the Rust control plane. Also home to
+the evaluation and benchmark framework used to gate PRs.
 
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: architecture -->
 ## Module Architecture
 
+uv workspace rooted at the **repo root** `pyproject.toml` (members `python/packages/*`); internal packages are
+wired through `[tool.uv.sources]` with `workspace = true`.
+
 ```
 python/packages/
-├── fd-runtime/               # Core runtime library
-│   └── src/fd_runtime/
-│       ├── models.py         # Shared data models
-│       ├── workflow.py       # Workflow execution
-│       ├── client.py         # Control plane client
-│       ├── tracing.py        # OpenTelemetry helpers
-│       └── artifacts.py      # Artifact storage
-├── fd-worker/                # Queue worker
-│   └── src/fd_worker/
-│       ├── __main__.py       # Entry point
-│       ├── main.py           # Worker initialization
-│       ├── queue.py          # Redis queue consumer
-│       ├── executor.py       # Step execution logic
-│       ├── llm.py            # LLM executor (litellm)
-│       └── validation.py     # Output validation (LLM02)
-├── fd-mcp-router/            # MCP tool routing
-│   └── src/fd_mcp_router/
-│       ├── router.py         # Tool routing logic
-│       └── config.py         # Server configuration
-├── fd-mcp-tools/             # MCP server implementations
-│   └── src/fd_mcp_tools/
-│       ├── git_server.py     # Git operations
-│       └── test_runner_server.py  # Test execution
-├── fd-evals/                 # Evaluation framework
-│   └── src/fd_evals/
-│       ├── __main__.py       # CLI entry point
-│       ├── runner.py         # Eval runner
-│       ├── suite.py          # Test suites
-│       ├── task.py           # Task definitions
-│       ├── scorer.py         # Scoring interface
-│       └── scorers/          # Built-in scorers
-└── fd-cli/                   # CLI tool
-    └── src/fd_cli/
-        └── main.py           # CLI commands
+├── fd-runtime/      # models.py, client.py, workflow.py, tracing.py,
+│                    #   airlock.py, artifacts.py, attestation.py
+├── fd-worker/       # main.py, queue.py, executor.py, llm.py, agentic.py,
+│                    #   validation.py (LLM02 output check), exceptions.py
+├── fd-mcp-router/   # router.py, config.py
+├── fd-mcp-tools/    # git_server.py, test_runner_server.py
+├── fd-evals/        # runner.py, task.py, cli.py, suite.py, delta.py, replay.py
+│   ├── scorers/     # base, code_quality, security, schema, files, pr, tests,
+│   │                #   llm_judge, output_match
+│   ├── asb.py · injection_defense.py · governed_benchmark.py   # offline, deterministic
+│   ├── enforce_vs_observe.py · bench_audit.py · reversibility.py
+│   ├── coherence.py · routing.py · promotion.py · harness{,_delta}.py
+│   └── claim_grounding.py · cost_decomposition.py · firing_rate.py · training_signal.py
+└── fd-cli/          # main.py (typer)
 ```
 
-**Step Types**:
-- `LLM` - Call LLM via litellm (Claude, GPT, etc.)
-- `TOOL` - Execute MCP tool with policy check
-- `RETRIEVAL` - Vector search operations
-- `SANDBOX` - Isolated code execution
-- `APPROVAL` - Human approval gates
+Package layout is `src/`-style: code lives in `python/packages/<pkg>/src/<module>/`, where the distribution name
+uses hyphens (`fd-worker`) and the import module uses underscores (`fd_worker`).
 
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: conventions -->
 ## Module-Specific Conventions
 
-### Package Structure
-- Each package uses `src/fd_<name>/` layout
-- Entry point in `__init__.py` with public exports
-- Tests in `tests/` subdirectory
-- CLI modules use `__main__.py`
+- Python 3.12+. Use modern syntax: `X | None` over `Optional[X]`, builtin generics, `match` where it reads better.
+- Async throughout — `asyncio`; pytest runs with `asyncio_mode="auto"`, so async tests need no decorator.
+- Pydantic v2 models for anything crossing a boundary (queue payloads, API responses, eval task/report schemas).
+- Format `ruff format` (line-length 100, target py312); lint `ruff check` + `pyright` in standard mode.
+  Enabled rule families: E, W, F, I, B, C4, UP, ARG, SIM, TCH.
+- First-party import group: `fd_runtime`, `fd_worker`, `fd_mcp_router`, `fd_evals`, `fd_cli`.
+- Type hints on every function signature — pyright runs over all of `python/`.
+- The worker never decides policy. It calls the gateway and enforces the returned decision; validate LLM output
+  in `validation.py` *before* dispatching a tool.
+- Governance evals must be deterministic and offline (no LLM, seeded) so they can gate PRs — see `asb.py`,
+  `injection_defense.py`, `governed_benchmark.py`.
+- **A suite's declared scorers are the ones that run.** `fd_evals.suite.load_suite()` resolves a suite to its
+  dataset *plus* its `filter:`, `scorers:` and `settings:`. Register new scorers in `suite.SCORER_REGISTRY`;
+  an unknown `type:` raises `SuiteError` rather than falling back. Silent substitution is why the safe-PR eval
+  reported 0% for forty nightly runs without anyone being able to see why.
+- **A scorer may only assert on what `run_context` actually carries.** `EvalRunner._build_run_context()` plus
+  `_enrich_context_from_steps()` define that contract; `tool_calls` is a *list* of records (count is
+  `tool_call_count`). Scorers reading keys the control plane never populates score 0 unconditionally and are
+  listed in `suite.UNOBSERVABLE_SCORERS`.
 
-### Async Patterns
-```python
-# Use asyncio throughout
-async def execute_step(job: dict[str, Any]) -> None:
-    async with trace_step_execution(...) as span:
-        result = await self._execute_llm(...)
-```
-
-### Type Hints
-```python
-# Modern Python 3.12+ syntax
-def process(items: list[str]) -> dict[str, Any]:
-    ...
-
-# Use | for optionals
-def create(name: str, config: Config | None = None):
-    ...
-```
-
-### Error Handling
-```python
-# Specific exceptions for policy decisions
-raise PermissionError("Tool denied by policy")
-raise ValueError("Tool requires approval")
-```
-
-### Tracing
-```python
-# Use context managers for spans
-with trace_llm_call(model=model, run_id=run_id) as span:
-    response = await llm.complete(...)
-    set_llm_response_attributes(span, ...)
-```
-
-### Testing
 ```bash
-# Run specific package tests
-uv run pytest python/packages/fd-worker/tests/ -v
+# Run tests for one package
 uv run pytest python/packages/fd-evals/tests/ -v
 
-# Run with coverage
-uv run pytest --cov=fd_worker
+# Lint / typecheck the whole data plane
+uv run ruff check python/ && uv run pyright python/
 ```
 
 <!-- END AUTO-MANAGED -->
@@ -117,18 +74,18 @@ uv run pytest --cov=fd_worker
 <!-- AUTO-MANAGED: dependencies -->
 ## Key Dependencies
 
-| Package | Purpose |
-|---------|---------|
-| `litellm` | Unified LLM interface |
-| `httpx` | Async HTTP client |
-| `tenacity` | Retry with backoff |
-| `pydantic` | Data validation |
-| `opentelemetry` | Distributed tracing |
-| `redis` | Queue communication |
-| `mcp` | Model Context Protocol |
-| `pytest-asyncio` | Async test support |
-| `ruff` | Linting + formatting |
-| `pyright` | Type checking |
+| Package | Depends on |
+|---|---|
+| `fd-runtime` | pydantic ≥2, httpx, opentelemetry-{api,sdk,exporter-otlp-proto-grpc} |
+| `fd-worker` | fd-runtime, fd-mcp-router, redis ≥5, **litellm ≥1.84** (CVE floor), tenacity, opentelemetry |
+| `fd-mcp-router` | pydantic ≥2, **mcp ≥1.28.1** (CVE floor) |
+| `fd-mcp-tools` | mcp ≥1.28.1 |
+| `fd-evals` | fd-runtime, httpx, jsonschema, pydantic, typer, rich, pyyaml, opentelemetry-sdk |
+| `fd-cli` | fd-runtime, typer, rich, httpx |
+
+Dev group (root `pyproject.toml`): pytest, pytest-asyncio, pytest-cov, ruff, pyright, pre-commit.
+
+The `litellm` and `mcp` lower bounds are security floors, not conveniences — do not relax them.
 
 <!-- END AUTO-MANAGED -->
 

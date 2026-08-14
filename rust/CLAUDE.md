@@ -3,80 +3,45 @@
 <!-- AUTO-MANAGED: module-description -->
 ## Purpose
 
-The Rust workspace implements the **Control Plane** for FerrumDeck - the source of truth for governance, orchestration, and audit. It handles API requests, policy enforcement, run orchestration, and data persistence.
-
-**Role**: Stateful control plane that manages agent runs, enforces policies, and maintains audit trails.
+The enforcement engine and control plane. Every agent tool call is decided here before it runs: policy evaluation,
+Airlock RASP inspection, budget and payment gates, reversibility classification, and a hash-chained audit record.
+The gateway exposes this over HTTP; the Python data plane calls into it rather than deciding anything itself.
 
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: architecture -->
 ## Module Architecture
 
+Cargo workspace is rooted at the **repo root** `Cargo.toml` (members `rust/crates/*`, `rust/services/*`), not at `rust/`.
+
 ```
 rust/
-├── crates/                   # Shared libraries
-│   ├── fd-core/              # Core primitives
-│   │   ├── id.rs             # ULID-based typed IDs
-│   │   ├── config.rs         # Configuration loading
-│   │   ├── error.rs          # Error types
-│   │   └── time.rs           # Time utilities
-│   ├── fd-storage/           # Data layer
-│   │   ├── pool.rs           # PostgreSQL connection pool
-│   │   ├── queue.rs          # Redis queue client
-│   │   ├── models/           # Database models
-│   │   └── repos/            # Repository pattern
-│   ├── fd-policy/            # Policy engine + Airlock RASP
-│   │   ├── engine.rs         # Policy evaluation
-│   │   ├── rules.rs          # Rule definitions
-│   │   ├── budget.rs         # Budget tracking
-│   │   ├── decision.rs       # Decision types
-│   │   └── airlock/          # Runtime security (RASP)
-│   │       ├── config.rs     # Airlock configuration
-│   │       ├── inspector.rs  # Main inspection logic
-│   │       ├── patterns.rs   # Anti-RCE pattern matching
-│   │       ├── velocity.rs   # Financial circuit breaker
-│   │       └── exfiltration.rs  # Data exfil prevention
-│   ├── fd-registry/          # Version control
-│   │   ├── agent.rs          # Agent versioning
-│   │   ├── tool.rs           # Tool versioning
-│   │   └── version.rs        # Version utilities
-│   ├── fd-audit/             # Audit logging
-│   │   ├── event.rs          # Audit events
-│   │   └── redaction.rs      # PII redaction
-│   ├── fd-dag/               # Workflow scheduling
-│   │   ├── lib.rs            # DAG types
-│   │   └── scheduler.rs      # Step scheduling
-│   └── fd-otel/              # Observability
-│       ├── setup.rs          # OTEL initialization
-│       └── genai.rs          # GenAI semantic conventions
-└── services/
-    └── gateway/              # HTTP API service
-        ├── main.rs           # Entry point
-        ├── routes.rs         # Route definitions
-        ├── state.rs          # Application state
-        ├── handlers/         # Request handlers
-        │   ├── runs.rs       # Run management
-        │   ├── registry.rs   # Agent/tool registry
-        │   ├── workflows.rs  # Workflow operations
-        │   ├── approvals.rs  # Approval handling
-        │   ├── security.rs   # Airlock config & threats
-        │   └── health.rs     # Health checks
-        └── middleware/       # Tower middleware
-            ├── auth.rs       # API key authentication
-            ├── rate_limit.rs # Rate limiting
-            └── request_id.rs # Request ID injection
-```
-
-**Crate Dependency Graph**:
-```
-gateway
-├── fd-core
-├── fd-storage ── fd-core
-├── fd-policy ─── fd-core
-├── fd-registry ─ fd-core
-├── fd-audit ──── fd-core
-├── fd-dag ────── fd-core
-└── fd-otel
+├── crates/
+│   ├── ferrumdeck/      # Umbrella crate; re-exports fd_policy, `audit` feature adds fd_audit
+│   ├── fd-core/         # id.rs (define_id! ULID types), config.rs, error.rs, time.rs
+│   ├── fd-policy/       # engine.rs, decision.rs, rules.rs, precedence.rs, trace.rs
+│   │   ├── airlock/     # inspector.rs + behavioral_drift, schema_drift, patterns,
+│   │   │                #   velocity, exfiltration, credential_dlp, coherence, config
+│   │   ├── budget.rs · lease.rs · forecast.rs      # spend caps, leases, projection
+│   │   ├── ap2.rs · x402.rs                        # signed mandates, pre-call spend gate
+│   │   ├── reversibility.rs                        # R1–R3 ladder
+│   │   ├── transparency_art50.rs · colorado_sb26_189.rs   # regulatory rules
+│   │   ├── harness.rs · promotion.rs · routing.rs · bench_audit.rs
+│   │   └── benches/     # enforcement_latency (criterion)
+│   ├── fd-storage/      # pool.rs, queue.rs (Redis streams), migrations.rs, retention.rs,
+│   │                    #   repos/, models/
+│   ├── fd-audit/        # chain.rs (hash chain), checkpoint.rs (external anchoring),
+│   │                    #   event.rs, redaction.rs
+│   ├── fd-registry/     # agent.rs, tool.rs, version.rs
+│   ├── fd-dag/          # scheduler.rs
+│   └── fd-otel/         # setup.rs, genai.rs, decision.rs, cost_decomposition.rs,
+│                        #   firing_rate.rs, claim_grounding.rs, trace_context.rs
+└── services/gateway/src/
+    ├── main.rs · routes.rs · state.rs · openapi.rs (utoipa)
+    ├── handlers/        # runs, approvals, policies, registry, evals, security, workflows,
+    │                    #   orchestrator, promotions, harness_suggestions, training_signal,
+    │                    #   api_keys, health, tests
+    └── middleware/      # auth, oauth2, rate_limit, request_id
 ```
 
 <!-- END AUTO-MANAGED -->
@@ -84,75 +49,35 @@ gateway
 <!-- AUTO-MANAGED: conventions -->
 ## Module-Specific Conventions
 
-### Crate Structure
-- Each crate has `lib.rs` as entry point with public exports
-- Use `mod.rs` for submodule organization
-- Derive macros: `Debug, Clone, Serialize, Deserialize` as baseline
-
-### ID Macros
-```rust
-define_id!(RunId, "run");     // Creates strongly-typed ID wrapper
-define_id!(StepId, "stp");    // With prefix for string representation
-define_id!(AgentId, "agt");   // agt_01HGXK...
-```
-
-### Error Handling
-```rust
-// Library errors with thiserror
-#[derive(Debug, thiserror::Error)]
-pub enum Error { ... }
-
-// Application errors can use anyhow
-anyhow::Result<T>
-```
-
-### Database Patterns
-```rust
-// Compile-time checked queries
-sqlx::query_as!(Model, "SELECT * FROM table WHERE id = $1", id)
-    .fetch_one(&pool)
-    .await?
-```
-
-### Async Patterns
-```rust
-// Use tokio for async runtime
-#[tokio::main]
-async fn main() { ... }
-
-// Tower middleware for cross-cutting concerns
-use tower::ServiceBuilder;
-```
-
-### Testing
-- Unit tests in same file with `#[cfg(test)]`
-- Integration tests require running database
-- Use `fake` crate for test data generation
-- Run with: `cargo test --workspace`
+- Edition 2021. Workspace declares `rust-version = "1.80"`, but the dependency graph needs ≥1.88 and Docker images build on rust 1.90 — treat 1.88 as the practical floor.
+- All shared dependency versions live in the root `[workspace.dependencies]`; crates reference them with `.workspace = true`. Do not pin versions inside a crate's `Cargo.toml`.
+- **Publish names differ from directory names**: `fd-core` → `ferrumdeck-core`, `fd-policy` → `ferrumdeck-policy`, `fd-audit` → `ferrumdeck-audit`. Lib names (and therefore import paths) stay `fd_core`, `fd_policy`, `fd_audit`. `fd-dag`, `fd-otel`, `fd-storage`, `fd-registry` are unpublished. When adding a path dependency on a published crate, include both `version` and `package`.
+- IDs are ULID-based and strongly typed via `define_id!` in fd-core; prefixes (`run_`, `stp_`, `agt_`) are part of the type.
+- Errors: `thiserror` inside crates, `anyhow` in the gateway binary.
+- SQLx queries are compile-time checked — run `cargo sqlx prepare --workspace` after changing SQL, or build with `SQLX_OFFLINE=true`.
+- Airlock layers run cheapest-signal-first and are numbered from −1 in `inspector.rs`; keep that ordering when adding a layer.
+- Lint gate is `cargo clippy --workspace --all-targets -- -D warnings`; format with default rustfmt.
 
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: dependencies -->
 ## Key Dependencies
 
-| Crate | Purpose |
-|-------|---------|
-| `axum` | Web framework (0.8) |
-| `tokio` | Async runtime |
-| `sqlx` | PostgreSQL with compile-time checks |
-| `redis` | Queue and caching |
-| `tower` | Middleware framework |
-| `tower-http` | HTTP middleware (cors, tracing) |
-| `tracing` | Structured logging |
-| `opentelemetry` | Distributed tracing |
-| `serde` | Serialization |
-| `serde_json` | JSON handling |
-| `ulid` | Time-sortable IDs |
-| `chrono` | Date/time handling |
-| `thiserror` | Error derive macros |
-| `anyhow` | Application error handling |
-| `dotenvy` | Environment configuration |
-| `jsonwebtoken` | JWT handling |
+| Area | Crate |
+|---|---|
+| Async runtime | `tokio` (full features) |
+| HTTP | `axum` 0.8, `tower`, `tower-http` (cors, trace, request-id, timeout, set-header) |
+| Database | `sqlx` (runtime-tokio, postgres, uuid, chrono, json, migrate, rust_decimal) |
+| Queue | `redis` (tokio-comp, streams) |
+| Serialization | `serde`, `serde_json` |
+| IDs / time | `ulid`, `uuid` (v7), `chrono` |
+| Errors | `thiserror`, `anyhow` |
+| Config | `config`, `dotenvy` |
+| Tracing | `tracing`, `tracing-subscriber`, `tracing-opentelemetry`, `opentelemetry{,_sdk,-otlp}` |
+| Crypto | `sha2`, `hmac`, `subtle`, `hex`, `ed25519-dalek` (AP2 mandate chains, RFC 8032) |
+| Auth | `jsonwebtoken`, `base64` |
+| HTTP client | `reqwest` (json, rustls-tls) |
+| Bench | `criterion` (enforcement_latency) |
 
 <!-- END AUTO-MANAGED -->
 

@@ -3,16 +3,9 @@
 <!-- AUTO-MANAGED: module-description -->
 ## Purpose
 
-Next.js 16+ admin dashboard for the FerrumDeck AgentOps Control Plane. Provides a professional UI for monitoring runs, managing approvals, configuring agents/tools, and viewing analytics.
-
-**Key Features**:
-- Real-time run monitoring with step timeline visualization
-- Approval queue with approve/reject actions
-- Agent and tool registry management
-- Airlock security settings and threat monitoring
-- Analytics dashboard with charts
-- Container logs and workflow detail pages
-- GitHub-like dark theme
+Admin UI for the control plane: runs and steps, agents and tools, policies and promotions, approvals, audit trail,
+security/threat views, evals, and workflows. Runs as a BFF — the browser never talks to the gateway directly;
+Next.js route handlers proxy to it server-side so the API key stays on the server.
 
 <!-- END AUTO-MANAGED -->
 
@@ -20,120 +13,72 @@ Next.js 16+ admin dashboard for the FerrumDeck AgentOps Control Plane. Provides 
 ## Module Architecture
 
 ```
-nextjs/
-├── src/
-│   ├── app/                    # Next.js App Router
-│   │   ├── (dashboard)/        # Dashboard layout group
-│   │   │   ├── runs/           # Run list and detail pages
-│   │   │   ├── approvals/      # Approval queue
-│   │   │   ├── agents/         # Agent registry
-│   │   │   ├── tools/          # Tool registry
-│   │   │   ├── analytics/      # Usage charts
-│   │   │   ├── workflows/      # Workflow detail pages
-│   │   │   ├── containers/     # Container logs
-│   │   │   ├── threats/        # Airlock threat monitoring
-│   │   │   └── settings/       # Configuration (incl. Airlock)
-│   │   ├── api/v1/             # BFF API proxy routes
-│   │   ├── layout.tsx          # Root layout with providers
-│   │   └── page.tsx            # Redirect to /runs
-│   │
-│   ├── components/
-│   │   ├── ui/                 # shadcn/ui components
-│   │   ├── layout/             # Sidebar, header
-│   │   ├── runs/               # Run list, detail, timeline
-│   │   ├── approvals/          # Approval cards
-│   │   ├── agents/             # Agent cards
-│   │   ├── tools/              # Tool cards
-│   │   ├── security/           # Airlock settings, threat table
-│   │   ├── charts/             # Analytics charts
-│   │   └── shared/             # JSON viewer, loaders
-│   │
-│   ├── hooks/                  # Custom React hooks
-│   │   ├── use-runs.ts         # useRuns, useRun, useSteps
-│   │   ├── use-approvals.ts    # useApprovals, useApprove
-│   │   ├── use-agents.ts       # useAgents, useAgent
-│   │   ├── use-tools.ts        # useTools
-│   │   └── use-security.ts     # useAirlockConfig, useThreats
-│   │
-│   ├── lib/
-│   │   ├── api/                # API client functions
-│   │   └── utils.ts            # Formatting utilities
-│   │
-│   └── types/                  # TypeScript interfaces
-│       ├── run.ts              # Run, Step, Budget
-│       ├── approval.ts         # ApprovalRequest
-│       ├── agent.ts            # Agent, AgentVersion
-│       ├── tool.ts             # Tool
-│       └── security.ts         # AirlockConfig, Threat
-│
-├── Dockerfile                  # Multi-stage production build
-├── next.config.ts              # Standalone output config
-└── tailwind.config.ts          # Dark theme configuration
+nextjs/src/
+├── app/
+│   ├── (dashboard)/          # Route group — overview, runs, agents, tools, policies,
+│   │                         #   approvals, audit, logs, evals, workflows, threats,
+│   │                         #   analytics, settings
+│   ├── api/
+│   │   ├── v1/               # BFF proxy — explicit per-resource route.ts files:
+│   │   │                     #   runs/[runId]/{steps,cancel,training-signal}, approvals,
+│   │   │                     #   policies, budgets, audit, api-keys, workflows,
+│   │   │                     #   workflow-runs, promotions, harness-suggestions,
+│   │   │                     #   evals/{suites,runs,regression-report}, security/*, docker/*
+│   │   ├── sse/[channel]/    # Server-sent events
+│   │   └── health/
+│   ├── layout.tsx · page.tsx · globals.css
+├── components/               # One dir per domain: runs, agents, approvals, policies,
+│                             #   audit, logs, evals, workflows, security, tools, overview,
+│                             #   charts, layout, providers, shared, accessibility, ui (shadcn)
+├── hooks/                    # use-<resource>.ts TanStack Query hooks + use-is-mounted, use-mobile
+├── lib/
+│   ├── api/                  # Typed gateway clients (client.ts + per-resource modules)
+│   ├── realtime/             # channels, subscription-manager, use-subscription, mock-events
+│   ├── config/query-config.ts · evals/suite-loader.ts
+│   └── query-client.ts · type-guards.ts · utils.ts
+└── types/                    # One file per domain entity, re-exported from index.ts
 ```
+
+Ports: dev server on **3001** (`next dev --port 3001`); the container maps `3001:3000`.
 
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: conventions -->
 ## Module-Specific Conventions
 
-### Component Structure
-- Use `"use client"` directive for interactive components
-- Colocate hooks with components that use them
-- Prefer composition over configuration
-
-### State Management
-- TanStack Query for server state with polling
-- Local state for UI interactions (filters, dialogs)
-- No global state store needed
-- nuqs for URL state management
-
-### Styling
-- Tailwind CSS 4 with custom theme variables
-- shadcn/ui components for consistency
-- Dark theme only (no light mode toggle)
-- tw-animate-css for animations
-
-### API Calls
-- BFF pattern: `/api/v1/*` routes proxy to gateway
-- All API calls go through `fetchAPI` client
-- Polling intervals: 2s for runs, 3s for approvals
-- SSE for real-time updates
-
-### TypeScript
-- Strict mode enabled
-- Prefer interfaces over types
-- Export types from `/types/*` directory
-
-### Commands
-```bash
-cd nextjs
-npm install              # Install dependencies
-npm run dev              # Start dev server (port 3000)
-npm run build            # Production build
-npm run lint             # ESLint check
-```
+- Next.js 16 App Router + React 19. Server Components by default; add `"use client"` only where interactivity
+  or hooks require it.
+- **BFF boundary is a trust boundary.** Add a new gateway resource as an explicit `route.ts` under
+  `src/app/api/v1/`, not a catch-all. `GATEWAY_URL` and `FD_API_KEY` are server-only — never expose them to the client.
+- **Never fabricate data.** Mock/SSE generators (`lib/realtime/mock-events.ts`) stay opt-in and off by default;
+  a governance event shown in the UI must have come from the gateway.
+- Server state via TanStack Query — one `use-<resource>.ts` hook per domain, intervals centralized in
+  `lib/config/query-config.ts`. URL state via `nuqs`. Toasts via `sonner`.
+- Types live in `src/types/<entity>.ts` and are re-exported through `types/index.ts`; validate unknown payloads
+  with helpers in `lib/type-guards.ts` rather than casting.
+- TypeScript strict; avoid `any`. Tailwind 4 via `@tailwindcss/postcss`, tokens as CSS variables in `globals.css`;
+  compose class names with `cn()`. UI primitives are shadcn/ui on Radix under `components/ui/`.
+- Long lists use `@tanstack/react-virtual`; tables use `@tanstack/react-table`; charts use `recharts`.
+- Verify with `npm run lint`, `npm test`, and `npx tsc --noEmit`. Jest coverage thresholds are intentionally not enforced.
 
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: dependencies -->
 ## Key Dependencies
 
-| Package | Purpose |
-|---------|---------|
-| next (16.1) | App Router, API routes, standalone output |
-| react (19.2) | React with concurrent features |
-| @tanstack/react-query | Server state, polling, mutations |
-| @tanstack/react-table | Data tables |
-| @tanstack/react-virtual | Virtualized lists |
-| tailwindcss (4) | Utility-first styling |
-| @radix-ui/* | Accessible component primitives |
-| recharts | Analytics charts |
-| lucide-react | Icon library |
-| sonner | Toast notifications |
-| nuqs | URL state management |
-| cmdk | Command palette |
-| date-fns | Date formatting |
-| clsx + tailwind-merge | Class name utilities |
+| Area | Package |
+|---|---|
+| Framework | `next` 16.1, `react` / `react-dom` 19.2 |
+| Server state | `@tanstack/react-query` |
+| Tables / virtualization | `@tanstack/react-table`, `@tanstack/react-virtual` |
+| UI primitives | `@radix-ui/*` (dialog, dropdown-menu, select, tabs, tooltip, popover, switch, checkbox, avatar, scroll-area, separator, label, slot, alert-dialog) |
+| Styling | `tailwindcss` 4, `@tailwindcss/postcss`, `tw-animate-css`, `class-variance-authority`, `clsx`, `tailwind-merge` |
+| Icons / charts | `lucide-react`, `recharts` |
+| UX | `sonner` (toasts), `cmdk` (command palette), `nuqs` (URL state), `next-themes` |
+| Data | `date-fns`, `js-yaml` |
+| Tooling | `eslint` 9 + `eslint-config-next`, `jest` 29 + `@testing-library/*`, `ts-jest`, `jest-junit`, `typescript` 5 |
+
+Environment: `GATEWAY_URL` (default `http://localhost:8080`) and `FD_API_KEY`, both server-side only.
 
 <!-- END AUTO-MANAGED -->
 
@@ -347,7 +292,8 @@ const Chart = dynamic(() => import("./chart"), { ssr: false });
 curl http://localhost:8080/health
 
 # Check BFF route is correct
-# Routes are in app/api/v1/[...path]/route.ts
+# Each resource has its own file: src/app/api/v1/<resource>/route.ts
+# (no [...path] catch-all — a missing route means you need to add one)
 ```
 
 **Build Errors**
@@ -356,8 +302,8 @@ curl http://localhost:8080/health
 rm -rf .next
 npm run build
 
-# Check for TypeScript errors
-npm run type-check
+# Check for TypeScript errors (no type-check script defined)
+npx tsc --noEmit
 ```
 
 ### Performance Optimization

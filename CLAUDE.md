@@ -5,15 +5,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 <!-- AUTO-MANAGED: project-description -->
 ## Overview
 
-**FerrumDeck** is a production-grade AgentOps Control Plane for running agentic AI workflows with deterministic governance. It provides policy enforcement, audit logging, budget gates, and secure execution for AI agents.
+**FerrumDeck** is a deterministic, in-path enforcement engine and AgentOps control plane for agentic AI workflows. Every tool call an agent attempts passes through a policy decision before it executes.
 
 Polyglot monorepo:
-- **Rust** control plane (governance, orchestration, policy engine) — Axum gateway + workspace crates
-- **Python** data plane (LLM execution, MCP tool calls, evaluation framework) — uv workspaces
-- **Next.js 16+** dashboard (admin UI) — React 19, Tailwind 4, shadcn/Radix
-- **Postgres + Redis** as primary datastore + queue; Jaeger/OTel for tracing
+- **Rust** control plane — enforcement engine, policy, audit chain, orchestration; Axum gateway + workspace crates
+- **Python** data plane — LLM execution, MCP tool calls, evaluation/benchmark framework; uv workspace
+- **Next.js** dashboard — admin UI over the gateway (React 19, Tailwind 4, shadcn/Radix)
+- **Postgres + Redis** — primary datastore and step queue; OTel/Jaeger for tracing
 
-Key safety features: deny-by-default tool allowlists, Airlock RASP inspection (anti-RCE, financial circuit breaker, data exfil shield), approval gates, immutable audit trail.
+Enforcement surface: deny-by-default tool allowlists, five-layer Airlock RASP inspection, budget gates with leases,
+the R1–R3 reversibility ladder, AP2/x402 payment spend gates, approval gates, and a hash-chained audit trail with
+out-of-band checkpoint anchoring. Regulatory rules ship as first-class modules (EU AI Act Art.50 transparency,
+Colorado SB 26-189).
 
 <!-- END AUTO-MANAGED -->
 
@@ -22,52 +25,65 @@ Key safety features: deny-by-default tool allowlists, Airlock RASP inspection (a
 
 ```bash
 # Quick start
-make quickstart           # Start infra + gateway + worker + dashboard
-make install              # Install all deps (Rust + Python via uv sync)
+make quickstart           # Infra + gateway + worker + dashboard
+make install              # All deps (cargo fetch + uv sync)
 
-# Dev environment (Postgres 5433, Redis 6379, Jaeger 16686)
-make dev-up               # docker compose up -d
-make dev-down             # docker compose down
-make dev-logs             # Tail container logs
+# Dev infra — deploy/docker/compose.dev.yaml
+make dev-up               # Postgres 5433, Redis 6379, Jaeger 16686, OTel 4317/4318
+make dev-down
+make dev-logs / make dev-ps
 
 # Run services (separate terminals)
-make run-gateway          # Rust gateway → localhost:8080
-make run-worker           # Python worker (consumes Redis queue)
-make run-dashboard        # Static dashboard → localhost:8000
-npm run dev --prefix nextjs   # Next.js dev → localhost:3001
+make run-gateway          # cargo run --package gateway → :8080
+make run-worker           # Python worker, consumes Redis stream
+make run-dashboard        # Static dashboard (deploy/dashboard) → :8000
+npm run dev --prefix nextjs   # Next.js dashboard → :3001
 
 # Build
 make build                # build-rust + build-python
 make build-rust           # cargo build --workspace
-make build-python         # uv build
 make build-release        # cargo build --workspace --release
 
 # Test
-make test                 # All tests
 make test-rust            # cargo test --workspace
 make test-python          # pytest fd-evals + fd-worker
-make test-integration     # Integration suite (needs dev-up)
+make test-integration     # cargo test -- --ignored; pytest -m integration (needs dev-up)
 
 # Code quality
-make fmt                  # cargo fmt + ruff format
-make lint                 # cargo clippy + ruff check + pyright
+make fmt                  # cargo fmt + ruff format python/
+make lint                 # cargo clippy + ruff check python/ + pyright python/
 make check                # fmt + lint + test
-make ci-check             # Full CI check
+make ci-check             # Full CI gate
+
+# Contract + schema generation
+make gen-openapi          # scripts/gen_openapi.sh → contracts/
+make gen-schemas          # scripts/gen_schemas.sh
+
+# Claims integrity (CI-enforced honesty gates)
+make check-claims             # README/ROADMAP claims vs docs/feature-status.yml
+make check-changelog-issues   # CHANGELOG [Unreleased] issue refs vs GitHub
+make claims-recount           # Re-derive test counts from pytest/cargo
+
+# Evals + benchmarks
+make eval-run                 # Smoke suite (needs ANTHROPIC_API_KEY)
+make eval-run-full            # Full regression
+make eval-injection-defense   # Deterministic, offline, no LLM
+make eval-asb                 # ASB + EU AI Act Art.50, seeded, offline
+make bench-enforcement        # Criterion latency bench on the decision path
+make bench-governed           # Governed vs ungoverned overhead + blocked %
+make reproduce-spend-gate     # Reproduce AP2 + x402 spend-gate figures
+make demo-x402
+make eval-health              # Regenerate docs/eval-health.md from evals/reports/
+make eval-health-check        # Fail if that page is stale
+
+# `fd_evals run` takes --min-score <floor>; a breach exits 2 and means the
+# harness stopped observing what it asserts on, not that the agent got worse.
 
 # Database
-make db-migrate           # Apply migrations (auto on gateway start)
-make db-reset             # Drop + recreate + seed
-make db-seed              # Load test data
-
-# Evals (requires ANTHROPIC_API_KEY)
-make eval-run             # Smoke suite (~2 min)
-make eval-run-full        # Full regression (~10 min)
-make eval-report          # Generate report from latest results
+make db-migrate / db-reset / db-seed
 
 # Dashboard (nextjs/)
-npm run lint              # eslint
-npm test                  # jest
-npm run test:coverage     # Coverage report
+npm run lint · npm test · npm run test:coverage
 ```
 
 <!-- END AUTO-MANAGED -->
@@ -77,53 +93,55 @@ npm run test:coverage     # Coverage report
 
 ```
 ferrumdeck/
-├── rust/                       # Control Plane
+├── Cargo.toml                  # Rust workspace root (members: rust/crates/*, rust/services/*)
+├── pyproject.toml              # uv workspace root (members: python/packages/*)
+├── rust/
 │   ├── crates/
-│   │   ├── fd-core/            # IDs (ULID + prefixes), config, errors
-│   │   ├── fd-storage/         # SQLx Postgres repos + Redis streams queue
-│   │   ├── fd-policy/          # Policy engine, budgets, Airlock RASP
+│   │   ├── ferrumdeck/         # Umbrella crate re-exporting the engine; `audit` feature
+│   │   ├── fd-core/            # Typed ULID IDs (define_id!), config, errors, time
+│   │   ├── fd-policy/          # Engine, Airlock, budgets/leases, AP2, x402,
+│   │   │                       #   reversibility, Art.50, Colorado SB 26-189, routing
+│   │   ├── fd-storage/         # SQLx Postgres repos/models, Redis stream queue, retention
+│   │   ├── fd-audit/           # Hash-chained events, checkpoint anchoring, PII redaction
 │   │   ├── fd-registry/        # Agent/tool versioning
-│   │   ├── fd-audit/           # Audit log + PII redaction
 │   │   ├── fd-dag/             # DAG scheduler
-│   │   └── fd-otel/            # OpenTelemetry setup
-│   └── services/
-│       └── gateway/            # Axum HTTP API (port 8080)
-├── python/packages/            # Data Plane (uv workspace)
-│   ├── fd-runtime/             # Workflow execution + tracing
-│   ├── fd-worker/              # Redis queue consumer, step executor
+│   │   └── fd-otel/            # OTel setup, GenAI conventions, decision/cost/firing-rate spans
+│   └── services/gateway/       # Axum HTTP API (:8080) — handlers/, middleware/, openapi.rs
+├── python/packages/
+│   ├── fd-runtime/             # Workflow models, client, tracing, airlock, attestation
+│   ├── fd-worker/              # Queue consumer, step executor, LLM, agentic path, validation
 │   ├── fd-mcp-router/          # MCP tool routing
-│   ├── fd-mcp-tools/           # MCP server implementations
-│   ├── fd-evals/               # Evaluation framework
-│   └── fd-cli/                 # CLI tool
-├── nextjs/                     # Dashboard (Next.js 16+, React 19)
-│   └── src/{app,components,hooks,lib,types}
-├── evals/                      # Eval configs (suites, datasets, scorers, agents)
-├── contracts/                  # OpenAPI specs + JSON schemas
-├── db/migrations/              # SQLx migrations
-├── deploy/                     # docker/, k8s/, dashboard/
-├── docs/                       # architecture/, adr/, security/, runbooks/
-├── examples/safe-pr-agent/     # Reference agent
+│   ├── fd-mcp-tools/           # MCP servers (git, test runner)
+│   ├── fd-evals/               # Eval + benchmark framework, scorers/
+│   └── fd-cli/                 # CLI
+├── nextjs/                     # Dashboard — src/{app,components,hooks,lib,types}
+├── evals/                      # suites/, datasets/, agents/, reports/
+├── contracts/ · db/migrations/ · docs/ · deploy/{docker,helm,k8s,dashboard}/
+│     docs/eval-health.md          # generated by scripts/gen_eval_health.py
+│     docs/otel-genai-mapping.md   # generated by observability/genai_mapping.py
+├── observability/                 # otel/collector.yaml + genai_mapping.py (OTel GenAI semconv)
+├── config/ · scripts/ · artifacts/ · examples/
 └── tests/                      # api, chaos, e2e, integration, performance, security
 ```
 
-**Data flow**:
+**Data flow**
 ```
-Dashboard / API Clients
+Dashboard / API clients
         │
         ▼
    Gateway (Rust) ──► Policy Engine ──► Run Orchestrator
-                                              │
+                       (+ Airlock)            │
                                        Redis Streams
                                               │
-                                     Python Worker
+                                       Python Worker
                                               │
-                       ┌──────────────────────┼──────────────────────┐
-                       ▼                      ▼                      ▼
-                   LLM Call              MCP Tool Call            Sandbox
-                   (litellm)         (Airlock RASP inspect)
+                    ┌─────────────────────────┼─────────────────────────┐
+                    ▼                         ▼                         ▼
+                LLM call                 MCP tool call               Sandbox
+                (litellm)          (routed, policy + Airlock gated)
 ```
 
-**Service ports**: Gateway 8080 · Next.js 3001 · Static dashboard 8000 · Postgres 5433 · Redis 6379 · Jaeger UI 16686 · OTel gRPC 4317 / HTTP 4318.
+**Ports**: Gateway 8080 · Next.js 3001 (container 3001:3000) · Static dashboard 8000 · Postgres 5433 · Redis 6379 · Jaeger UI 16686 · OTel gRPC 4317 / HTTP 4318.
 
 <!-- END AUTO-MANAGED -->
 
@@ -131,90 +149,105 @@ Dashboard / API Clients
 ## Code Conventions
 
 ### Rust
-- Edition 2021, MSRV 1.80; Tokio async + Axum + tower middleware
-- Errors: `thiserror` for library errors, `anyhow` for application errors
-- IDs: ULID-based, strongly-typed with prefixes — `run_`, `stp_`, `agt_` via `define_id!` macro in fd-core
-- DB: SQLx with compile-time checked queries
-- Format: `cargo fmt` (default rustfmt). Lint: `cargo clippy --workspace --all-targets -- -D warnings`
+- Edition 2021; workspace declares `rust-version = "1.80"`, but the dependency graph requires ≥1.88 — Docker images build on rust 1.90
+- Tokio async + Axum 0.8 + tower middleware; dependencies pinned in `[workspace.dependencies]`
+- Errors: `thiserror` in libraries, `anyhow` in applications
+- IDs: ULID-based, strongly typed with prefixes (`run_`, `stp_`, `agt_`) via `define_id!` in fd-core
+- DB: SQLx with compile-time checked queries (`cargo sqlx prepare --workspace`; `SQLX_OFFLINE=true` to build without a DB)
+- Published crates rename on crates.io — `fd-core` → `ferrumdeck-core`, `fd-policy` → `ferrumdeck-policy`, `fd-audit` → `ferrumdeck-audit` — while lib/import paths stay `fd_core`, `fd_policy`, `fd_audit`. `fd-dag`, `fd-otel`, `fd-storage`, `fd-registry` are unpublished.
+- Lint: `cargo clippy --workspace --all-targets -- -D warnings`
 
 ### Python
-- Python 3.12+; package manager **uv** with `[tool.uv.workspace]` members under `python/packages/*`
-- Format: `ruff format` (line-length 100). Lint: `ruff check` + `pyright` (standard mode)
-- Tests: `pytest` with `asyncio_mode="auto"`
-- Import groups: `known-first-party = ["fd_runtime", "fd_worker", "fd_mcp_router", "fd_evals", "fd_cli"]`
+- Python 3.12+; **uv** workspace, members `python/packages/*`, internal deps via `[tool.uv.sources]`
+- Format `ruff format` (line-length 100, target py312); lint `ruff check` + `pyright`
+- Ruff rules include E/W/F/I/B/C4/UP/ARG/SIM/TCH
+- Tests: `pytest`, `asyncio_mode="auto"`
+- First-party imports: `fd_runtime`, `fd_worker`, `fd_mcp_router`, `fd_evals`, `fd_cli`
 
 ### TypeScript / Next.js
-- Next.js 16.1 + React 19, App Router (`src/app/`), Tailwind 4, shadcn/ui on Radix primitives
-- TanStack Query for server state; ESLint with `eslint-config-next`
-- Tests: Jest + Testing Library; coverage thresholds intentionally not enforced
+- Next.js 16 + React 19, App Router (`src/app/`), route groups (`(dashboard)`), Tailwind 4, shadcn/ui on Radix
+- TanStack Query/Table/Virtual for server state and grids; `nuqs` for URL state; `sonner` for toasts
+- ESLint via `eslint-config-next`; Jest + Testing Library (coverage thresholds intentionally not enforced)
 
 ### Naming
-- Rust: `snake_case` files/functions, `PascalCase` types
-- Python: `snake_case` throughout, `PascalCase` for classes
-- TypeScript: `camelCase` functions, `PascalCase` components and types
-- Crate prefix: `fd-` (e.g., `fd-core`); module prefix: `fd_` (e.g., `fd_runtime`)
+- Rust `snake_case` files/functions, `PascalCase` types · Python `snake_case` · TS `camelCase` functions, `PascalCase` components/types
+- Crate prefix `fd-`; module prefix `fd_`
 
 ### Cross-cutting
-- No hardcoded secrets — use `.env` (gitignored) or Azure Key Vault
-- Handle errors at system boundaries (HTTP endpoints, external calls); trust internal calls
-- Keep functions under ~50 lines; extract helpers if longer
+- No hardcoded secrets — `.env` (gitignored) or Key Vault
+- Handle errors at system boundaries (HTTP handlers, external calls); trust internal calls
+- Keep functions under ~50 lines
 
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: patterns -->
 ## Detected Patterns
 
-### Security model
-- **Deny-by-default** tool allowlist per agent
-- **Airlock RASP** three-layer inspection on tool calls:
-  1. Anti-RCE pattern matcher (`eval`, `exec`, shell injection)
-  2. Financial circuit breaker (spending velocity, loop detection)
-  3. Data exfiltration shield (domain whitelist, blocks raw IPs)
-- Modes: `shadow` (log only, safe rollout) vs `enforce` (block)
-- **Approval gates** for sensitive actions; **budget enforcement** kills runs over limits
-- **LLM02 mitigation**: worker validates LLM output before tool dispatch
+### Enforcement model
+- **Deny-by-default** per-agent tool allowlist (`fd_policy::rules::ToolAllowlist`) with per-tool risk levels
+- **Airlock RASP — five inspection layers** in `airlock/inspector.rs`, ordered cheapest-signal-first:
+  1. *Layer −1* behavioral drift — per-agent rolling z-score over observations
+  2. *Layer 0* schema drift — tool schema vs registered `tool_version_id`
+  3. *Layer 1* anti-RCE pattern matching (`eval`, `exec`, shell injection)
+  4. *Layer 2* velocity / financial circuit breaker (spend rate, loop detection)
+  5. *Layer 3* exfiltration shield — domain allowlist, raw-IP blocking, credential DLP
+- Risk score buckets to Low/Medium/High/Critical; modes `shadow` (log only) vs `enforce` (block)
+- **Reversibility ladder (R1–R3)** classifies actions by how recoverable they are
+- **Budget enforcement** via `SharedBudget` + `BudgetLease`; forecasting in `forecast.rs`
+- **Payment rails**: x402 pre-call spend gate and AP2 Ed25519-signed mandate chains, gated on the same decision path
+- **Regulatory modules**: `transparency_art50.rs` (EU AI Act Art.50), `colorado_sb26_189.rs`
+- **Precedence + promotion**: `precedence.rs` resolves conflicting rules; `promotion.rs` moves policies shadow → enforce
+- Every decision emits a `DecisionTrace`
+
+### Audit
+- `audit_events` are hash-chained (`chain.rs`); chain heads are anchored out-of-band (`checkpoint.rs`) so tampering is detectable even with DB write access
+- PII redaction at write time (`redaction.rs`)
 
 ### Step execution
-- LLM calls via `litellm` (Claude + GPT support)
-- Tool calls via MCP router, gated by policy engine + Airlock
-- Retry with exponential backoff for transient failures
-- OpenTelemetry traces every step (spans propagate run_id → step_id)
+- LLM calls via `litellm`; tool calls via MCP router, gated by policy + Airlock
+- **LLM02 mitigation**: worker validates LLM output before dispatching any tool
+- Retry with exponential backoff (`tenacity`) for transient failures
+- OTel spans propagate `run_id` → `step_id`, using GenAI semantic conventions
 
 ### API + dashboard
-- Axum gateway with typed handlers; OpenAPI via `utoipa` + Swagger UI
-- BFF pattern in Next.js: `/api/v1/*` proxies to gateway
-- SSE for real-time run updates; TanStack Query polling fallback
+- Axum gateway, typed handlers, OpenAPI via `utoipa` + Swagger UI
+- Gateway middleware: auth, oauth2, rate limiting, request ID
+- BFF pattern — Next.js exposes explicit per-resource routes under `src/app/api/v1/**/route.ts` that proxy to the gateway; SSE at `api/sse/[channel]` with TanStack Query polling fallback
 
-### Testing
-- Unit tests live in module `tests/` subdirectories
-- Integration tests require `make dev-up`
-- Evals use fd-evals framework with custom scorers under `evals/scorers/`
+### Honesty gates
+- `docs/feature-status.yml` is the source of truth for feature claims; `check-claims` fails CI when README/ROADMAP overstate it
+- `check-changelog-issues` verifies CHANGELOG `[Unreleased]` issue references against GitHub
+- Evals for governance behavior are deterministic and offline (no LLM) so they can gate PRs
+- `docs/eval-health.md` is generated from committed reports and regenerated by the nightly; an eval that has never passed is labelled **NEVER PASSED** in its own row rather than omitted
+- `docs/otel-genai-mapping.md` is generated from `observability/genai_mapping.py`; it states mapped-vs-unmapped field counts and explicitly disclaims OTel GenAI conformance
+- A suite's declared scorers must be loadable — an unknown scorer `type:` raises rather than falling back to defaults
 
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: git-insights -->
 ## Git Insights
 
-- Recent focus: CI/test hardening — coverage thresholds removed, jest peer deps fixed, gateway artifact-download filters tuned
-- Dashboard stabilization: sidebar test fixes, module documentation added, dashboard bug fixes
-- Gateway: legacy hash deadline extended in dev to ease local migration churn
-- Rust: Axum 0.8 migration (`merge` replaces empty-path `nest`), clippy/format cleanup
-- Branch convention: `feature/<desc>`, `fix/<desc>`, `chore/<desc>` against `main`
-- Commit style: conventional prefixes (`fix(scope):`, `feat:`); imperative subject < 72 chars
+- Recent focus: release + supply-chain hardening — per-arch image builds on native runners (not QEMU), Docker base bumped for MSRV, crates published under the `ferrumdeck-*` names
+- Enforcement features landed as first-class policy modules: AP2 signed-mandate spend gate, x402 pre-call gate, audit chain-head anchoring, schema-drift and behavioral-drift Airlock layers
+- Strong anti-fabrication theme: several fixes explicitly stop the dashboard/evals from serving mock or fabricated data, and CI gates now check claims and changelog issue references
+- Security posture maintained through dependency floors (litellm, mcp SDK) and an agent-security SARIF gate
+- Branch convention `feature/<desc>`, `fix/<desc>`, `chore/<desc>` against `main`; conventional commit prefixes with scope, imperative subject < 72 chars
 
 <!-- END AUTO-MANAGED -->
 
 <!-- AUTO-MANAGED: best-practices -->
 ## Best Practices
 
-- Run `make check` before commits — formats + lints + tests in one shot
-- Verify after changes: `python3 -m py_compile <file>`, `cargo clippy`, `npx tsc --noEmit` in `nextjs/`
-- Migrations run automatically on gateway startup — do **not** invoke manually in CI
-- Eval gating: PRs to `main` require the smoke suite to pass; set `ANTHROPIC_API_KEY` locally
-- For port conflicts: `lsof -i :<port>` then `kill -9 $(lsof -t -i :<port>)`
+- Run `make check` before commits; `make ci-check` to mirror CI
+- Verify after changes: `cargo clippy --workspace --all-targets -- -D warnings`, `uv run pyright python/`, `npx tsc --noEmit` in `nextjs/`
+- Migrations run automatically on gateway startup — never invoke them manually in CI
+- Never write `close/fix/resolve #N` in a commit or PR body — it auto-closes the issue on merge, even when quoted
+- Keep `docs/feature-status.yml` in sync when adding or removing a capability, or `check-claims` will fail
+- When touching the decision path, add a deterministic offline eval rather than an LLM-dependent one
+- Port conflicts: `lsof -i :<port>` then `kill -9 $(lsof -t -i :<port>)`
 - Stuck queue debug: `redis-cli -p 6379 XLEN fd:steps:pending`
 - Dashboard build errors: `cd nextjs && rm -rf .next node_modules && npm install`
-- Use Plan mode for multi-step work; ask before destructive ops (db-reset, force-push, drop tables)
+- Ask before destructive ops (db-reset, force-push, dropping tables)
 
 <!-- END AUTO-MANAGED -->
 
