@@ -352,7 +352,7 @@ clean-docker:
 # CI Helpers
 # =============================================================================
 
-ci-check: check-claims check-changelog-issues
+ci-check: check-claims check-changelog-issues eval-health-check
 	@echo "Running CI checks..."
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings
