@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -158,12 +159,41 @@ def _classify(path: Path, data: dict[str, Any]) -> RunRecord | None:
     return None
 
 
+def tracked_reports(reports_dir: Path) -> list[Path]:
+    """Return the report files git actually tracks, newest-sorted by name.
+
+    ``evals/reports/*.json`` is gitignored (.gitignore), so a working copy
+    usually holds local run output that is not in the repository. Globbing the
+    directory therefore produced a different page for every developer, and a
+    page that disagreed with the one CI generates from a clean checkout --
+    which made `--check` fail spuriously and inflated the consecutive-pass
+    counts with runs nobody else can see.
+
+    This page is published as evidence, so it must be derived only from
+    evidence that is actually in the repository. Falls back to globbing when
+    git is unavailable (e.g. a source tarball), because a slightly wrong page
+    beats no page.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "ls-files", "-z", "--", str(reports_dir)],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return sorted(reports_dir.glob("*.json"))
+
+    paths = [Path(p) for p in out.split("\0") if p.endswith(".json")]
+    return sorted(paths) if paths else []
+
+
 def collect(reports_dir: Path) -> dict[str, EvalHealth]:
     health = {
         name: EvalHealth(name=name, description=desc) for name, desc in EXPECTED_EVALS.items()
     }
 
-    for path in sorted(reports_dir.glob("*.json")):
+    for path in tracked_reports(reports_dir):
         try:
             data = json.loads(path.read_text())
         except (json.JSONDecodeError, OSError):

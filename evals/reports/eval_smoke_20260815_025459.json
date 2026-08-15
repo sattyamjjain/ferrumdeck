@@ -1,0 +1,128 @@
+{
+  "run_id": "eval_ded3c264045d",
+  "dataset_name": "safe-pr-agent",
+  "total_tasks": 3,
+  "passed_tasks": 3,
+  "failed_tasks": 0,
+  "pass_rate": 100.0,
+  "average_score": 1.0,
+  "total_cost_cents": 0.06,
+  "total_input_tokens": 1638,
+  "total_output_tokens": 722,
+  "total_execution_time_ms": 14163,
+  "results": [
+    {
+      "task_id": "task_001",
+      "task_name": "Add README badge",
+      "run_id": "run_01M01NG5Q7AHCTJC609NXZ7538",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "SchemaScorer",
+          "passed": true,
+          "score": 1.0,
+          "message": "No schema validation required",
+          "details": {}
+        },
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {}
+        }
+      ],
+      "execution_time_ms": 6096,
+      "input_tokens": 541,
+      "output_tokens": 358,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-08-15T02:55:05.857395+00:00",
+      "claim_grounding": {
+        "claims_total": 22,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_002",
+      "task_name": "Fix typo in docs",
+      "run_id": "run_01M01NGBMATF5F8FZ3QWP09G9P",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "SchemaScorer",
+          "passed": true,
+          "score": 1.0,
+          "message": "No schema validation required",
+          "details": {}
+        },
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {}
+        }
+      ],
+      "execution_time_ms": 4036,
+      "input_tokens": 547,
+      "output_tokens": 182,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-08-15T02:55:09.893791+00:00",
+      "claim_grounding": {
+        "claims_total": 14,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_005",
+      "task_name": "Add docstrings",
+      "run_id": "run_01M01NGFJE8FGJERJTS8JRDM3N",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "SchemaScorer",
+          "passed": true,
+          "score": 1.0,
+          "message": "No schema validation required",
+          "details": {}
+        },
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {}
+        }
+      ],
+      "execution_time_ms": 4031,
+      "input_tokens": 550,
+      "output_tokens": 182,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-08-15T02:55:13.925740+00:00",
+      "claim_grounding": {
+        "claims_total": 14,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    }
+  ],
+  "started_at": "2026-08-15T02:54:59.760004+00:00",
+  "completed_at": "2026-08-15T02:55:13.925747+00:00"
+}
