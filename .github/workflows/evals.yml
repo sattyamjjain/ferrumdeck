@@ -273,13 +273,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # evals/reports/*.json is gitignored, so the run's own report needs -f
-          # to be recorded. Without it the report is discarded at the end of the
-          # job, the page is regenerated from whatever was already tracked, and
-          # the consecutive-pass column can never climb above 1 no matter how
-          # many nights pass. The page is published as evidence; the evidence
-          # has to be in the repository.
-          git add -f evals/reports/eval_*.json 2>/dev/null || true
+          # The run's own report is the evidence docs/eval-health.md is built
+          # from, so it has to be committed or the consecutive-pass column can
+          # never climb above 1. `eval_*.json` is un-ignored in .gitignore, so
+          # a plain add is enough -- no -f, which means a dropped report shows
+          # up as an ordinary uncommitted change instead of vanishing silently.
+          git add evals/reports/eval_*.json 2>/dev/null || true
           git add docs/eval-health.md
           if git diff --cached --quiet; then
             echo "Eval health unchanged — nothing to commit."

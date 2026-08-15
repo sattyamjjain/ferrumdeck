@@ -107,9 +107,21 @@ docker-compose.override.yml
 # =============================================================================
 # Eval outputs (generated)
 # =============================================================================
+# Local ad-hoc benchmark output stays ignored -- it is unverified, machine-local,
+# and must not drift into the published record by way of a stray `git add -A`.
+#
+# The nightly's own suite reports (`eval_*.json`) are different: they are the
+# evidence docs/eval-health.md is generated from, so they are un-ignored and
+# commit like any other file. Previously they were ignored and force-added,
+# which is how a plain `git add -A` silently dropped one and a false "the
+# report is committed" claim reached the 0.8.7 notes.
+#
+# The three `*-20260810.json` benchmark reports predate this rule and stay
+# tracked: an ignore rule does not untrack an already-committed file.
 evals/reports/*.json
 evals/reports/*.html
 evals/reports/*.md
+!evals/reports/eval_*.json
 
 # =============================================================================
 # Artifacts (runtime outputs)
