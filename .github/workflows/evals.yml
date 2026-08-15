@@ -9,9 +9,15 @@ name: Evaluations
 # nightly run. Keep that split: fast + deterministic on PRs here-in-ci, slow +
 # LLM-judged on a schedule here. See ROADMAP #7.
 on:
-  # Run on schedule (daily at 2 AM UTC)
   schedule:
+    # Nightly: the 3-task smoke suite.
     - cron: '0 2 * * *'
+    # Weekly (Sunday): the full 20-task regression suite. Nothing scheduled it
+    # before, so `regression` sat at NEVER RUN on docs/eval-health.md while the
+    # project claimed eval gating. Verified on run 31897644086 before being
+    # wired here: 20/20 passed, average score 1.00, $0.0047 -- so this is a
+    # suite known to pass, not a red job scheduled on hope.
+    - cron: '0 3 * * 0'
 
   # Manual trigger with options
   workflow_dispatch:
@@ -173,9 +179,22 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -o pipefail
-          SUITE="${{ inputs.suite || 'smoke' }}"
+          # Two crons share this job. github.event.schedule names which one
+          # fired, so the Sunday cron runs the full regression suite and the
+          # nightly stays on smoke. A manual dispatch always wins.
+          if [ -n "${{ inputs.suite }}" ]; then
+            SUITE="${{ inputs.suite }}"
+          elif [ "${{ github.event.schedule }}" = "0 3 * * 0" ]; then
+            SUITE="regression"
+          else
+            SUITE="smoke"
+          fi
           RUNS="${{ inputs.runs || '1' }}"
           PARALLEL="${{ inputs.parallel || '2' }}"
+          # regression is 20 tasks; give it more workers when it is the weekly run.
+          if [ "$SUITE" = "regression" ] && [ -z "${{ inputs.parallel }}" ]; then
+            PARALLEL=4
+          fi
           # Export the suite so the failure-explainer step can name it.
           echo "EVAL_SUITE=$SUITE" >> "$GITHUB_ENV"
 
@@ -273,13 +292,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # evals/reports/*.json is gitignored, so the run's own report needs -f
-          # to be recorded. Without it the report is discarded at the end of the
-          # job, the page is regenerated from whatever was already tracked, and
-          # the consecutive-pass column can never climb above 1 no matter how
-          # many nights pass. The page is published as evidence; the evidence
-          # has to be in the repository.
-          git add -f evals/reports/eval_*.json 2>/dev/null || true
+          # The run's own report is the evidence docs/eval-health.md is built
+          # from, so it has to be committed or the consecutive-pass column can
+          # never climb above 1. `eval_*.json` is un-ignored in .gitignore, so
+          # a plain add is enough -- no -f, which means a dropped report shows
+          # up as an ordinary uncommitted change instead of vanishing silently.
+          git add evals/reports/eval_*.json 2>/dev/null || true
           git add docs/eval-health.md
           if git diff --cached --quiet; then
             echo "Eval health unchanged — nothing to commit."
