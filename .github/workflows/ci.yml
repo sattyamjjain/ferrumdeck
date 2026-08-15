@@ -190,10 +190,18 @@ jobs:
           DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
           REDIS_URL: redis://localhost:6379
         run: |
+          # tests/*.py at the repo root cover the generated-doc tooling
+          # (scripts/gen_eval_health.py, observability/genai_mapping.py) which
+          # lives outside python/packages. They were previously collected by no
+          # CI path at all -- tests/api, tests/integration and tests/security are
+          # each named explicitly -- so those regression guards passed locally and
+          # were silently skipped here. Listed by glob so a new root test file is
+          # picked up automatically rather than needing this line edited again.
           uv run pytest python/packages/fd-runtime/tests \
                         python/packages/fd-mcp-router/tests \
                         python/packages/fd-worker/tests \
                         python/packages/fd-evals/tests \
+                        tests/*.py \
                         -v --tb=short --junitxml=pytest-unit-results.xml
 
       - name: Run API contract tests
