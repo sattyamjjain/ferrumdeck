@@ -9,14 +9,8 @@ FerrumDeck claims eval gating in CI. This page is the evidence for that claim. A
 | `asb` | 2026-08-10 | pass | 1.00 | 1 | block 100%, benign utility 100% |
 | `governed-benchmark` | 2026-08-10 | pass | 1.00 | 1 | governed blocked 100% vs ungoverned 0% |
 | `injection_defense` | 2026-08-10 | pass | 1.00 | 1 | block 100%, benign utility 100% |
-| `regression` | — | **NEVER RUN** | — | 0 | No report has ever been committed for this eval |
+| `regression` | 2026-08-15 | pass | 1.00 | 1 | 20/20 tasks passed, avg score 1.00 |
 | `smoke` | 2026-08-15 | pass | 1.00 | 2 | 3/3 tasks passed, avg score 1.00 |
-
-## Evals with no passing run
-
-- **`regression`** — LLM-backed safe-PR full regression. No report has ever been committed.
-
-These are gaps in the eval-gating claim, not passing rows waiting to be filled in. Treat this section shrinking as the measure of progress.
 
 ## How a row is decided
 
@@ -26,4 +20,4 @@ These are gaps in the eval-gating claim, not passing rows waiting to be filled i
 | `governed-benchmark` | the governed run blocks 100% of unsafe actions |
 | `eval_<suite>_<ts>` (LLM suites) | every task passed (`failed_tasks == 0`) |
 
-_Generated 2026-08-15 03:20 UTC._
+_Generated 2026-08-15 17:21 UTC._
