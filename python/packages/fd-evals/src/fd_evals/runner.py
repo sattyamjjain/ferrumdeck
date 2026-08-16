@@ -410,6 +410,14 @@ class EvalRunner:
         }
 
         mock_context = {
+            # Marks this context as a stand-in rather than a real run. Scorers
+            # that assert on the agent's own output must skip on it: the "output"
+            # above is a fixed four-key dict built from the task's name and
+            # description, so anything measured from it describes the fixture,
+            # not the agent. Copying `task.expected` into the context below is
+            # the same hazard in the other direction, and is how `--mock` scored
+            # 1.0 while every real run scored 0 (issue #31).
+            "mock": True,
             "status": "completed",
             "files_changed": task.expected.get("files_changed", []),
             "files_created": task.expected.get("files_created", []),

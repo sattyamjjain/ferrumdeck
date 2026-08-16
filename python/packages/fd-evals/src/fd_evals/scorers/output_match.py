@@ -59,6 +59,27 @@ class ExpectedOutputMatchScorer(BaseScorer):
         pattern = expected.get("regex")
         min_length = expected.get("min_length")
 
+        if run_context.get("mock"):
+            # `--mock` never calls the agent. Its "output" is a fixed four-key
+            # dict interpolating the task's own name and description, so its
+            # length and contents are properties of the dataset text, not of
+            # any response. Asserting on it produced exactly that: two smoke
+            # tasks failed a 200-character floor at 190 and 197 characters,
+            # purely because their descriptions are short.
+            #
+            # Skipping is the honest outcome, and because skips are excluded
+            # from the composite average and counted in assertion coverage, a
+            # mock run now reports the reduced coverage rather than passing as
+            # though the output had been checked.
+            return ScorerResult(
+                scorer_name=self.name,
+                passed=True,
+                score=1.0,
+                message="Mock run: no agent output to assert on",
+                details={"skipped": True, "reason": "mock"},
+                skipped=True,
+            )
+
         if not (contains or not_contains or pattern or min_length):
             return ScorerResult(
                 scorer_name=self.name,

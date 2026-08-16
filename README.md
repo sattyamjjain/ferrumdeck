@@ -393,9 +393,9 @@ Still liveness-only and deferred on #6: the rest of `tests/e2e`, the remaining
 (velocity, coherence, base64/unicode evasion) — do not read those as proof that
 a given attack is blocked.
 
-**Automated test coverage.** The CI-gating unit/lint suites total **1,951**
+**Automated test coverage.** The CI-gating unit/lint suites total **1,954**
 tests, re-derivable with `make claims-recount`: Rust **749**
-(`cargo test --workspace -- --list`), Python unit **529** (`pytest` over the four
+(`cargo test --workspace -- --list`), Python unit **532** (`pytest` over the four
 `python/packages/*/tests` the CI unit job runs), frontend **623**
 (`jest`), and API-contract **50** (`pytest tests/api`). The live-stack suites —
 `tests/security` (78), `tests/chaos` (14), `tests/e2e` (43) — need `make dev-up`,

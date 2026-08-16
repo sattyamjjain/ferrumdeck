@@ -137,7 +137,7 @@ test_counts:
       count: 749
       method: "cargo test --workspace -- --list | grep -cE ': test$'"
     python_unit:
-      count: 529
+      count: 532
       method: "uv run pytest python/packages/{fd-runtime,fd-mcp-router,fd-worker,fd-evals}/tests --collect-only -q"
     frontend:
       count: 623
@@ -145,7 +145,7 @@ test_counts:
     api_contracts:
       count: 50
       method: "uv run pytest tests/api --collect-only -q"
-  gating_total: 1951
+  gating_total: 1954
   # Live-stack suites: require `make dev-up`, skip without it, and (per the
   # README testing caveat) assert liveness more than behaviour. NOT counted in
   # the headline, reported on their own line.

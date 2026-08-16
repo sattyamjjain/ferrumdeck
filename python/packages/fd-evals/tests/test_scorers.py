@@ -426,3 +426,66 @@ class TestSkipsAreNotPasses:
         assert summary.average_score == 1.0
         assert summary.assertion_coverage == 0.5
         assert summary.to_dict()["assertion_coverage"] == 0.5
+
+
+class TestMockRunsDoNotAssertOnOutput:
+    """`--mock` never calls the agent, so output scorers must skip on it.
+
+    The CI Evaluation Gate stands up Postgres, Redis and a gateway, then runs
+    the smoke suite with `--mock`, which bypasses all of it. Mock "output" is a
+    fixed four-key dict interpolating the task's own name and description, so
+    its length and contents are properties of the dataset text.
+
+    Asserting a 200-character floor against that failed two of three smoke
+    tasks at 190 and 197 characters -- entirely because their descriptions are
+    short. That is the same class of defect as the vacuous 1.00 this module
+    already guards against, pointing the other way: a number about the fixture,
+    presented as a number about the agent.
+    """
+
+    @staticmethod
+    def _task() -> EvalTask:
+        return EvalTask(
+            id="t1",
+            name="Fix typo in docs",
+            description="Fix a typo",
+            input={},
+            expected={"min_length": 200},
+        )
+
+    def test_mock_run_skips_instead_of_failing_a_length_floor(self) -> None:
+        from fd_evals.scorers.output_match import ExpectedOutputMatchScorer
+
+        result = ExpectedOutputMatchScorer().score(
+            self._task(), "short mock output", {"mock": True}
+        )
+        assert result.skipped is True
+        assert result.passed is True
+        assert "Mock run" in result.message
+
+    def test_a_real_run_still_enforces_the_floor(self) -> None:
+        """The skip must be scoped to mock, or the floor stops working at all."""
+        from fd_evals.scorers.output_match import ExpectedOutputMatchScorer
+
+        scorer = ExpectedOutputMatchScorer()
+
+        too_short = scorer.score(self._task(), "short real output", {})
+        assert too_short.skipped is False
+        assert too_short.passed is False
+        assert too_short.score == 0.0
+
+        long_enough = scorer.score(self._task(), "x" * 400, {})
+        assert long_enough.skipped is False
+        assert long_enough.passed is True
+
+    def test_mock_context_is_marked_so_scorers_can_tell(self) -> None:
+        from fd_evals.runner import EvalRunner
+
+        _run_id, output, context = EvalRunner(use_mock=True)._execute_mock_run(
+            self._task(), "agt_test"
+        )
+        assert context["mock"] is True, (
+            "without this marker an output scorer cannot distinguish a real "
+            "response from the fixture and will measure the fixture"
+        )
+        assert isinstance(output, dict)
