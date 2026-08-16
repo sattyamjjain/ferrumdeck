@@ -20,4 +20,4 @@ FerrumDeck claims eval gating in CI. This page is the evidence for that claim. A
 | `governed-benchmark` | the governed run blocks 100% of unsafe actions |
 | `eval_<suite>_<ts>` (LLM suites) | every task passed (`failed_tasks == 0`) |
 
-_Generated 2026-08-15 17:21 UTC._
+_Generated 2026-08-16 03:03 UTC._
