@@ -41,6 +41,8 @@ class ExpectedOutputMatchScorer(BaseScorer):
     expectation its dataset never made.
     """
 
+    EXPECTED_KEYS = ("contains", "not_contains", "regex", "min_length")
+
     def __init__(self, case_sensitive: bool = False, weight: float = 1.0):
         super().__init__(name="ExpectedOutputMatch", weight=weight)
         self.case_sensitive = case_sensitive
@@ -64,6 +66,7 @@ class ExpectedOutputMatchScorer(BaseScorer):
                 score=1.0,
                 message="No output expectations declared for this task",
                 details={"skipped": True},
+                skipped=True,
             )
 
         text = _as_text(actual_output)

@@ -27,6 +27,8 @@ class PolicyComplianceScorer(BaseScorer):
     - No POLICY_BLOCKED or BUDGET_KILLED status unless expected
     """
 
+    EXPECTED_KEYS = ("status", "denied_tools")
+
     def __init__(
         self,
         name: str = "PolicyCompliance",

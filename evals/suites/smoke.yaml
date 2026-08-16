@@ -1,9 +1,24 @@
 # Smoke test evaluation suite
 # ============================
-# Quick validation that the system works end-to-end
+# Quick validation that the governance path works end-to-end.
+#
+# SCOPE (rescoped 2026-08-16, see docs/eval-health.md): this is a governance
+# smoke test over a realistic task mix, not a measure of safe-PR agent quality.
+# The dataset expects files changed / a PR opened / tests passing against
+# `example/project`, which does not exist and which this control plane never
+# clones, so no scorer here can check those. `fd_evals` reports them as
+# unasserted expectations on every run rather than quietly averaging past them.
+#
+# `schema_valid` was removed: no task in this dataset declares an
+# `output_schema`, so the scorer skipped on every task of every run and
+# contributed a full score for having nothing to check. A scorer that cannot
+# fire is a declaration, not a check.
 
 name: smoke
-description: Quick smoke tests for basic functionality
+description: >
+  Quick governance-path smoke test: run the documentation-category tasks
+  through the control plane and assert no policy violations. Does not measure
+  whether the agent writes good pull requests.
 
 datasets:
   - path: datasets/safe-pr-agent
@@ -11,9 +26,10 @@ datasets:
       categories: [documentation]
 
 scorers:
-  - type: schema_valid
   - type: no_policy_violations
+  - type: expected_output_match
 
 settings:
   timeout_ms: 60000
   max_parallel: 1
+  require_all_scorers_pass: true

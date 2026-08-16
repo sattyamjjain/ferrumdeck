@@ -60,13 +60,25 @@ class EvalTask:
 
 @dataclass
 class ScorerResult:
-    """Result from a single scorer."""
+    """Result from a single scorer.
+
+    ``skipped`` marks the case where the scorer had nothing to assert — the
+    task declared no schema, no output expectation, no lint requirement. Such
+    a result still carries ``score=1.0`` for backward compatibility with
+    readers that only look at the float, but it is **excluded from the
+    composite average** by :class:`~fd_evals.scorers.base.CompositeScorer`.
+
+    Folding skips into the average at 1.0 is how the safe-PR suite reported a
+    perfect 1.00 while half of every run's scorer results asserted nothing at
+    all. A scorer that did not run is not evidence that the agent succeeded.
+    """
 
     scorer_name: str
     passed: bool
     score: float  # 0.0 to 1.0
     message: str
     details: dict[str, Any] = field(default_factory=dict)
+    skipped: bool = False
 
 
 @dataclass
@@ -118,6 +130,7 @@ class EvalResult:
                     "score": sr.score,
                     "message": sr.message,
                     "details": sr.details,
+                    "skipped": sr.skipped,
                 }
                 for sr in self.scorer_results
             ],
@@ -178,6 +191,28 @@ class EvalRunSummary:
             return 0.0
         return (self.passed_tasks / self.total_tasks) * 100
 
+    @property
+    def assertion_coverage(self) -> float:
+        """Fraction of scorer results on this run that asserted something.
+
+        1.0 means every scorer fired on every task. 0.5 means half of them
+        skipped -- they had nothing to check and returned a full score anyway.
+        The safe-PR smoke and regression suites both sit at exactly 0.5, which
+        is the number that makes their 1.00 average readable: it is an average
+        over the half of the scorers that ran.
+
+        Publish this next to the score. A score without it cannot be
+        distinguished from a score the harness gave itself.
+        """
+        total = 0
+        asserted = 0
+        for result in self.results:
+            for scorer_result in result.scorer_results:
+                total += 1
+                if not scorer_result.skipped:
+                    asserted += 1
+        return asserted / total if total else 0.0
+
     def derive_cost_breakdown(self) -> CostBreakdown | None:
         """Aggregate per-task cost breakdowns into the run-level one.
 
@@ -205,6 +240,7 @@ class EvalRunSummary:
             "failed_tasks": self.failed_tasks,
             "pass_rate": self.pass_rate,
             "average_score": self.average_score,
+            "assertion_coverage": self.assertion_coverage,
             "total_cost_cents": self.total_cost_cents,
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,

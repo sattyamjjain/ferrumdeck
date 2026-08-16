@@ -8,10 +8,15 @@ Prerequisites:
 - ANTHROPIC_API_KEY set
 """
 
+import os
 import time
+from typing import ClassVar
 
 import httpx
 import pytest
+
+# Agent seeded by the dev migration, with a known allowlist.
+SEED_AGENT_ID = os.getenv("FD_SEED_AGENT_ID", "agt_01JFVX0000000000000000001")
 
 
 # ==========================================================================
@@ -141,29 +146,107 @@ class TestRunWithApproval:
 # E2E-RUN-004: Run with budget kill
 # ==========================================================================
 class TestRunBudgetKill:
-    """E2E tests for budget enforcement."""
+    """E2E tests for budget enforcement.
 
-    def test_run_budget_kill(
-        self, gateway_client: httpx.Client, budget_limited_workflow: dict
-    ) -> None:
-        """Test run killed on budget exceed.
+    Converted for #6. The previous version posted a workflow to
+    ``/api/v1/workflows`` — the Next.js BFF path, not the gateway's ``/v1`` —
+    and asserted the response was ``in (200, 201, 400, 422)``, a set that
+    covers success and both failure modes. It then asserted a run could be
+    created. Neither statement can fail on a system where budget enforcement
+    does nothing at all, which is the specific behaviour the test is named for.
 
-        E2E-RUN-004: Budget enforcement
-        """
-        workflow_resp = gateway_client.post("/api/v1/workflows", json=budget_limited_workflow)
-        if workflow_resp.status_code not in (200, 201, 400, 422):
-            pytest.skip("Could not process budget workflow")
+    The version below asserts the thing the claim rests on: with the cost
+    budget exhausted, the *next* tool call is refused. Enforcement means the
+    call does not proceed; logging that a budget was exceeded and continuing
+    is the failure mode, not the feature.
+    """
 
-        # Budget enforcement may happen at creation or runtime
-        if workflow_resp.status_code in (200, 201):
-            workflow_id = workflow_resp.json()["id"]
+    # A `costly` tool is the one whose decision the budget actually governs.
+    # On the R1-R3 ladder a `reversible` tool is allowed regardless of budget
+    # and an `irreversible` one requires approval regardless — only `costly`
+    # moves from AllowUnderBudget to RequireApproval when headroom runs out
+    # (fd_policy::graduated_response). Testing budget with either of the others
+    # would assert a constant.
+    COSTLY_TOOL: ClassVar[dict] = {
+        "name": "e2e-budget-probe",
+        "slug": "e2e_budget_probe",
+        "description": "Costly tool used to observe the budget gate end to end.",
+        "mcp_server": "e2e-test",
+        "risk_level": "low",
+        "reversibility": "costly",
+        "input_schema": {"type": "object", "properties": {"q": {"type": "string"}}},
+    }
 
-            # Start run
-            run_resp = gateway_client.post(
-                "/api/v1/workflow-runs",
-                json={"workflow_id": workflow_id, "input": {}},
+    @staticmethod
+    def _check(client: httpx.Client, run_id: str, tool: str, estimated_cost_cents: int) -> dict:
+        resp = client.post(
+            f"/v1/runs/{run_id}/check-tool",
+            json={
+                "tool_name": tool,
+                "tool_input": {"q": "ok"},
+                "estimated_cost_cents": estimated_cost_cents,
+            },
+        )
+        assert resp.status_code == 200, f"check-tool failed: {resp.status_code} {resp.text}"
+        return resp.json()
+
+    def _run_with_budget(self, client: httpx.Client, max_cost_cents: int) -> str:
+        resp = client.post(
+            "/v1/runs",
+            json={
+                "agent_id": SEED_AGENT_ID,
+                "input": {"task": "e2e-budget"},
+                "config": {"budget": {"max_cost_cents": max_cost_cents}},
+            },
+        )
+        assert resp.status_code in (200, 201), (
+            f"setup: could not create run: {resp.status_code} {resp.text}"
+        )
+        return resp.json()["id"]
+
+    def test_budget_exhaustion_blocks_the_next_call(self, gateway_client: httpx.Client) -> None:
+        """E2E-RUN-004: budget enforcement refuses the call, it does not log and continue."""
+        tool_resp = gateway_client.post("/v1/registry/tools", json=self.COSTLY_TOOL)
+        if tool_resp.status_code == 403:
+            pytest.skip("API key lacks the write scope needed to register the probe tool")
+        if tool_resp.status_code not in (200, 201, 409):
+            pytest.skip(
+                f"could not register the costly probe tool: "
+                f"{tool_resp.status_code} {tool_resp.text[:200]}"
             )
-            assert run_resp.status_code in (200, 201)
+        tool_name = self.COSTLY_TOOL["slug"]
+
+        # --- Control: headroom available -> the call proceeds ----------------
+        funded = self._run_with_budget(gateway_client, max_cost_cents=10_000)
+        with_headroom = self._check(gateway_client, funded, tool_name, estimated_cost_cents=1)
+
+        assert with_headroom.get("allowed") is True, (
+            "the control case must pass, otherwise the exhausted case below "
+            "proves nothing -- the tool would be blocked for some reason other "
+            f"than budget. decision={with_headroom}"
+        )
+
+        # --- Exhausted: no headroom -> the call is refused -------------------
+        broke = self._run_with_budget(gateway_client, max_cost_cents=0)
+        without_headroom = self._check(gateway_client, broke, tool_name, estimated_cost_cents=500)
+
+        assert without_headroom.get("allowed") is not True, (
+            "budget exhausted and the tool call was still authorized. The engine "
+            "is in-path: an exceeded budget has to stop the next call, not be "
+            f"noted while it proceeds. decision={without_headroom}"
+        )
+        assert without_headroom.get("response_level") == "require_approval", (
+            "an exhausted cost budget must escalate a costly tool to R3 "
+            "(require_approval) per fd_policy::graduated_response, got "
+            f"{without_headroom.get('response_level')!r}"
+        )
+
+        # The two runs differ only in budget, so the decision difference is
+        # attributable to the budget gate and nothing else.
+        assert with_headroom.get("response_level") != without_headroom.get("response_level"), (
+            "identical calls under different budgets produced the same response "
+            "level; the budget gate is not affecting the decision at all"
+        )
 
 
 # ==========================================================================

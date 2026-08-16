@@ -288,22 +288,40 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
   endpoints (`/v1/harness-suggestions*`) and the training-signal export
   (`POST /v1/runs/{id}/training-signal`, redacted server-side via the audit
   redaction path) are implemented, unit-tested, and wired into the dashboard.
-  But the **evals dashboard data is still BFF-stubbed** (`/api/v1/evals/*`
-  returns empty until a gateway eval backend lands), so the full
-  eval→gateway→dashboard round-trip is demonstrable only with a live stack and
-  a non-stub eval feed. (The eval *numbers* themselves are not ungated: the
-  deterministic governance suites + real-engine pins run on every push + PR via
-  `ci.yml`'s `eval-regression` job — the dashboard round-trip is the only part
-  of [#7](https://github.com/sattyamjjain/ferrumdeck/issues/7) still open.)
+  The **evals dashboard read path is no longer stubbed**: `/api/v1/evals/*`
+  serves the gateway's real on-disk reports, mapped onto the dashboard's run
+  contract, and returns an explicit 501 (never an empty list) when no report
+  store is reachable. Two defects on that path were fixed at once — the gateway
+  parsed only the offline-benchmark file-naming convention, so **every safe-PR
+  smoke and regression report was silently dropped before it reached the
+  dashboard**, and the BFF proxied the gateway's field names verbatim, so even
+  the runs that did arrive rendered as blank cells. **Not yet verified against a
+  live stack** (Docker was unavailable when this landed): the projection is
+  covered by unit tests that read the real committed reports through the same
+  code path the handler uses, but the live HTTP round-trip is unconfirmed.
+  Dispatching a run from the dashboard remains unimplemented — the store is
+  read-only committed records, so
+  [#7](https://github.com/sattyamjjain/ferrumdeck/issues/7) stays open for the
+  live verification and the dispatch path. (The eval *numbers* themselves are
+  not ungated: the deterministic governance suites + real-engine pins run on
+  every push + PR via `ci.yml`'s `eval-regression` job.)
   Approving a suggestion **records** the decision; it never auto-applies a
   policy/allowlist/budget change.
 - **Eval gating — deterministic suites gate PRs; the LLM-backed nightly does
   not yet.** [`docs/eval-health.md`](docs/eval-health.md) is generated from the
   committed report files on every nightly run and shows, per eval, the last run
-  date, pass/fail, score and consecutive-pass streak. An eval that has never
-  passed is labelled **NEVER PASSED** in its own row. Read that page before
-  trusting any eval-gating claim here — it is the evidence, and it currently
-  shows the safe-PR smoke/regression suites as gaps rather than passes.
+  date, pass/fail, score, consecutive-pass streak and **assertion coverage**.
+  An eval that has never passed is labelled **NEVER PASSED** in its own row.
+  Read that page before trusting any eval-gating claim here — it is the
+  evidence, and it opens by stating in prose what the safe-PR numbers mean.
+  In short: **the safe-PR suites do not measure safe-PR agent quality.** Their
+  dataset expects files changed, a PR opened and tests passing against
+  `example/project`, which does not exist and which this control plane never
+  clones — so the suites were rescoped to assert what is genuinely observable
+  here (policy decisions, budget compliance, non-degenerate output). The
+  expectations no scorer reads are reported on every run rather than averaged
+  past. There is no eval in this repo that measures whether the agent writes
+  good pull requests, and nothing here should be read as claiming there is.
 - **Audit tamper-evidence — detectable up to the last checkpoint, not tamper-proof.**
   The log is append-only (repo API with no `UPDATE`/`DELETE` path **and** the
   `trg_audit_events_append_only` trigger, migration `20260719000001`) **and
@@ -354,16 +372,33 @@ suite's simulated no-ops are now explicit skips naming the fault-injection
 plumbing they need, not green tautologies. The Airlock layer decisions also have
 a runnable, no-Docker backbone in
 `rust/crates/fd-policy/tests/airlock_decisions.rs` +
-`airlock_layers_fire.rs`. Still liveness-only and deferred on #6: `tests/e2e`,
-and the stateful/obfuscation cases (velocity, coherence, base64/unicode
-evasion) — do not yet read those as proof that a given attack is blocked.
+`airlock_layers_fire.rs`.
 
-**Automated test coverage.** The CI-gating unit/lint suites total **1,916**
-tests, re-derivable with `make claims-recount`: Rust **741**
-(`cargo test --workspace -- --list`), Python unit **512** (`pytest` over the four
-`python/packages/*/tests` the CI unit job runs), frontend **613**
+One headline case per suite has since been converted to a behavioural
+assertion: `tests/security` asserts that a denied tool call leaves **no side
+effect and a durable record** (with a negative control, so it cannot pass
+against an engine that records every call as blocked); `tests/chaos` asserts
+that a policy decision taken before a Postgres outage is **identical after
+recovery**; `tests/e2e` asserts that an exhausted cost budget **refuses the next
+call** rather than logging and continuing. **None of the three has been observed
+passing against a live gateway** — they are written against the real routes and
+skip cleanly without a stack, but the assertions themselves are unverified until
+someone runs them with `make quickstart` up, and a dedicated live-stack CI job
+is still the missing infra piece on #6. Fixing the two conftests that made this
+visible is a finding in its own right: `tests/chaos` and `tests/e2e` probed
+`/health/live`, a route the gateway does not serve, so **both suites skipped
+unconditionally against any stack** and CHAOS-001 has never once executed.
+Still liveness-only and deferred on #6: the rest of `tests/e2e`, the remaining
+`tests/security/test_audit_trail.py` cases, and the stateful/obfuscation cases
+(velocity, coherence, base64/unicode evasion) — do not read those as proof that
+a given attack is blocked.
+
+**Automated test coverage.** The CI-gating unit/lint suites total **1,951**
+tests, re-derivable with `make claims-recount`: Rust **749**
+(`cargo test --workspace -- --list`), Python unit **529** (`pytest` over the four
+`python/packages/*/tests` the CI unit job runs), frontend **623**
 (`jest`), and API-contract **50** (`pytest tests/api`). The live-stack suites —
-`tests/security` (76), `tests/chaos` (14), `tests/e2e` (43) — need `make dev-up`,
+`tests/security` (78), `tests/chaos` (14), `tests/e2e` (43) — need `make dev-up`,
 **skip without it**, and (per the caveat above) are still being converted from
 liveness to behaviour, so they are **excluded from that headline**;
 `tests/integration` (81) is likewise live-stack and non-gating. These counts live in the single source
@@ -409,9 +444,9 @@ The known gaps above are tracked in the open on the **[roadmap](ROADMAP.md)**, o
 - **Deterministic IDs**: ULID-based identifiers for time-ordered, collision-resistant tracking
 
 ### Quality
-- **Evaluation Framework**: Deterministic offline test suites for agent workflows (the `fd-evals` framework runs the reproducible benchmarks above). **⚠ [dashboard data BFF-stubbed](#project-status--limitations)** — `GET /api/v1/evals/suites` now serves the real on-disk suite definitions, but `/runs` and `/regression-report` still return 501 until a gateway eval backend lands, so the eval round-trip (running a suite, run history, regression) is not wired ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
+- **Evaluation Framework**: Deterministic offline test suites for agent workflows (the `fd-evals` framework runs the reproducible benchmarks above). **⚠ [read path live, dispatch + live verification open](#project-status--limitations)** — `GET /api/v1/evals/{suites,runs,regression-report}` all serve the gateway's real on-disk data now, mapped onto the dashboard run contract, or an explicit 501 when no report store is reachable. Running a suite from the dashboard is still unimplemented, and the read path has not been exercised against a live stack ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
 - **Regression Gating**: the eval suite reports quality regressions between versions. **⚠ [PR gate covers the 3 deterministic suites; LLM-judged suite stays nightly](#project-status--limitations)** — `ci.yml`'s `eval-regression` job runs the injection-defense / ASB / governed-vs-ungoverned suites + the real `fd_policy` engine pins on every push + PR (no services, no secrets), so a golden-fixture or engine-pin regression blocks a merge. The LLM-judged smoke/regression suite still runs nightly in `evals.yml`, not on PRs ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
-- **Baseline Comparisons**: Track performance across versions. **⚠ [dashboard data BFF-stubbed](#project-status--limitations)** — the baseline view reads the same stubbed `/api/v1/evals/*` data ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
+- **Baseline Comparisons**: Track performance across versions. **⚠ [read path live, dispatch + live verification open](#project-status--limitations)** — the baseline view reads the same `/api/v1/evals/*` data, which is now real but unverified end to end ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
 - **Per-harness eval dimension (Harness-Bench)**: fd-evals reports at the `(model × harness_config)` level — same model under different harness configs can produce different scores. Each run records its `tools_available`, `permission_tier`, `state_recovery`, and `tracing` config alongside the existing baseline, the dashboard groups results by `(model × harness)` with a side-by-side Recharts bar chart, and `DeltaReport` exposes a per-dimension diff (added/removed tools, tier change, recovery change). See [`docs/runbooks/harness-config.md`](docs/runbooks/harness-config.md).
 - **Training-signal export (trace→signal, HarnessX)**: closes the eval loop the other way — projects a run's trace into a JSONL of `(state, action, observation, outcome_score)` tuples for downstream training/eval. Built **server-side** at `POST /v1/runs/{id}/training-signal`, where every `state`/`observation` is run through the **existing audit redaction path** (`fd_audit::redaction`) so PII/secrets are stripped before they ever leave the control plane; `outcome_score` is trace-intrinsic (step status) with an optional eval-supplied `run_score` override. The dashboard exposes a per-suite/per-run "Download training signal" action.
 

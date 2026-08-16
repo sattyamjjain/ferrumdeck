@@ -13,6 +13,8 @@ class TestPassScorer(BaseScorer):
     from the run context.
     """
 
+    EXPECTED_KEYS = ("tests_pass",)
+
     def __init__(self, weight: float = 1.0):
         super().__init__(name="TestPassScorer", weight=weight)
 
@@ -42,6 +44,7 @@ class TestPassScorer(BaseScorer):
                 score=1.0,
                 message="Tests not required for this task",
                 details={"skipped": True},
+                skipped=True,
             )
 
         test_results = run_context.get("test_results", {})
@@ -88,6 +91,8 @@ class TestPassScorer(BaseScorer):
 class TestCoverageScorer(BaseScorer):
     """Scorer that checks test coverage improvement."""
 
+    EXPECTED_KEYS = ("test_coverage_improved",)
+
     def __init__(self, min_coverage: float = 0.0, weight: float = 1.0):
         super().__init__(name="TestCoverageScorer", weight=weight)
         self.min_coverage = min_coverage
@@ -116,6 +121,7 @@ class TestCoverageScorer(BaseScorer):
                 score=1.0,
                 message="Coverage improvement not required",
                 details={"skipped": True},
+                skipped=True,
             )
 
         coverage_before = run_context.get("coverage_before", 0.0)

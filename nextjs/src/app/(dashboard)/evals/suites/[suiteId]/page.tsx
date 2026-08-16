@@ -501,12 +501,30 @@ export default function SuiteDetailPage({ params }: SuiteDetailPageProps) {
                                                         </Link>
                                                     </TableCell>
                                                     <TableCell>
-                                                        <Badge
-                                                            variant="outline"
-                                                            className="text-xs"
-                                                        >
-                                                            {run.agent_version}
-                                                        </Badge>
+                                                        {run.agent_version?.trim() ? (
+                                                            <Badge
+                                                                variant="outline"
+                                                                className="text-xs"
+                                                            >
+                                                                {
+                                                                    run.agent_version
+                                                                }
+                                                            </Badge>
+                                                        ) : (
+                                                            // Same empty-value case as the runs
+                                                            // table on the evals index: the report
+                                                            // files carry no agent version, so an
+                                                            // unguarded Badge renders as an empty
+                                                            // outlined pill on every row.
+                                                            <span className="text-muted-foreground text-xs">
+                                                                <span aria-hidden="true">
+                                                                    —
+                                                                </span>
+                                                                <span className="sr-only">
+                                                                    Not recorded
+                                                                </span>
+                                                            </span>
+                                                        )}
                                                     </TableCell>
                                                     <TableCell>
                                                         <Badge

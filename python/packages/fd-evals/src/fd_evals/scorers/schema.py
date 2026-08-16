@@ -13,6 +13,8 @@ class SchemaScorer(BaseScorer):
     conforms to an expected schema structure.
     """
 
+    EXPECTED_KEYS = ("output_schema",)
+
     def __init__(
         self,
         schema: dict[str, Any] | None = None,
@@ -56,6 +58,7 @@ class SchemaScorer(BaseScorer):
                 score=1.0,
                 message="No schema validation required",
                 details={"skipped": True},
+                skipped=True,
             )
 
         # Handle string outputs - cannot validate against schema
@@ -170,6 +173,8 @@ class SchemaScorer(BaseScorer):
 class OutputStructureScorer(BaseScorer):
     """Scorer that checks for required keys in output."""
 
+    EXPECTED_KEYS = ("required_output_keys",)
+
     def __init__(
         self,
         required_keys: list[str] | None = None,
@@ -203,6 +208,7 @@ class OutputStructureScorer(BaseScorer):
                 score=1.0,
                 message="No required output keys specified",
                 details={"skipped": True},
+                skipped=True,
             )
 
         # Handle string outputs - cannot check keys

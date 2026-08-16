@@ -137,11 +137,16 @@ describe("eval BFF routes: implemented routes serve real data, the rest never fa
         // category=documentation, which the smoke suite filters to).
         expect(smoke.task_count).toBe(3);
         expect(regression.task_count).toBe(20);
-        // Real scorer names straight from the YAML.
+        // Real scorer names straight from the YAML. `schema_valid` was removed
+        // from both suites: no task in the dataset declares an `output_schema`,
+        // so the scorer skipped on every task of every run while still
+        // contributing a full score. See docs/eval-health.md.
         expect(smoke.scorer_names).toEqual([
-            "schema_valid",
             "no_policy_violations",
+            "expected_output_match",
         ]);
         expect(regression.scorer_names).toContain("expected_output_match");
+        expect(smoke.scorer_names).not.toContain("schema_valid");
+        expect(regression.scorer_names).not.toContain("schema_valid");
     });
 });

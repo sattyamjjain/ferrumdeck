@@ -2,7 +2,7 @@
 
 import os
 import time
-from typing import Generator
+from collections.abc import Generator
 
 import httpx
 import pytest
@@ -11,17 +11,36 @@ import pytest
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8080")
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:3000")
 
-# API keys for different tenants
+# The seeded dev key (db/migrations/20241223000002_seed_dev_data.sql), used for
+# single-tenant flows. `gateway_client` previously used TENANT_A_KEY, whose
+# default is not seeded, so every authenticated request 401'd — the same class
+# of silent no-op already fixed in tests/security/conftest.py.
+GATEWAY_API_KEY = os.getenv("FD_API_KEY", "fd_dev_key_abc123")
+
+# Agent seeded by the dev migration, with a known allowlist
+# (git_read / git_write / test_run / github_create_pr).
+SEED_AGENT_ID = os.getenv("FD_SEED_AGENT_ID", "agt_01JFVX0000000000000000001")
+
+# API keys for the multi-tenant isolation tests. These genuinely need two
+# separately-seeded tenants; they stay unseeded by default and those tests
+# should skip rather than pretend.
 TENANT_A_KEY = os.getenv("TENANT_A_API_KEY", "fd_tenant_a_test_key")
 TENANT_B_KEY = os.getenv("TENANT_B_API_KEY", "fd_tenant_b_test_key")
 
 
 def wait_for_service(url: str, timeout: int = 30) -> bool:
-    """Wait for a service to become available."""
+    """Wait for the gateway to become available.
+
+    The probe hit ``/health/live``, which the gateway does not serve — its
+    health routes are ``/health`` and ``/ready``. The probe never succeeded, so
+    ``ensure_services_running`` skipped the whole E2E suite unconditionally,
+    even against a healthy stack. Same bug as ``tests/chaos/conftest.py``;
+    already fixed in ``tests/security/conftest.py`` and never propagated.
+    """
     start = time.time()
     while time.time() - start < timeout:
         try:
-            resp = httpx.get(f"{url}/health/live", timeout=2.0)
+            resp = httpx.get(f"{url}/health", timeout=2.0)
             if resp.status_code == 200:
                 return True
         except Exception:
@@ -34,18 +53,16 @@ def wait_for_service(url: str, timeout: int = 30) -> bool:
 def ensure_services_running():
     """Ensure required services are running before E2E tests."""
     if not wait_for_service(GATEWAY_URL, timeout=5):
-        pytest.skip(
-            "Gateway service not running. Start with: make quickstart"
-        )
+        pytest.skip("Gateway service not running. Start with: make quickstart")
 
 
 @pytest.fixture(scope="session")
 def gateway_client() -> Generator[httpx.Client, None, None]:
-    """Create HTTP client for gateway API."""
+    """Create HTTP client for gateway API, authenticated with the seeded key."""
     with httpx.Client(
         base_url=GATEWAY_URL,
         headers={
-            "Authorization": f"Bearer {TENANT_A_KEY}",
+            "Authorization": f"Bearer {GATEWAY_API_KEY}",
             "Content-Type": "application/json",
         },
         timeout=60.0,  # Longer timeout for E2E

@@ -1,8 +1,12 @@
 //! Eval-read endpoints (issue #7).
 //!
 //! Serves the on-disk eval **reports** the fd-evals framework writes to
-//! `evals/reports/<suite>-<YYYYMMDD>.json`, so the dashboard's eval-run and
-//! regression views can read real results instead of a BFF stub.
+//! `evals/reports/`, so the dashboard's eval-run and regression views can read
+//! real results instead of a BFF stub. Two naming families live there and both
+//! are served: `<suite>-<YYYYMMDD>.json` for the offline benchmarks, and
+//! `eval_<suite>_<YYYYMMDD>_<HHMMSS>.json` for the LLM-backed suites. Only the
+//! first was handled until 2026-08-16, so every safe-PR smoke and regression
+//! report was dropped before it reached the dashboard — see [`parse_stem`].
 //!
 //! ## Deployment caveat — why #7 stays disclosed
 //!
@@ -65,6 +69,81 @@ pub struct EvalRunSummary {
     pub anchor: Option<String>,
     pub total_cases: Option<u64>,
     pub primary_metric: Option<PrimaryMetric>,
+    /// Fraction of the run's scorer results that asserted something, when the
+    /// report records it. `None` for reports predating the field and for the
+    /// offline benchmarks, which have no scorer layer — never defaulted to 1.0.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assertion_coverage: Option<f64>,
+    /// Run-level task/cost/duration metrics, present only for the LLM-backed
+    /// suites whose reports record them. Every field is `Option` and omitted
+    /// when absent: the dashboard renders "unknown" rather than a zero, because
+    /// a fabricated `0 failed tasks` is the same class of error as an empty
+    /// `200 { runs: [] }` reading as "no runs exist".
+    #[serde(flatten)]
+    pub metrics: RunMetrics,
+}
+
+/// Task, cost and timing figures read verbatim from an `EvalRunSummary` report.
+/// Nothing here is derived except `total_tokens` (input + output) and
+/// `gate_status`, both of which are documented at their construction site.
+#[derive(Serialize, Debug, PartialEq, Default)]
+pub struct RunMetrics {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_tasks: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub passed_tasks: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_tasks: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_tasks: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_cost_cents: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+    /// `passed` when the report records zero failed tasks, `failed` otherwise.
+    /// This is the same rule `scripts/gen_eval_health.py` applies, kept
+    /// identical on purpose so the dashboard and the eval-health page cannot
+    /// disagree about whether a given run passed. `None` when the report
+    /// carries no task counts at all (the offline benchmarks).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gate_status: Option<String>,
+}
+
+fn run_metrics(v: &Value) -> RunMetrics {
+    let u64_at = |k: &str| v.get(k).and_then(Value::as_u64);
+    let str_at = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+
+    let failed = u64_at("failed_tasks");
+    let input = u64_at("total_input_tokens");
+    let output = u64_at("total_output_tokens");
+
+    RunMetrics {
+        total_tasks: u64_at("total_tasks"),
+        passed_tasks: u64_at("passed_tasks"),
+        failed_tasks: failed,
+        error_tasks: v.get("results").and_then(Value::as_array).map(|rs| {
+            rs.iter()
+                .filter(|r| !matches!(r.get("error"), None | Some(Value::Null)))
+                .count() as u64
+        }),
+        total_cost_cents: v.get("total_cost_cents").and_then(Value::as_f64),
+        // Derived: the reports split the two directions, the dashboard shows
+        // one figure. Absent unless at least one side is recorded.
+        total_tokens: match (input, output) {
+            (None, None) => None,
+            (a, b) => Some(a.unwrap_or(0) + b.unwrap_or(0)),
+        },
+        total_duration_ms: u64_at("total_execution_time_ms"),
+        started_at: str_at("started_at"),
+        completed_at: str_at("completed_at"),
+        gate_status: failed.map(|f| if f == 0 { "passed" } else { "failed" }.to_string()),
+    }
 }
 
 /// The suite's headline rate, normalized to a fraction in `[0, 1]`.
@@ -82,24 +161,53 @@ enum EvalReadError {
     Io(String),
 }
 
-/// Parse `<suite>-<YYYYMMDD>` from a report file stem. Suite names may contain
-/// hyphens (`governed-benchmark`); the date is the final hyphen-delimited field.
+fn iso_date(raw: &str) -> Option<String> {
+    if raw.len() == 8 && raw.bytes().all(|b| b.is_ascii_digit()) {
+        Some(format!("{}-{}-{}", &raw[0..4], &raw[4..6], &raw[6..8]))
+    } else {
+        None
+    }
+}
+
+/// Parse a report file stem into `(suite, date)`.
+///
+/// Two naming families live in `evals/reports/`:
+///
+/// * `<suite>-<YYYYMMDD>` — the offline benchmarks (`asb-20260810`,
+///   `governed-benchmark-20260810`). Suite names may contain hyphens, so the
+///   date is the final hyphen-delimited field.
+/// * `eval_<suite>_<YYYYMMDD>_<HHMMSS>` — the LLM-backed suites written by
+///   `fd_evals run` (`eval_regression_20260816_034522`).
+///
+/// Only the first was handled. The second contains no `-`, so `rsplit_once('-')`
+/// returned `None` and **every safe-PR smoke and regression report was dropped**
+/// before it reached the dashboard — silently, because `load_eval_runs` skips
+/// unparseable files rather than failing. The eval-run view therefore showed the
+/// offline benchmarks only, and showed nothing at all for the two suites
+/// `docs/eval-health.md` is actually about. That is the concrete sense in which
+/// the eval-health data path was not yet trustworthy (issue #7).
 fn parse_stem(stem: &str) -> Option<(String, Option<String>)> {
+    // `eval_<suite>_<YYYYMMDD>_<HHMMSS>` — suite names here have no underscores
+    // (`smoke`, `regression`), and the trailing two fields are the timestamp.
+    if let Some(rest) = stem.strip_prefix("eval_") {
+        let parts: Vec<&str> = rest.rsplitn(3, '_').collect();
+        if let [time_raw, date_raw, suite] = parts.as_slice() {
+            if !suite.is_empty()
+                && time_raw.len() == 6
+                && time_raw.bytes().all(|b| b.is_ascii_digit())
+            {
+                if let Some(date) = iso_date(date_raw) {
+                    return Some((suite.to_string(), Some(date)));
+                }
+            }
+        }
+    }
+
     let (suite, date_raw) = stem.rsplit_once('-')?;
     if suite.is_empty() {
         return None;
     }
-    let date = if date_raw.len() == 8 && date_raw.bytes().all(|b| b.is_ascii_digit()) {
-        Some(format!(
-            "{}-{}-{}",
-            &date_raw[0..4],
-            &date_raw[4..6],
-            &date_raw[6..8]
-        ))
-    } else {
-        None
-    };
-    Some((suite.to_string(), date))
+    Some((suite.to_string(), iso_date(date_raw)))
 }
 
 /// Extract the headline rate across the per-suite schemas, as a fraction in
@@ -123,13 +231,35 @@ fn primary_metric(v: &Value) -> Option<PrimaryMetric> {
             rate: pct / 100.0,
         });
     }
+    // LLM-backed suites (`EvalRunSummary` from `fd_evals run`): the headline
+    // number is the average task score, already a fraction in [0, 1].
+    if let Some(score) = v.get("average_score").and_then(Value::as_f64) {
+        return Some(PrimaryMetric {
+            name: "average_score".to_string(),
+            rate: score,
+        });
+    }
     None
+}
+
+/// Share of the run's scorer results that actually asserted something.
+///
+/// Read straight from the report; never derived or defaulted. A missing field
+/// stays `None` so the dashboard renders "unknown" rather than implying full
+/// coverage — reports written before `assertion_coverage` existed genuinely do
+/// not carry it, and inventing 1.0 for them would restate the exact error this
+/// field was added to expose: a suite reporting a perfect score while half its
+/// scorers asserted nothing (see `docs/eval-health.md`).
+fn assertion_coverage(v: &Value) -> Option<f64> {
+    v.get("assertion_coverage").and_then(Value::as_f64)
 }
 
 fn total_cases(v: &Value) -> Option<u64> {
     v.get("total_cases")
         .and_then(Value::as_u64)
         .or_else(|| v.get("unsafe_total").and_then(Value::as_u64))
+        // LLM-backed suites count tasks, not cases.
+        .or_else(|| v.get("total_tasks").and_then(Value::as_u64))
 }
 
 /// Read + project every `*.json` report in `dir`, newest date first. A malformed
@@ -163,10 +293,16 @@ fn load_eval_runs(dir: &Path) -> Result<Vec<EvalRunSummary>, EvalReadError> {
             anchor: v.get("anchor").and_then(Value::as_str).map(str::to_string),
             total_cases: total_cases(&v),
             primary_metric: primary_metric(&v),
+            assertion_coverage: assertion_coverage(&v),
+            metrics: run_metrics(&v),
         });
     }
     // Newest first: `YYYY-MM-DD` sorts lexically; undated (`None`) sorts last.
-    runs.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| a.run_id.cmp(&b.run_id)));
+    // Ties break on `run_id` **descending**, because the LLM suites can write
+    // several reports in one day and carry `_HHMMSS` in the stem — ascending
+    // would have put the earliest run of the day first and made
+    // `build_regression_report` compare the wrong pair.
+    runs.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| b.run_id.cmp(&a.run_id)));
     Ok(runs)
 }
 
@@ -355,6 +491,140 @@ mod tests {
     }
 
     #[test]
+    fn parse_stem_handles_the_llm_suite_naming_family() {
+        // These were dropped entirely: the stem has no `-`, so the old
+        // `rsplit_once('-')` returned None and every safe-PR smoke/regression
+        // report was skipped before reaching the dashboard.
+        assert_eq!(
+            parse_stem("eval_regression_20260816_034522"),
+            Some(("regression".to_string(), Some("2026-08-16".to_string())))
+        );
+        assert_eq!(
+            parse_stem("eval_smoke_20260816_030324"),
+            Some(("smoke".to_string(), Some("2026-08-16".to_string())))
+        );
+        // Not the timestamped family — falls through to the hyphen rule.
+        assert_eq!(parse_stem("eval_something"), None);
+    }
+
+    #[test]
+    fn llm_suite_reports_are_served_not_silently_dropped() {
+        let dir = unique_tmp();
+        std::fs::write(
+            dir.join("eval_regression_20260816_034522.json"),
+            r#"{"dataset_name":"safe-pr-agent","total_tasks":20,"passed_tasks":20,
+                "failed_tasks":0,"average_score":1.0,"assertion_coverage":0.5}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("eval_smoke_20260816_030324.json"),
+            r#"{"dataset_name":"safe-pr-agent","total_tasks":3,"passed_tasks":3,
+                "failed_tasks":0,"average_score":1.0,"assertion_coverage":0.5}"#,
+        )
+        .unwrap();
+
+        let runs = load_eval_runs(&dir).unwrap();
+        assert_eq!(runs.len(), 2, "both LLM-suite reports must be served");
+
+        let regression = runs.iter().find(|r| r.suite == "regression").unwrap();
+        assert_eq!(regression.total_cases, Some(20));
+        assert_eq!(
+            regression.primary_metric.as_ref().unwrap().name,
+            "average_score"
+        );
+        assert_eq!(regression.primary_metric.as_ref().unwrap().rate, 1.0);
+        assert_eq!(
+            regression.assertion_coverage,
+            Some(0.5),
+            "coverage must reach the dashboard alongside the score; a 1.00 at 50% \
+             coverage is an average over half a suite"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn run_metrics_are_read_verbatim_and_absent_when_unrecorded() {
+        let report = json!({
+            "total_tasks": 20, "passed_tasks": 18, "failed_tasks": 2,
+            "total_cost_cents": 0.5, "total_input_tokens": 11004,
+            "total_output_tokens": 9152, "total_execution_time_ms": 153179,
+            "started_at": "2026-08-16T03:45:22Z", "completed_at": "2026-08-16T03:47:56Z",
+            "results": [{"error": null}, {"error": "boom"}]
+        });
+        let m = run_metrics(&report);
+        assert_eq!(m.total_tasks, Some(20));
+        assert_eq!(m.failed_tasks, Some(2));
+        assert_eq!(
+            m.error_tasks,
+            Some(1),
+            "only the result with an error counts"
+        );
+        assert_eq!(m.total_tokens, Some(11004 + 9152));
+        assert_eq!(m.total_duration_ms, Some(153179));
+        assert_eq!(
+            m.gate_status.as_deref(),
+            Some("failed"),
+            "two failed tasks must not read as a passing gate"
+        );
+
+        // The offline benchmarks record none of this. Everything must stay
+        // absent rather than becoming a confident zero.
+        let benchmark = json!({"block_rate_under_attack": {"rate": 1.0}});
+        assert_eq!(run_metrics(&benchmark), RunMetrics::default());
+        assert_eq!(run_metrics(&benchmark).gate_status, None);
+        assert_eq!(run_metrics(&benchmark).failed_tasks, None);
+    }
+
+    #[test]
+    fn gate_status_matches_the_eval_health_rule() {
+        // gen_eval_health.py calls a run passed when failed_tasks == 0. The two
+        // must not be able to disagree about the same report.
+        assert_eq!(
+            run_metrics(&json!({"failed_tasks": 0}))
+                .gate_status
+                .as_deref(),
+            Some("passed")
+        );
+        assert_eq!(
+            run_metrics(&json!({"failed_tasks": 1}))
+                .gate_status
+                .as_deref(),
+            Some("failed")
+        );
+    }
+
+    #[test]
+    fn assertion_coverage_is_never_defaulted_when_absent() {
+        // Reports predating the field genuinely do not carry it. Filling in 1.0
+        // would assert full coverage for exactly the runs that did not have it.
+        assert_eq!(assertion_coverage(&json!({"average_score": 1.0})), None);
+        assert_eq!(
+            assertion_coverage(&json!({"assertion_coverage": 0.5})),
+            Some(0.5)
+        );
+    }
+
+    #[test]
+    fn same_day_llm_runs_order_newest_first() {
+        let dir = unique_tmp();
+        for (stamp, score) in [("030324", 0.4), ("174522", 0.9)] {
+            std::fs::write(
+                dir.join(format!("eval_smoke_20260816_{stamp}.json")),
+                format!(r#"{{"total_tasks":3,"average_score":{score}}}"#),
+            )
+            .unwrap();
+        }
+        let runs = load_eval_runs(&dir).unwrap();
+        assert_eq!(
+            runs[0].run_id, "eval_smoke_20260816_174522",
+            "two runs on one day must order by time, or the regression report \
+             compares the wrong pair"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn primary_metric_reads_each_suite_schema() {
         let asb = json!({"block_rate_under_attack": {"rate": 0.92}});
         assert_eq!(
@@ -441,6 +711,21 @@ mod tests {
             .expect("asb run has a block-rate primary metric");
         assert_eq!(m.name, "block_rate_under_attack");
         assert!((0.0..=1.0).contains(&m.rate));
+
+        // The suites `docs/eval-health.md` is about must reach the endpoint too.
+        // They were dropped by the stem parser, so this assertion is what stops
+        // the dashboard from silently showing only the offline benchmarks again.
+        for suite in ["smoke", "regression"] {
+            let run = runs
+                .iter()
+                .find(|r| r.suite == suite)
+                .unwrap_or_else(|| panic!("a committed {suite} run record must be served"));
+            assert_eq!(
+                run.primary_metric.as_ref().map(|m| m.name.as_str()),
+                Some("average_score"),
+                "{suite} must expose its headline score to the dashboard"
+            );
+        }
     }
 
     #[test]
@@ -448,6 +733,8 @@ mod tests {
         // asb dropped 0.95 -> 0.90 (regression); injection has one run (insufficient).
         let runs = vec![
             EvalRunSummary {
+                metrics: RunMetrics::default(),
+                assertion_coverage: None,
                 run_id: "asb-20260808".into(),
                 suite: "asb".into(),
                 date: Some("2026-08-08".into()),
@@ -459,6 +746,8 @@ mod tests {
                 }),
             },
             EvalRunSummary {
+                metrics: RunMetrics::default(),
+                assertion_coverage: None,
                 run_id: "asb-20260801".into(),
                 suite: "asb".into(),
                 date: Some("2026-08-01".into()),
@@ -470,6 +759,8 @@ mod tests {
                 }),
             },
             EvalRunSummary {
+                metrics: RunMetrics::default(),
+                assertion_coverage: None,
                 run_id: "injection_defense-20260808".into(),
                 suite: "injection_defense".into(),
                 date: Some("2026-08-08".into()),
@@ -501,6 +792,8 @@ mod tests {
         // still "compared", so 0 regressions is distinguishable from no history.
         let runs = vec![
             EvalRunSummary {
+                metrics: RunMetrics::default(),
+                assertion_coverage: None,
                 run_id: "asb-20260808".into(),
                 suite: "asb".into(),
                 date: Some("2026-08-08".into()),
@@ -512,6 +805,8 @@ mod tests {
                 }),
             },
             EvalRunSummary {
+                metrics: RunMetrics::default(),
+                assertion_coverage: None,
                 run_id: "asb-20260801".into(),
                 suite: "asb".into(),
                 date: Some("2026-08-01".into()),

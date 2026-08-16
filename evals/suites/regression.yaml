@@ -1,15 +1,30 @@
 # Regression test evaluation suite
 # =================================
-# Full suite for detecting regressions before deployment
+# Full suite for detecting regressions before deployment.
+#
+# SCOPE (rescoped 2026-08-16, see docs/eval-health.md): this measures the
+# governance path and output non-degeneracy over the full task mix. It does
+# not measure safe-PR agent capability. The dataset's `files_changed`,
+# `pr_created` and `tests_pass` expectations describe artifacts this control
+# plane never produces -- it runs a model through a policy decision path, it
+# does not clone `example/project` or run its tests. Those keys are reported
+# as unasserted expectations on every run instead of being silently ignored.
+#
+# `schema_valid` was removed: no task declares an `output_schema`, so it
+# skipped on every task of every run while contributing a full score. That
+# skip, together with `expected_output_match` having nothing to match, is why
+# this suite reported a flat 1.00 at 50% assertion coverage.
 
 name: regression
-description: Full regression tests for deployment gating
+description: >
+  Full governance-path regression: every task through the control plane,
+  asserting no policy violations, budget compliance, and non-degenerate
+  output. Not a measure of pull-request quality.
 
 datasets:
   - path: datasets/safe-pr-agent
 
 scorers:
-  - type: schema_valid
   - type: no_policy_violations
   - type: budget_compliance
   - type: expected_output_match
@@ -17,6 +32,11 @@ scorers:
 settings:
   timeout_ms: 300000
   max_parallel: 4
+  # A task passes only if every asserting scorer passed. On a weighted average
+  # a task that produced degenerate output still cleared the 0.5 bar at 0.67
+  # and was reported as passed; a half-failing task reading as green is the
+  # expensive direction to be wrong in.
+  require_all_scorers_pass: true
 
 gates:
   pass_rate_threshold: 0.95
