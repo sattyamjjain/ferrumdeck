@@ -1,7 +1,7 @@
 # FerrumDeck - Development Makefile
 # ================================
 
-.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image eval-health eval-health-check
+.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image eval-health eval-health-check check-suite-reachability reproduce-readme-figures
 
 # Default target
 help:
@@ -298,6 +298,10 @@ eval-health-check:
 	@echo "Checking docs/eval-health.md is up to date..."
 	uv run python scripts/gen_eval_health.py --check
 
+check-suite-reachability:
+	@echo "Checking every declared eval suite is reachable from a workflow trigger..."
+	uv run python scripts/check_suite_reachability.py
+
 eval-injection-defense:
 	@echo "Running injection-defense benchmark (deterministic, offline, no LLM)..."
 	uv run python -m fd_evals injection-defense --suite injection_defense
@@ -321,6 +325,14 @@ bench-governed:
 reproduce-spend-gate:
 	@echo "Reproducing the AP2 + x402 spend-gate figures from a clean clone..."
 	./scripts/reproduce-spend-gate.sh
+
+reproduce-readme-figures:
+	@echo "Re-verifying every numbered claim in README.md (latency + rates + spend)..."
+	./scripts/reproduce-readme-figures.sh
+
+reproduce-readme-figures-fast:
+	@echo "Re-verifying the README rate + spend figures (skips the ~2min latency bench)..."
+	./scripts/reproduce-readme-figures.sh --skip-latency
 
 demo-x402:
 	@echo "Running x402 spend-gate demo (simulate + gate + record; no real money, self-verifying)..."
@@ -352,7 +364,7 @@ clean-docker:
 # CI Helpers
 # =============================================================================
 
-ci-check: check-claims check-changelog-issues eval-health-check
+ci-check: check-claims check-changelog-issues eval-health-check check-suite-reachability
 	@echo "Running CI checks..."
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings

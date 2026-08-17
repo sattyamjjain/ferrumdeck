@@ -10,9 +10,24 @@ its own row, rather than being omitted or rendered as a neutral blank. The
 safe-PR smoke suite spent forty consecutive nightly runs at 0% while the README
 claimed eval gating; the point of this page is that such a gap is visible.
 
+There are two different gaps, and they are not treated the same way.
+
+**Never passed** means the eval runs and the run does not pass. That is a
+result, and it belongs on the page: a row saying so is exactly the evidence
+this file exists to publish.
+
+**Never run** means no committed report exists at all -- the eval is declared
+and nothing has ever executed it. That is not a result, it is an absence of
+one, and rendering it as a row was the mistake. `regression` sat at NEVER RUN
+for months while the project claimed eval gating, and the page faithfully
+reported it the whole time without anything failing. A page that renders the
+problem is documentation; a failing build is a gate. So a declared eval with
+zero committed reports now exits non-zero instead of earning a row.
+
 Usage:
     python scripts/gen_eval_health.py [--reports evals/reports] [--out docs/eval-health.md]
     python scripts/gen_eval_health.py --check    # exit 1 if the file is stale
+    python scripts/gen_eval_health.py --allow-never-run   # bootstrap a new eval
 """
 
 from __future__ import annotations
@@ -40,6 +55,26 @@ EXPECTED_EVALS: dict[str, str] = {
 
 DATE_RE = re.compile(r"(20\d{6})")
 TS_RE = re.compile(r"(20\d{6})_(\d{6})")
+SUITE_NAME_RE = re.compile(r"^name:\s*[\"']?([A-Za-z0-9_-]+)[\"']?\s*$", re.M)
+
+
+def declared_suite_names(suites_dir: Path) -> dict[str, Path]:
+    """Suite name -> defining file, for every suite file on disk.
+
+    EXPECTED_EVALS above is hand-maintained, so a suite added without touching
+    this script would be invisible to it -- which is the same "declared but
+    nothing notices" failure the never-run gate exists to catch, one level up.
+    Reading the directory closes that: a new suite file is picked up whether or
+    not anyone remembered to list it here.
+    """
+    if not suites_dir.is_dir():
+        return {}
+    found: dict[str, Path] = {}
+    for path in sorted(suites_dir.rglob("*.yaml")):
+        m = SUITE_NAME_RE.search(path.read_text())
+        name = m.group(1) if m else (path.parent.name if path.stem == "suite" else path.stem)
+        found[name] = path
+    return found
 
 
 @dataclass
@@ -476,6 +511,16 @@ def main() -> int:
         action="store_true",
         help="Exit 1 if the generated page differs from the committed one.",
     )
+    ap.add_argument("--suites", type=Path, default=Path("evals/suites"))
+    ap.add_argument(
+        "--allow-never-run",
+        action="store_true",
+        help=(
+            "Permit declared evals with zero committed reports. For bootstrapping "
+            "a brand-new eval only: commit its first report and drop this flag. "
+            "Not used by any make target or workflow."
+        ),
+    )
     args = ap.parse_args()
 
     if not args.reports.is_dir():
@@ -483,6 +528,32 @@ def main() -> int:
         return 1
 
     health = collect(args.reports)
+
+    # A declared eval with zero committed reports is an absence of evidence, not
+    # a result, so it fails rather than earning a row. Suites on disk are folded
+    # in so a new suite file is covered without editing EXPECTED_EVALS.
+    for name, path in declared_suite_names(args.suites).items():
+        health.setdefault(name, EvalHealth(name=name, description=f"declared in {path}"))
+
+    never_run = sorted(name for name, bucket in health.items() if not bucket.runs)
+    if never_run and not args.allow_never_run:
+        print(
+            f"NEVER RUN: {', '.join(never_run)} — declared, but no committed report "
+            f"in {args.reports}.",
+            file=sys.stderr,
+        )
+        print(
+            "\nThis is the gate, not a page defect. An eval nothing has ever run "
+            "cannot back an eval-gating claim, and reporting it as a NEVER RUN row "
+            "is how `regression` stayed unscheduled for months while the page "
+            "faithfully said so and nothing failed.\n"
+            "Fix by running the eval and committing its report under "
+            f"{args.reports}, or by deleting the declaration if the eval is gone. "
+            "`--allow-never-run` exists for bootstrapping a new eval and is "
+            "deliberately not wired into any make target or workflow.",
+            file=sys.stderr,
+        )
+        return 1
     # A fixed timestamp line would churn the file on every run; --check
     # compares everything above it.
     rendered = render(health, datetime.now(tz=UTC))

@@ -185,6 +185,92 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages
 
+      - name: Assert the unit-test collection did not shrink
+        run: |
+          # A guard that is not collected is not a guard, and nothing said so.
+          # tests/*.py matched no CI path for months: 18 regression guards passed
+          # locally and were skipped here while "Python Tests" went green. The fix
+          # was to add the glob; this is the gate that makes the next instance
+          # fail instead of going quiet.
+          #
+          # Two assertions, because they catch different mistakes:
+          #   - every root must yield at least one test, which catches a path
+          #     being renamed, moved, or dropped from the list outright;
+          #   - the total must clear a floor, which catches a root that still
+          #     resolves but stops matching most of what it used to.
+          #
+          # FLOOR is deliberately below the current count. It is a cliff detector,
+          # not a ratchet: the failure being guarded removes tens of tests at once,
+          # so a floor that tracked the exact count would only generate churn.
+          # Note: no `set -e`. A grep that matches nothing exits non-zero, which
+          # under -e kills this step before it can report which root was empty --
+          # a gate that dies silently being precisely the thing being fixed.
+          set -uo pipefail
+          FLOOR=520
+
+          # pytest pads its summary with '=' ("==== 114 tests collected ===="),
+          # so match the phrase anywhere on the line rather than anchoring to
+          # the start. grep -oE is portable across BSD and GNU.
+          count() {
+            uv run pytest "$@" --collect-only -q 2>/dev/null \
+              | grep -oE '[0-9]+ tests? collected' | tail -1 \
+              | grep -oE '^[0-9]+' || echo 0
+          }
+
+          total=0
+          rc=0
+          check() {  # check <label> <count>
+            printf '  %5s  %s\n' "$2" "$1"
+            if [ "$2" -eq 0 ]; then
+              echo "::error::Collection root '$1' yielded 0 tests. It was renamed, moved, or no longer matches anything -- and the suite would still have gone green." >&2
+              rc=1
+            fi
+          }
+
+          for root in python/packages/fd-runtime/tests \
+                      python/packages/fd-mcp-router/tests \
+                      python/packages/fd-worker/tests \
+                      python/packages/fd-evals/tests; do
+            n=$(count "$root")
+            check "$root" "$n"
+            total=$((total + n))
+          done
+
+          # The root-level glob is counted as ONE group, exactly as the test step
+          # below passes it. Iterating its expansion instead would trip over
+          # tests/__init__.py, which correctly contains no tests.
+          n=$(count tests/*.py)
+          check 'tests/*.py' "$n"
+          total=$((total + n))
+
+          echo "collected $total tests across all roots (floor $FLOOR)"
+          if [ "$total" -lt "$FLOOR" ]; then
+            echo "::error::Collected $total tests, below the floor of $FLOOR. A collection path has stopped matching. Investigate before lowering this number." >&2
+            rc=1
+          fi
+          exit $rc
+
+      - name: Assert every declared eval suite is reachable from a workflow
+        run: |
+          # Third instance of the same class: `regression` was declared in
+          # evals/suites/ for months while the nightly cron only ever ran
+          # `smoke`, so it never executed and docs/eval-health.md reported
+          # NEVER RUN while the project claimed eval gating. Adding a second
+          # cron fixed the instance; this fails the build on the next one.
+          #
+          # In this job rather than a lint job, and a prerequisite of `ci-check`,
+          # following the eval-health-check precedent -- a gate someone can skip
+          # is a lint.
+          uv run python scripts/check_suite_reachability.py
+
+      - name: Assert no declared eval has zero committed reports
+        run: |
+          # The other half of "declared but never executed": a suite that is
+          # reachable but whose first run has never been committed. That used to
+          # render as a NEVER RUN row, which is documentation of a problem rather
+          # than a gate on it. gen_eval_health.py now exits non-zero instead.
+          uv run python scripts/gen_eval_health.py --check
+
       - name: Run unit tests
         env:
           DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
@@ -197,6 +283,8 @@ jobs:
           # each named explicitly -- so those regression guards passed locally and
           # were silently skipped here. Listed by glob so a new root test file is
           # picked up automatically rather than needing this line edited again.
+          #
+          # The step above asserts this exact set of roots still collects.
           uv run pytest python/packages/fd-runtime/tests \
                         python/packages/fd-mcp-router/tests \
                         python/packages/fd-worker/tests \

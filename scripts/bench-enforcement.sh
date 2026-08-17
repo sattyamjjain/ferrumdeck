@@ -12,10 +12,22 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "${REPO_ROOT}/rust"
+cd "${REPO_ROOT}"
 
 echo "==> Running enforcement decision-path benchmark (criterion, save-baseline 'current')..."
-cargo bench -p fd-policy --bench enforcement_latency -- --save-baseline current
+# The crate's package name is `ferrumdeck-policy`; only its lib target is
+# `fd_policy`. This said `-p fd-policy`, which stopped matching when the crate
+# was renamed for crates.io, so the command README points at for reproducing the
+# latency table failed with "package ID specification did not match any
+# packages" -- exit 101, every time, for anyone who tried.
+cargo bench -p ferrumdeck-policy --bench enforcement_latency -- --save-baseline current
+
+# A benchmark that runs but writes nothing leaves the figures unverifiable while
+# looking like it worked, so check the samples landed before claiming success.
+if [ ! -d "${REPO_ROOT}/target/criterion" ]; then
+  echo "FAIL: no criterion output under target/criterion after a successful run." >&2
+  exit 1
+fi
 
 REPORT="${REPO_ROOT}/target/criterion/report/index.html"
 echo ""

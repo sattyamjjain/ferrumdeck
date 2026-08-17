@@ -432,3 +432,98 @@ jobs:
               print("❌ MVP CRITERIA NOT MET: <95% average consistency")
               exit(1)
           EOF
+
+  # ---------------------------------------------------------------------------
+  # Every numbered claim in README.md, re-measured and compared.
+  #
+  # `make reproduce-spend-gate` already re-verified the two spend figures and
+  # exited non-zero on drift. Nothing re-verified the latency table or the
+  # attack/benign rates, so those were hand-typed numbers that could go stale
+  # without anything noticing -- and `make bench-enforcement`, the command the
+  # README names for reproducing them, had been exiting 101 since the policy
+  # crate was renamed.
+  #
+  # Nightly rather than per-PR: the criterion sweep is six cases at 100 samples
+  # after a 3s warm-up, which is more wall-clock than a PR gate should spend.
+  # Fully offline though -- no Postgres, no Redis, no model credentials -- so it
+  # needs none of the service setup the eval job above does.
+  # ---------------------------------------------------------------------------
+  readme-figures:
+    name: Re-verify published figures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-packages
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-bench-
+
+      - name: Reproduce every published figure
+        id: reproduce
+        run: |
+          set -o pipefail
+          make reproduce-readme-figures 2>&1 | tee figures.log
+
+      - name: Upload comparison log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: readme-figures-${{ github.run_number }}
+          path: figures.log
+          retention-days: 14
+
+      - name: Open/refresh tracking issue on drift
+        # Drift is a documentation defect, not a broken build, so it gets a
+        # tracking issue rather than only a red square someone has to go
+        # looking for. The job still fails: an alert nobody is paged by and a
+        # status nobody reads are the same silence in different clothes.
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Published README figures no longer reproduce"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          drift="$(grep -E '^\s*DRIFT' figures.log | head -20 || true)"
+          body="The nightly figure check found drift ($(date -u +%Y-%m-%dT%H:%MZ)). Run: ${run_url}
+
+          \`\`\`
+          ${drift:-See the readme-figures-${{ github.run_number }} artifact for the full comparison.}
+          \`\`\`
+
+          Latency rows are compared within a stated band on a stated machine, so a
+          drift row there means the figure moved well beyond run-to-run noise, not
+          that the runner was busy. Rate rows are exact: those benchmarks are
+          deterministic, seeded and offline, so any change is a behaviour change.
+
+          Either the change is a regression, or the figure moved legitimately — in
+          which case README.md, docs/benchmarks/enforcement-latency.md and the
+          tables at the top of scripts/check_readme_figures.py should be updated in
+          the same commit. Reproduce locally with \`make reproduce-readme-figures\`."
+          existing="$(gh issue list --state open --search "${title} in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body" && echo "Refreshed tracking issue #${existing}"
+          else
+            gh issue create --title "$title" --body "$body" \
+              && echo "Opened tracking issue" \
+              || echo "::warning::could not open tracking issue (check issues:write permission)"
+          fi

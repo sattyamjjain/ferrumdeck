@@ -15,7 +15,7 @@
 | R1–R3 reversibility ladder | **0.54 ns** | 0.63 ns |
 | EU AI Act Art. 50 transparency rule | **222 ns** | 257 ns |
 
-An LLM step costs hundreds of ms to seconds; ~1 µs of in-path governance is ~6 orders of magnitude smaller than the call it gates. Reproduce with `make bench-enforcement`; methodology + full table (incl. deny / RCE-blocked cases) in [`docs/benchmarks/enforcement-latency.md`](docs/benchmarks/enforcement-latency.md). This is the added decision cost, not end-to-end latency — no "fastest"/"first" claim.
+An LLM step costs hundreds of ms to seconds; ~1 µs of in-path governance is ~6 orders of magnitude smaller than the call it gates. Reproduce with `make bench-enforcement` (or `make reproduce-readme-figures` to also compare against the numbers above and fail on drift); methodology + full table (incl. deny / RCE-blocked cases) in [`docs/benchmarks/enforcement-latency.md`](docs/benchmarks/enforcement-latency.md). This is the added decision cost, not end-to-end latency — no "fastest"/"first" claim.
 
 **Governed vs ungoverned (reproducible) — measured on a recognized public workload.** The governance layer, run two ways (ungoverned = a record-only stack with no decision point; governed = the deny-by-default allowlist + Airlock RASP + spend gate deciding *before* execution), on citable, deterministic, offline workloads — every number regenerable and **pinned to the real Rust `fd_policy` engine** by a `cargo test`:
 
@@ -23,7 +23,9 @@ An LLM step costs hundreds of ms to seconds; ~1 µs of in-path governance is ~6 
 - **Spend-overrun** (fixed safe-PR trajectory, 4 injected unsafe actions): **4/4 blocked vs 0/4 ungoverned**, and the governed run costs **54% *less*** (85¢ vs 184¢) because stopping the RCE / exfil / denied-tool / runaway loop saves more than the ~1 µs/decision + audit overhead.
 - **Payment-governance** (an agent overspends an [AP2](https://github.com/google-agentic-commerce/AP2) mandate / [x402](https://x402.org) call): **3/3 unsafe mandates blocked**, **$150.95 → $0.40** — each blocked on a distinct control (bad Ed25519 signature, over-ceiling, out-of-scope merchant), every verdict **audit-logged** (`ferrumdeck.decision` span + W3C `traceparent`).
 
-**Check both spend figures yourself in one command:** `make reproduce-spend-gate` drives the AP2 gate + the x402 example + the governed benchmark from a clean clone, prints the before/after spend and the Wilson intervals, and exits non-zero if any number drifts from the documented $150.95 → $0.40 / 184¢ → 85.4¢.
+**Check every figure on this page yourself in one command:** `make reproduce-readme-figures` re-measures all of it from a clean clone — the latency table, the block/benign rates with their Wilson intervals, and the spend figures — and exits non-zero on drift. Deterministic and offline: no services, no API keys, no money moved. Rates are compared exactly, because those benchmarks are seeded and LLM-free; latencies are compared within a stated band against the stated machine (Apple M4, `--release`), because a nanosecond figure that fails on different silicon is a broken gate rather than a strict one. The nightly runs it and opens a tracking issue on drift. Add `--skip-latency` (or `make reproduce-readme-figures-fast`) to skip the ~2-minute criterion sweep.
+
+`make reproduce-spend-gate` remains the narrower check for just the two spend figures, driving the AP2 gate and the x402 example end to end.
 
 Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_BENCHMARK_RESULTS.md`](python/packages/fd-evals/GOVERNED_BENCHMARK_RESULTS.md). Each control mapped to the five risk categories in the **CISA/NSA (Five Eyes) _Careful Adoption of Agentic AI Services_ (May 2026)** guidance — and the transparency control tied to **EU AI Act Article 50, enforceable 2026-08-02** — in [`fd-evals/CONTROLS_CROSSWALK.md`](python/packages/fd-evals/CONTROLS_CROSSWALK.md). Reproduce: `make eval-injection-defense` · `make bench-governed`; method + numbers also in [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
 
@@ -48,7 +50,7 @@ Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_
 
 The enforcement engine is published — you can depend on it, not just clone it. One dependency via the umbrella crate:
 
-> **Current version: `v0.8.7`.** <!-- x-current-version: 0.8.7 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
+> **Current version: `v0.8.8`.** <!-- x-current-version: 0.8.8 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
 
 ```bash
 cargo add ferrumdeck
