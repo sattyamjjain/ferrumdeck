@@ -42,7 +42,15 @@ Suite YAML shape: `name`, `description`, `datasets` (path + optional `filter`), 
 - Never fabricate a run. Reports must come from an actual execution — the repo has explicit CI gates and past fixes
   against mock or synthesized eval output.
 - Datasets are versioned JSON with `tasks[]` carrying `id`, `input`, `expected`, `metadata`.
-- Scorers are referenced by `type` in suite YAML and registered in `fd_evals/scorers/__init__.py`.
+- Scorers are referenced by `type` in suite YAML and resolved through `SCORER_REGISTRY` in
+  `fd_evals/suite.py` (the classes are exported from `fd_evals/scorers/__init__.py`, but that is not the
+  lookup table). Registry keys are the public contract of a suite file — keep them stable. `build_scorer`
+  raises `SuiteError` on an unknown type; it never silently falls back to a default.
+- **Not every low score means the agent did badly.** The scorers in `UNOBSERVABLE_SCORERS`
+  (`files_changed`, `pr_created`, `tests_pass`, `lint_pass`) read run fields the control plane does not
+  surface. A suite selecting them is asserting on data the harness cannot observe, so the runner reports
+  that rather than scoring 0. Read `assertion_coverage` before quoting any number, and never point an
+  output scorer at a mock stand-in.
 - Paths inside suite YAML are relative to `evals/`.
 
 ```bash
