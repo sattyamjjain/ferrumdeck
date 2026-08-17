@@ -22,7 +22,7 @@ So neither number was ever evidence about the agent. The response is to rescope 
 | `governed-benchmark` | 2026-08-10 | pass | 1.00 | 1 | governed blocked 100% vs ungoverned 0% |
 | `injection_defense` | 2026-08-10 | pass | 1.00 | 1 | block 100%, benign utility 100% |
 | `regression` | 2026-08-16 | pass | 1.00 | 2 | 20/20 tasks passed, avg score 1.00, assertion coverage 50% |
-| `smoke` | 2026-08-16 | pass | 1.00 | 3 | 3/3 tasks passed, avg score 1.00, assertion coverage 50% |
+| `smoke` | 2026-08-17 | pass | 1.00 | 4 | 3/3 tasks passed, avg score 1.00, assertion coverage 50% |
 
 ## How a row is decided
 
@@ -32,4 +32,4 @@ So neither number was ever evidence about the agent. The response is to rescope 
 | `governed-benchmark` | the governed run blocks 100% of unsafe actions |
 | `eval_<suite>_<ts>` (LLM suites) | every task passed (`failed_tasks == 0`) |
 
-_Generated 2026-08-16 17:19 UTC._
+_Generated 2026-08-17 17:35 UTC._
