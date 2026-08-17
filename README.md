@@ -314,6 +314,9 @@ production-hardened. This is an honest map of what enforces **today** vs. what i
   An eval that has never passed is labelled **NEVER PASSED** in its own row.
   Read that page before trusting any eval-gating claim here — it is the
   evidence, and it opens by stating in prose what the safe-PR numbers mean.
+  [`docs/eval-verdicts.md`](docs/eval-verdicts.md) carries the companion
+  judgement: one row per eval saying whether its score is evidence about the
+  agent or about the harness, with the reproduction command.
   In short: **the safe-PR suites do not measure safe-PR agent quality.** Their
   dataset expects files changed, a PR opened and tests passing against
   `example/project`, which does not exist and which this control plane never

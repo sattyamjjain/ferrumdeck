@@ -2,6 +2,8 @@
 
 Generated from the report files in `evals/reports/` by `scripts/gen_eval_health.py`. Regenerated on every nightly `Evaluations` run; do not edit by hand.
 
+For whether a green row is *evidence about the agent* rather than the harness reporting on itself, see [`docs/eval-verdicts.md`](eval-verdicts.md), which carries one verdict per eval. This page answers *did it pass*; that one answers *does the pass mean anything*.
+
 FerrumDeck claims eval gating in CI. This page is the evidence for that claim. An eval that has never passed says so in its own row rather than being left out.
 
 ## What the safe-PR numbers mean
@@ -32,4 +34,4 @@ So neither number was ever evidence about the agent. The response is to rescope 
 | `governed-benchmark` | the governed run blocks 100% of unsafe actions |
 | `eval_<suite>_<ts>` (LLM suites) | every task passed (`failed_tasks == 0`) |
 
-_Generated 2026-08-17 17:35 UTC._
+_Generated 2026-08-17 17:41 UTC._

@@ -385,6 +385,14 @@ def render(health: dict[str, EvalHealth], generated_at: datetime) -> str:
     )
     add("")
     add(
+        "For whether a green row is *evidence about the agent* rather than the "
+        "harness reporting on itself, see "
+        "[`docs/eval-verdicts.md`](eval-verdicts.md), which carries one verdict "
+        "per eval. This page answers *did it pass*; that one answers *does the "
+        "pass mean anything*."
+    )
+    add("")
+    add(
         "FerrumDeck claims eval gating in CI. This page is the evidence for "
         "that claim. An eval that has never passed says so in its own row "
         "rather than being left out."
