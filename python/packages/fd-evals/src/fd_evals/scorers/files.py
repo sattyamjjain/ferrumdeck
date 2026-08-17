@@ -13,6 +13,8 @@ class FilesChangedScorer(BaseScorer):
     in the task's expected output.
     """
 
+    EXPECTED_KEYS = ("files_changed",)
+
     def __init__(self, strict: bool = False, weight: float = 1.0):
         """Initialize the scorer.
 
@@ -49,6 +51,7 @@ class FilesChangedScorer(BaseScorer):
                 score=1.0,
                 message="No specific files expected to change",
                 details={"skipped": True},
+                skipped=True,
             )
 
         # Check which expected files were actually changed
@@ -98,6 +101,8 @@ class FilesChangedScorer(BaseScorer):
 class FilesCreatedScorer(BaseScorer):
     """Scorer that checks if expected files were created."""
 
+    EXPECTED_KEYS = ("file_created", "files_created")
+
     def __init__(self, weight: float = 1.0):
         super().__init__(name="FilesCreatedScorer", weight=weight)
 
@@ -128,6 +133,7 @@ class FilesCreatedScorer(BaseScorer):
                 score=1.0,
                 message="No file creation expected",
                 details={"skipped": True},
+                skipped=True,
             )
 
         actual_created = set(run_context.get("files_created", []))

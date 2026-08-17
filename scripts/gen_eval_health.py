@@ -52,6 +52,75 @@ class RunRecord:
     score: float | None
     detail: str
     source: str
+    # Fraction of this run's scorer results that actually asserted something.
+    # None for the offline benchmarks, which have no scorer layer.
+    coverage: float | None = None
+    # Scorer names that skipped on every task of the run.
+    always_skipped: tuple[str, ...] = ()
+
+
+# Messages a scorer emits when it had nothing to assert. Reports written before
+# `ScorerResult.skipped` existed carry no flag, so the historical evidence this
+# page is generated from can only be read by message. New reports set the flag
+# and take the cheap path.
+_SKIP_MESSAGES = (
+    "no schema validation required",
+    "no output expectations declared",
+    "no required output keys specified",
+    "not required for this task",
+    "no files expected to change",
+    "no file creation expected",
+    "no pr expected",
+    "no test expectation",
+    "no coverage improvement expected",
+)
+
+
+def _is_skip(scorer_result: dict[str, Any]) -> bool:
+    if "skipped" in scorer_result:
+        return bool(scorer_result["skipped"])
+    message = str(scorer_result.get("message", "")).lower()
+    return any(marker in message for marker in _SKIP_MESSAGES)
+
+
+def _scorer_coverage(data: dict[str, Any]) -> tuple[float | None, tuple[str, ...]]:
+    """Return (assertion coverage, scorers that skipped on every task).
+
+    Coverage is the share of scorer results on the run that asserted anything.
+    A run scoring 1.00 at 0.50 coverage is an average over the half of its
+    scorers that ran; the other half returned a full score for having nothing
+    to check. Reporting the score without this is how the safe-PR suite read as
+    a clean pass while asserting nothing about whether the agent did the task.
+    """
+    if "assertion_coverage" in data:
+        stored = data.get("assertion_coverage")
+        coverage = float(stored) if isinstance(stored, int | float) else None
+    else:
+        coverage = None
+
+    results = data.get("results")
+    if not isinstance(results, list) or not results:
+        return coverage, ()
+
+    total = 0
+    asserted = 0
+    ran: set[str] = set()
+    seen: set[str] = set()
+    for result in results:
+        for scorer_result in (result or {}).get("scorer_results") or []:
+            name = str(scorer_result.get("scorer_name", "?"))
+            seen.add(name)
+            total += 1
+            if _is_skip(scorer_result):
+                continue
+            asserted += 1
+            ran.add(name)
+
+    if total == 0:
+        return coverage, ()
+    if coverage is None:
+        coverage = asserted / total
+    return coverage, tuple(sorted(seen - ran))
 
 
 @dataclass
@@ -147,13 +216,19 @@ def _classify(path: Path, data: dict[str, Any]) -> RunRecord | None:
             name = stem[len("eval_") :]
             name = TS_RE.sub("", name).strip("_-") or "smoke"
         passed = total > 0 and failed == 0
+        coverage, always_skipped = _scorer_coverage(data)
+        detail = f"{passed_tasks}/{total} tasks passed, avg score {score:.2f}"
+        if coverage is not None:
+            detail += f", assertion coverage {coverage:.0%}"
         return RunRecord(
             name,
             when,
             passed,
             score,
-            f"{passed_tasks}/{total} tasks passed, avg score {score:.2f}",
+            detail,
             path.name,
+            coverage=coverage,
+            always_skipped=always_skipped,
         )
 
     return None
@@ -213,6 +288,90 @@ def collect(reports_dir: Path) -> dict[str, EvalHealth]:
     return health
 
 
+def _verdict_prose(health: dict[str, EvalHealth]) -> str:
+    """State, in sentences, what the safe-PR numbers on this page mean.
+
+    A table of coloured cells does not tell a reader which of three very
+    different situations they are looking at: a broken harness, a genuinely
+    failing agent, or an eval measuring something the agent was never built to
+    do. Those need opposite responses, so the answer goes at the top in prose
+    and the table stays underneath as the supporting detail.
+
+    The figures are read from the committed reports on every regeneration, so
+    the paragraph cannot drift from the evidence it describes. The conclusion
+    is fixed because it was reached by inspection, not by arithmetic.
+    """
+    parts: list[str] = ["## What the safe-PR numbers mean", ""]
+
+    covered = [
+        (name, bucket.latest)
+        for name, bucket in sorted(health.items())
+        if bucket.latest is not None and bucket.latest.coverage is not None
+    ]
+
+    parts.append(
+        "The safe-PR eval was never measuring the safe-PR agent. Its dataset "
+        "(`evals/datasets/safe-pr-agent/tasks.jsonl`) expects software-engineering "
+        "artifacts -- files changed, a pull request opened, tests passing -- against "
+        "`example/project`, a repository that does not exist. This control plane runs "
+        "a model through a policy decision path; it never clones a repository, runs a "
+        "test, or opens a pull request. Those expectations were unsatisfiable by "
+        "construction on the day the dataset was written, so the eval was measuring "
+        "something the agent was never built to do."
+    )
+    parts.append("")
+    parts.append(
+        "That has now shown up twice, in opposite directions, because the harness "
+        "kept describing itself instead of the agent. It first read as 0% "
+        "([#31](https://github.com/sattyamjjain/ferrumdeck/issues/31)), when the "
+        "suite's declared scorers were discarded and substituted ones scored against "
+        "run fields the runner never populates. It then read as a clean 1.00, because "
+        "the substituted scorers were replaced with declared ones that mostly skip -- "
+        "and a skip returned a full score."
+    )
+    parts.append("")
+
+    if covered:
+        rows = ", ".join(
+            f"`{name}` at {run.coverage:.0%}"  # type: ignore[union-attr]
+            for name, run in covered
+        )
+        parts.append(
+            f"Assertion coverage is the number that makes a score readable. On the "
+            f"most recent committed run of each suite it stands at {rows}. Coverage "
+            f"is the share of scorer results that asserted anything at all; the "
+            f"remainder returned a full score for having nothing to check, so those "
+            f"scores are an average over the covered fraction only. Runs from before "
+            f"the suites were rescoped will keep showing the coverage they were "
+            f"actually measured at -- this page reports what happened, not what the "
+            f"configuration would do today."
+        )
+        always: set[str] = set()
+        for _, run in covered:
+            always.update(run.always_skipped)  # type: ignore[union-attr]
+        if always:
+            parts.append("")
+            parts.append(
+                "Scorers that skipped on every task of their most recent run: "
+                + ", ".join(f"`{n}`" for n in sorted(always))
+                + ". A scorer a suite declares but that never fires is a "
+                "declaration, not a check."
+            )
+        parts.append("")
+
+    parts.append(
+        "So neither number was ever evidence about the agent. The response is to "
+        "rescope rather than to tune: the suites now assert what this control plane "
+        "can genuinely observe -- policy decisions, budget compliance, and output "
+        "text -- and `fd_evals` reports which dataset expectations no scorer reads, "
+        "so an eval that quietly stops testing its own dataset says so instead of "
+        "averaging its way to a number. There is still no measurement of whether the "
+        "agent writes good pull requests, and this page should not be read as "
+        "claiming otherwise."
+    )
+    return "\n".join(parts)
+
+
 def render(health: dict[str, EvalHealth], generated_at: datetime) -> str:
     lines: list[str] = []
     add = lines.append
@@ -226,10 +385,20 @@ def render(health: dict[str, EvalHealth], generated_at: datetime) -> str:
     )
     add("")
     add(
+        "For whether a green row is *evidence about the agent* rather than the "
+        "harness reporting on itself, see "
+        "[`docs/eval-verdicts.md`](eval-verdicts.md), which carries one verdict "
+        "per eval. This page answers *did it pass*; that one answers *does the "
+        "pass mean anything*."
+    )
+    add("")
+    add(
         "FerrumDeck claims eval gating in CI. This page is the evidence for "
         "that claim. An eval that has never passed says so in its own row "
         "rather than being left out."
     )
+    add("")
+    add(_verdict_prose(health))
     add("")
     add("| Eval | Last run | Result | Score | Consecutive passes | Detail |")
     add("| --- | --- | --- | --- | --- | --- |")

@@ -48,6 +48,7 @@ class EvalRunner:
         use_mock: bool = False,
         model: str | None = None,
         harness_config: HarnessConfig | None = None,
+        require_all_pass: bool = False,
     ):
         """Initialize the eval runner.
 
@@ -63,6 +64,11 @@ class EvalRunner:
                 run. Optional and additive — older callers continue to work
                 unchanged; when set, the four Harness-Bench dimensions are
                 recorded alongside the existing baseline shape.
+            require_all_pass: When True a task passes only if every scorer
+                that asserted on it passed, rather than on a weighted average
+                clearing 0.5. Suites set this via
+                ``settings.require_all_scorers_pass``. Defaults False so
+                existing callers keep their current pass semantics.
         """
         self.scorers = scorers or []
         self.control_plane_url = (
@@ -72,8 +78,9 @@ class EvalRunner:
         self.use_mock = use_mock
         self.model = model
         self.harness_config = harness_config
+        self.require_all_pass = require_all_pass
         self._composite_scorer = (
-            CompositeScorer(self.scorers, name="EvalScorer", require_all_pass=False)
+            CompositeScorer(self.scorers, name="EvalScorer", require_all_pass=require_all_pass)
             if self.scorers
             else None
         )
@@ -83,8 +90,13 @@ class EvalRunner:
         if self.api_key:
             self.headers["Authorization"] = f"Bearer {self.api_key}"
 
-    def load_tasks(self, dataset_path: str | Path) -> list[EvalTask]:
+    @staticmethod
+    def load_tasks(dataset_path: str | Path) -> list[EvalTask]:
         """Load evaluation tasks from a JSONL file.
+
+        Static so callers can inspect a dataset without standing up a runner —
+        the CLI reads the task list before the run to report which declared
+        expectations no scorer will assert on.
 
         Args:
             dataset_path: Path to the tasks.jsonl file.
@@ -159,6 +171,7 @@ class EvalRunner:
                     passed=sr["passed"],
                     score=sr["score"],
                     message=sr["message"],
+                    skipped=sr.get("skipped", False),
                 )
                 for sr in result.details.get("sub_results", [])
             ]
@@ -397,6 +410,14 @@ class EvalRunner:
         }
 
         mock_context = {
+            # Marks this context as a stand-in rather than a real run. Scorers
+            # that assert on the agent's own output must skip on it: the "output"
+            # above is a fixed four-key dict built from the task's name and
+            # description, so anything measured from it describes the fixture,
+            # not the agent. Copying `task.expected` into the context below is
+            # the same hazard in the other direction, and is how `--mock` scored
+            # 1.0 while every real run scored 0 (issue #31).
+            "mock": True,
             "status": "completed",
             "files_changed": task.expected.get("files_changed", []),
             "files_created": task.expected.get("files_created", []),

@@ -9,6 +9,8 @@ from fd_evals.task import EvalTask, ScorerResult
 class PRCreatedScorer(BaseScorer):
     """Scorer that checks if a PR was created successfully."""
 
+    EXPECTED_KEYS = ("pr_created",)
+
     def __init__(self, weight: float = 1.0):
         super().__init__(name="PRCreatedScorer", weight=weight)
 
@@ -37,6 +39,7 @@ class PRCreatedScorer(BaseScorer):
                 score=1.0,
                 message="PR creation not required",
                 details={"skipped": True},
+                skipped=True,
             )
 
         # Handle both string and dict outputs

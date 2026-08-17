@@ -14,6 +14,8 @@ being able to see why.
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -32,6 +34,7 @@ from fd_evals.scorers import (
     TestPassScorer,
     ToolAllowlistScorer,
 )
+from fd_evals.task import EvalTask
 
 # Maps the ``type:`` string used in suite YAML to the scorer class.
 # Keep the YAML names stable; they are the public contract of a suite file.
@@ -73,6 +76,11 @@ class LoadedSuite:
     max_parallel: int = 1
     gates: dict[str, Any] = field(default_factory=dict)
     suite_path: Path | None = None
+    #: When True a task passes only if every asserting scorer passed, instead
+    #: of on a weighted average clearing 0.5. A suite where one scorer failing
+    #: is a real regression should set this; a half-failing task that still
+    #: reports "passed" is the expensive kind of false green.
+    require_all_scorers_pass: bool = False
 
     def matches(self, category: str | None, tags: list[str] | None) -> bool:
         """Return True when a task passes this suite's filter."""
@@ -86,6 +94,35 @@ class LoadedSuite:
     def unobservable(self) -> list[str]:
         """Names of selected scorers that read fields the harness cannot see."""
         return [n for n in self.scorer_names if n in UNOBSERVABLE_SCORERS]
+
+    @property
+    def asserted_keys(self) -> set[str]:
+        """Every ``task.expected`` key some scorer in this suite reads."""
+        keys: set[str] = set()
+        for scorer in self.scorers:
+            keys.update(scorer.EXPECTED_KEYS)
+        return keys
+
+    def unasserted_expectations(self, tasks: Iterable[EvalTask]) -> dict[str, int]:
+        """Dataset expectation keys that no scorer in this suite reads.
+
+        Returns ``{key: number_of_tasks_declaring_it}``, worst offenders first.
+
+        This is the check that would have caught the safe-PR suite on day one.
+        Its dataset declares ``files_changed``, ``pr_created`` and ``tests_pass``
+        on every task, and no scorer either suite selects has ever read any of
+        them -- so those expectations were decorative. An eval that reports a
+        score while ignoring what its own dataset says it expects is measuring
+        something other than the thing it claims to measure, and it should say
+        so out loud rather than averaging its way to a number.
+        """
+        asserted = self.asserted_keys
+        counts: Counter[str] = Counter()
+        for task in tasks:
+            for key in task.expected or {}:
+                if key not in asserted:
+                    counts[key] += 1
+        return dict(counts.most_common())
 
 
 def build_scorer(spec: dict[str, Any] | str) -> tuple[str, BaseScorer]:
@@ -169,6 +206,7 @@ def load_suite(suite: str, evals_dir: Path | None = None) -> LoadedSuite:
         tags=tags,
         timeout_ms=int(settings.get("timeout_ms", 300_000)),
         max_parallel=int(settings.get("max_parallel", 1)),
+        require_all_scorers_pass=bool(settings.get("require_all_scorers_pass", False)),
         gates=config.get("gates") or {},
         suite_path=suite_file,
     )

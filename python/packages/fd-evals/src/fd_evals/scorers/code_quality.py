@@ -9,6 +9,8 @@ from fd_evals.task import EvalTask, ScorerResult
 class LintScorer(BaseScorer):
     """Scorer that checks if code passes linting."""
 
+    EXPECTED_KEYS = ("lint_pass",)
+
     def __init__(self, linter: str = "ruff", weight: float = 1.0):
         super().__init__(name="LintScorer", weight=weight)
         self.linter = linter
@@ -38,6 +40,7 @@ class LintScorer(BaseScorer):
                 score=1.0,
                 message="Linting not required for this task",
                 details={"skipped": True},
+                skipped=True,
             )
 
         lint_results = run_context.get("lint_results", {})
@@ -88,6 +91,8 @@ class LintScorer(BaseScorer):
 class TypeCheckScorer(BaseScorer):
     """Scorer that checks if type checking passes."""
 
+    EXPECTED_KEYS = ("type_hints_added", "type_check_pass")
+
     def __init__(self, type_checker: str = "mypy", weight: float = 1.0):
         super().__init__(name="TypeCheckScorer", weight=weight)
         self.type_checker = type_checker
@@ -118,6 +123,7 @@ class TypeCheckScorer(BaseScorer):
                 score=1.0,
                 message="Type checking not required",
                 details={"skipped": True},
+                skipped=True,
             )
 
         type_results = run_context.get("type_check_results", {})

@@ -402,12 +402,37 @@ export default function EvalsPage() {
                                                         </Link>
                                                     </TableCell>
                                                     <TableCell>
-                                                        <Badge
-                                                            variant="outline"
-                                                            className="text-xs"
-                                                        >
-                                                            {run.agent_version}
-                                                        </Badge>
+                                                        {run.agent_version?.trim() ? (
+                                                            <Badge
+                                                                variant="outline"
+                                                                className="text-xs"
+                                                            >
+                                                                {
+                                                                    run.agent_version
+                                                                }
+                                                            </Badge>
+                                                        ) : (
+                                                            // Eval reports do not record an agent
+                                                            // version, so this is empty for most
+                                                            // rows. An empty Badge is a visual
+                                                            // artifact rather than an assistive-tech
+                                                            // one — its border is CSS, so screen
+                                                            // readers already announce the cell as
+                                                            // blank — but it renders as a row of
+                                                            // empty outlined pills. The dash is the
+                                                            // established empty-value glyph in this
+                                                            // dashboard; it is hidden because a bare
+                                                            // dash is announced inconsistently, and
+                                                            // the sr-only text carries the meaning.
+                                                            <span className="text-muted-foreground text-xs">
+                                                                <span aria-hidden="true">
+                                                                    —
+                                                                </span>
+                                                                <span className="sr-only">
+                                                                    Not recorded
+                                                                </span>
+                                                            </span>
+                                                        )}
                                                     </TableCell>
                                                     <TableCell>
                                                         <Badge

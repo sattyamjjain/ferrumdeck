@@ -178,6 +178,20 @@ def run_eval(
                 f"  [yellow]Warning: {', '.join(loaded_suite.unobservable)} read run fields "
                 f"the control plane does not surface; they will score 0.[/yellow]"
             )
+        # Case (c) detector: dataset expectations no declared scorer reads.
+        # Printed before the run, because knowing the eval is not testing what
+        # its dataset says it expects changes how you read the score you are
+        # about to get.
+        unasserted = loaded_suite.unasserted_expectations(
+            EvalRunner.load_tasks(loaded_suite.dataset_path)
+        )
+        if unasserted:
+            rendered = ", ".join(f"{k} ({n} tasks)" for k, n in unasserted.items())
+            console.print(
+                f"  [yellow]Unasserted dataset expectations: {rendered}.[/yellow]\n"
+                f"  [yellow]No scorer in this suite reads these keys, so the score "
+                f"below says nothing about them.[/yellow]"
+            )
     elif dataset:
         if not dataset.exists():
             raise typer.BadParameter(f"Dataset not found: {dataset}")
@@ -202,6 +216,7 @@ def run_eval(
         control_plane_url=control_plane,
         api_key=api_key,
         use_mock=mock,
+        require_all_pass=bool(loaded_suite and loaded_suite.require_all_scorers_pass),
     )
 
     summary = runner.run_eval(

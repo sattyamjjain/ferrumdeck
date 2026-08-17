@@ -20,11 +20,23 @@ SEED_AGENT_ID = os.getenv("FD_SEED_AGENT_ID", "agt_01JFVX0000000000000000001")
 
 
 def wait_for_service(url: str, timeout: int = 30) -> bool:
-    """Wait for a service to become available."""
+    """Wait for the gateway to become available.
+
+    The probe hit ``/health/live``, which the gateway does not serve — its
+    health routes are ``/health`` and ``/ready`` (see
+    ``rust/services/gateway/src/routes.rs``). The probe therefore never
+    succeeded and ``ensure_services_running`` skipped the entire chaos suite
+    unconditionally, including against a healthy stack. CHAOS-001 — the one
+    test here that injects a real fault and asserts a real behaviour — has
+    consequently never executed.
+
+    The same bug was found and fixed in ``tests/security/conftest.py`` and not
+    propagated here or to ``tests/e2e``. Both are fixed now.
+    """
     start = time.time()
     while time.time() - start < timeout:
         try:
-            resp = httpx.get(f"{url}/health/live", timeout=2.0)
+            resp = httpx.get(f"{url}/health", timeout=2.0)
             if resp.status_code == 200:
                 return True
         except Exception:

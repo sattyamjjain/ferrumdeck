@@ -62,16 +62,23 @@ key_features:
 
   - id: eval-framework-dashboard
     readme_row: "**Evaluation Framework**:"
-    marker: "[dashboard data BFF-stubbed"
-    status: "eval framework runs; suites list served from disk, runs + regression still not implemented (501)"
+    marker: "[read path live, dispatch + live verification open"
+    status: "eval read path serves real gateway data; dispatch unimplemented and the round-trip unverified on a live stack"
     evidence: >-
-      GET /api/v1/evals/suites now serves the real on-disk suite definitions
+      GET /api/v1/evals/suites serves the real on-disk suite definitions
       (evals/suites/*.yaml, with real task counts from the datasets) via
-      nextjs/src/lib/evals/suite-loader.ts, or 501 if the evals dir is not found —
-      never an empty 200. But /api/v1/evals/{runs,regression-report} still return
-      501 (not_implemented, #7), so the dashboard's eval round-trip — running a
-      suite, run history, regression — is not wired: those tabs render the
-      not-implemented notice.
+      nextjs/src/lib/evals/suite-loader.ts. /runs and /regression-report now
+      proxy the gateway eval-read backend (rust/services/gateway/src/handlers/
+      evals.rs), with /runs mapped onto the dashboard EvalRun contract by
+      nextjs/src/lib/evals/run-mapper.ts; each returns 501 when no report store
+      is reachable and never an empty 200. Two defects fixed together: the
+      gateway parsed only the <suite>-<YYYYMMDD> naming, silently dropping every
+      eval_<suite>_<ts>.json safe-PR report, and the BFF proxied gateway field
+      names verbatim so the runs table rendered blanks. Covered by unit tests
+      that read the real committed reports through the handler's own code path,
+      but NOT yet exercised against a live gateway. Dispatching a run from the
+      dashboard is still unimplemented: the store is read-only committed
+      records, so a run started at request time has nowhere to persist (#7).
     limitations_anchor: "#project-status--limitations"
     roadmap_issue: 7
 
@@ -93,10 +100,12 @@ key_features:
 
   - id: baseline-comparisons
     readme_row: "**Baseline Comparisons**:"
-    marker: "[dashboard data BFF-stubbed"
-    status: "baseline view depends on the stubbed eval dashboard data"
+    marker: "[read path live, dispatch + live verification open"
+    status: "baseline view reads real eval data; unverified end to end"
     evidence: >-
-      Same BFF stub as eval-framework-dashboard: /api/v1/evals/* returns empty.
+      Same path as eval-framework-dashboard: /api/v1/evals/* now serves the
+      gateway's real on-disk reports rather than a stub, but the round-trip has
+      not been confirmed against a live stack.
     limitations_anchor: "#project-status--limitations"
     roadmap_issue: 7
 
@@ -125,23 +134,23 @@ test_counts:
   # Suites that gate CI (unit/lint) — the honest headline.
   gating:
     rust:
-      count: 741
+      count: 749
       method: "cargo test --workspace -- --list | grep -cE ': test$'"
     python_unit:
-      count: 512
+      count: 532
       method: "uv run pytest python/packages/{fd-runtime,fd-mcp-router,fd-worker,fd-evals}/tests --collect-only -q"
     frontend:
-      count: 613
+      count: 623
       method: "cd nextjs && npm test -- --watchAll=false --ci  (jest 'Tests:' total)"
     api_contracts:
       count: 50
       method: "uv run pytest tests/api --collect-only -q"
-  gating_total: 1916
+  gating_total: 1954
   # Live-stack suites: require `make dev-up`, skip without it, and (per the
   # README testing caveat) assert liveness more than behaviour. NOT counted in
   # the headline, reported on their own line.
   liveness:
-    security: 76
+    security: 78
     chaos: 14
     e2e: 43
     integration: 81
