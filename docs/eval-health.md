@@ -34,4 +34,4 @@ So neither number was ever evidence about the agent. The response is to rescope 
 | `governed-benchmark` | the governed run blocks 100% of unsafe actions |
 | `eval_<suite>_<ts>` (LLM suites) | every task passed (`failed_tasks == 0`) |
 
-_Generated 2026-08-17 17:41 UTC._
+_Generated 2026-08-18 02:59 UTC._
