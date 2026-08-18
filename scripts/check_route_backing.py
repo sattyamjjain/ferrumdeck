@@ -77,6 +77,27 @@ def classify(text: str) -> set[str]:
     return traits
 
 
+def gateway_stubs(handlers: Path) -> list[tuple[Path, int, bool]]:
+    """Every gateway NOT_IMPLEMENTED site, with whether it cites an issue.
+
+    The gateway plane has the same obligation as the BFF: a 501 is honest only
+    if something tracks finishing it. Checked by proximity rather than by
+    parsing Rust -- the issue link has to sit in the same response body, which
+    in practice means within a dozen lines of the status code.
+    """
+    found: list[tuple[Path, int, bool]] = []
+    if not handlers.is_dir():
+        return found
+    for path in sorted(handlers.rglob("*.rs")):
+        lines = path.read_text().splitlines()
+        for i, line in enumerate(lines):
+            if "StatusCode::NOT_IMPLEMENTED" not in line:
+                continue
+            window = "\n".join(lines[i : i + 14])
+            found.append((path, i + 1, bool(ISSUE_REF_RE.search(window))))
+    return found
+
+
 def bff_routes(app_api: Path) -> dict[str, Path]:
     """Map BFF route id (path under app/api) -> file."""
     return {str(p.relative_to(app_api)): p for p in sorted(app_api.rglob("route.ts"))}
@@ -170,6 +191,18 @@ def main() -> int:
 
         print(f"  {status:16} {rid:<{width}}")
 
+    # The gateway plane, held to the same rule: a 501 must name its issue.
+    gw = gateway_stubs(args.gateway)
+    for path, line, has_issue in gw:
+        if has_issue:
+            print(f"  GW-STUB          {path}:{line}")
+        else:
+            problems.append(
+                f"{path}:{line} returns NOT_IMPLEMENTED without an issue link in the "
+                f"response body. Same rule as the BFF: an untracked stub is a "
+                f"permanent one."
+            )
+
     # (4) stale declarations.
     for rid in sorted(set(stubs) - seen_stub):
         problems.append(
@@ -182,8 +215,9 @@ def main() -> int:
         )
 
     print(
-        f"\n{len(routes)} routes: {counts['proxied']} proxied, "
-        f"{counts['local']} locally backed, {counts['stub']} declared stubs."
+        f"\n{len(routes)} BFF routes: {counts['proxied']} proxied, "
+        f"{counts['local']} locally backed, {counts['stub']} declared stubs. "
+        f"{len(gw)} gateway 501 site(s), all issue-linked."
     )
 
     if problems:

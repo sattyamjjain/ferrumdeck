@@ -107,3 +107,32 @@ def test_a_stale_declaration_fails(tree: Path) -> None:
     result = run(tree)
     assert result.returncode == 1
     assert "no longer exists" in result.stderr
+
+
+def test_a_gateway_501_without_an_issue_link_fails(tmp_path: Path) -> None:
+    """The gateway plane is held to the same rule as the BFF."""
+    handlers = tmp_path / "handlers"
+    handlers.mkdir()
+    (handlers / "thing.rs").write_text(
+        "fn no_store() -> Response {\n"
+        "    (\n"
+        "        StatusCode::NOT_IMPLEMENTED,\n"
+        '        Json(json!({ "error": { "code": "NOPE" } })),\n'
+        "    ).into_response()\n"
+        "}\n"
+    )
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--gateway", str(handlers)],
+        capture_output=True,
+        text=True,
+        cwd=REPO,
+    )
+    assert result.returncode == 1
+    assert "without an issue link" in result.stderr
+
+
+def test_the_real_gateway_501_is_issue_linked() -> None:
+    """handlers/evals.rs carries #7 in its NO_EVAL_STORE body; keep it that way."""
+    result = run(APP_API)
+    assert result.returncode == 0
+    assert "gateway 501 site(s), all issue-linked" in result.stdout
