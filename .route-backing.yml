@@ -1,0 +1,85 @@
+# Route-backing declarations for FerrumDeck's BFF and gateway.
+#
+# Checked by scripts/check_route_backing.py, wired into `make ci-check`.
+#
+# ## What this gates
+#
+# A route that returns plausible data without reaching a backend is the same
+# class of bug as an eval that never runs or a test CI never collects: it looks
+# green and asserts nothing. Three of those were closed in the 0.8.8 cycle, all
+# in the python-test job. The HTTP surface was the last place the sweep had not
+# looked, and #7 named it directly -- `/api/v1/evals/*` was BFF-stubbed.
+#
+# The invariant this file enforces is one the codebase already follows, written
+# down so it cannot erode:
+#
+#   An unimplemented route returns 501 with `error: "not_implemented"` and an
+#   `issue:` link. It NEVER returns 200 with an empty list or a fixture.
+#
+# `200 {suites: []}` and `200 {total_regressions: 0}` are indistinguishable from
+# "we looked and there are none". 501 says "we never looked", which is the true
+# statement. Both planes already do this -- see the module caveat on
+# `no_store_response()` in rust/services/gateway/src/handlers/evals.rs.
+#
+# ## Suppression posture
+#
+# Follows .agent-audit-kit.yml: minimal, per-entry, and every entry carries a
+# rationale. An entry here is a claim that a route legitimately has no gateway
+# backend -- not permission to fabricate. Removing a route from this file must
+# make the check fail, which is what keeps the list honest.
+
+# Routes whose backend is real but is not the gateway. Each names what it does
+# reach, because "no fetch() call" alone cannot distinguish these from a stub.
+local_backed:
+  - route: health/route.ts
+    backend: none-required
+    reason: >-
+      The BFF's own liveness endpoint. A static 200 {status:"ok"} is the correct
+      implementation, not a placeholder: the thing being reported on is this
+      process, and it answered. Nothing downstream is claimed.
+
+  - route: v1/docker/containers/route.ts
+    backend: docker-cli
+    reason: >-
+      Spawns `docker ps --filter name=fd-` and parses real output. Its backend is
+      the local Docker daemon rather than the gateway, and it degrades to an
+      explicit unavailable state when the CLI is absent instead of inventing
+      containers.
+
+  - route: v1/docker/logs/[container]/route.ts
+    backend: docker-cli
+    reason: >-
+      Streams `docker logs` for a named container. Same posture as the container
+      list above.
+
+  - route: v1/evals/suites/route.ts
+    backend: filesystem
+    reason: >-
+      Serves the real suite definitions parsed from evals/suites/*.yaml via
+      loadEvalSuites(). Returns 501 (not an empty 200) when the evals directory
+      cannot be located, so "no suites" is never asserted from absence.
+
+# Known-unimplemented routes. Each MUST return 501 and cite the issue tracking
+# it; the checker verifies both, so an entry cannot quietly become a fixture.
+declared_stubs:
+  - route: v1/evals/suites/[suiteId]/route.ts
+    issue: 7
+    reason: >-
+      Reading a single suite needs a gateway eval backend. The list endpoint is
+      served from disk; the detail read is not, and 404 would wrongly imply the
+      suite does not exist.
+
+  - route: v1/evals/regression-report/route.ts
+    issue: 7
+    reason: >-
+      Proxies the gateway when it is reachable and falls back to 501 when it is
+      not. Never a fabricated 200 {total_regressions: 0}, which would read as
+      "no regressions found".
+
+  - route: v1/evals/runs/route.ts
+    issue: 7
+    method: POST
+    reason: >-
+      GET proxies the gateway and serves real committed reports (fixed in
+      26749ca). POST -- dispatching a new eval run -- has nowhere to persist to,
+      so it returns 501 with no invented run id rather than a synthetic 201.

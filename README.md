@@ -15,7 +15,7 @@
 | R1–R3 reversibility ladder | **0.54 ns** | 0.63 ns |
 | EU AI Act Art. 50 transparency rule | **222 ns** | 257 ns |
 
-An LLM step costs hundreds of ms to seconds; ~1 µs of in-path governance is ~6 orders of magnitude smaller than the call it gates. Reproduce with `make bench-enforcement` (or `make reproduce-readme-figures` to also compare against the numbers above and fail on drift); methodology + full table (incl. deny / RCE-blocked cases) in [`docs/benchmarks/enforcement-latency.md`](docs/benchmarks/enforcement-latency.md). This is the added decision cost, not end-to-end latency — no "fastest"/"first" claim.
+An LLM step costs hundreds of ms to seconds; ~1 µs of in-path governance is ~6 orders of magnitude smaller than the call it gates. Reproduce these and every other figure below with one command — see [Reproduce every number on this page](#reproduce-every-number-on-this-page). This is the added decision cost, not end-to-end latency — no "fastest"/"first" claim.
 
 **Governed vs ungoverned (reproducible) — measured on a recognized public workload.** The governance layer, run two ways (ungoverned = a record-only stack with no decision point; governed = the deny-by-default allowlist + Airlock RASP + spend gate deciding *before* execution), on citable, deterministic, offline workloads — every number regenerable and **pinned to the real Rust `fd_policy` engine** by a `cargo test`:
 
@@ -23,9 +23,24 @@ An LLM step costs hundreds of ms to seconds; ~1 µs of in-path governance is ~6 
 - **Spend-overrun** (fixed safe-PR trajectory, 4 injected unsafe actions): **4/4 blocked vs 0/4 ungoverned**, and the governed run costs **54% *less*** (85¢ vs 184¢) because stopping the RCE / exfil / denied-tool / runaway loop saves more than the ~1 µs/decision + audit overhead.
 - **Payment-governance** (an agent overspends an [AP2](https://github.com/google-agentic-commerce/AP2) mandate / [x402](https://x402.org) call): **3/3 unsafe mandates blocked**, **$150.95 → $0.40** — each blocked on a distinct control (bad Ed25519 signature, over-ceiling, out-of-scope merchant), every verdict **audit-logged** (`ferrumdeck.decision` span + W3C `traceparent`).
 
-**Check every figure on this page yourself in one command:** `make reproduce-readme-figures` re-measures all of it from a clean clone — the latency table, the block/benign rates with their Wilson intervals, and the spend figures — and exits non-zero on drift. Deterministic and offline: no services, no API keys, no money moved. Rates are compared exactly, because those benchmarks are seeded and LLM-free; latencies are compared within a stated band against the stated machine (Apple M4, `--release`), because a nanosecond figure that fails on different silicon is a broken gate rather than a strict one. The nightly runs it and opens a tracking issue on drift. Add `--skip-latency` (or `make reproduce-readme-figures-fast`) to skip the ~2-minute criterion sweep.
+### Reproduce every number on this page
 
-`make reproduce-spend-gate` remains the narrower check for just the two spend figures, driving the AP2 gate and the x402 example end to end.
+Every figure above is regenerable, and each command **exits non-zero if a number has drifted** — none of them just print and pass.
+
+| Command | Verifies | Time |
+| --- | --- | --- |
+| `make reproduce-readme-figures` | Everything on this page: the latency table, the block/benign rates with their Wilson intervals, and both spend figures | **~70s**, or ~2.5 min on a cold checkout (first run builds `--release`) |
+| `make reproduce-readme-figures-fast` | The same minus latency — rates and spend only | **~10s** |
+| `make reproduce-spend-gate` | Just the two spend figures, driving the AP2 gate and the x402 example end to end | **~50s** |
+| `make bench-enforcement` | Re-measures the latency table without comparing it (raw criterion output + HTML report) | **~2.5 min** cold |
+
+All of it is deterministic and offline: no services, no API keys, no money moved. The nightly runs the first one and opens a tracking issue on drift.
+
+**Reference machine: Apple M4, `--release`.** This matters for the latency rows and only those. The absolute nanoseconds are a property of the silicon, so on a different machine the comparison widens to an order-of-magnitude check and the output tells you which regime it applied — a nanosecond figure that fails on a different CPU would be a broken gate, not a strict one.
+
+**Rates are compared exactly; latencies are compared within a band.** That asymmetry is deliberate and it is the interesting part. The rate benchmarks (`17/17`, `8/8`, `13/13`, `4/4`) are seeded, offline and LLM-free — there is no clock and no sampling in the path, so a rate that moves *at all* is a behaviour change and any drift fails. Latency is a measurement of a busy machine; run-to-run variance here reached 4.4× at p95 under load, so p95 gets a wider band than p50, and both are sized to catch an algorithmic regression rather than background noise. Every row prints its measured/published ratio whether it passed or not, so a figure drifting toward its band is visible before it crosses.
+
+Methodology for the latency table, including the deny and RCE-blocked cases not shown above, is in [`docs/benchmarks/enforcement-latency.md`](docs/benchmarks/enforcement-latency.md).
 
 Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_BENCHMARK_RESULTS.md`](python/packages/fd-evals/GOVERNED_BENCHMARK_RESULTS.md). Each control mapped to the five risk categories in the **CISA/NSA (Five Eyes) _Careful Adoption of Agentic AI Services_ (May 2026)** guidance — and the transparency control tied to **EU AI Act Article 50, enforceable 2026-08-02** — in [`fd-evals/CONTROLS_CROSSWALK.md`](python/packages/fd-evals/CONTROLS_CROSSWALK.md). Reproduce: `make eval-injection-defense` · `make bench-governed`; method + numbers also in [`docs/BENCHMARK.md`](docs/BENCHMARK.md).
 

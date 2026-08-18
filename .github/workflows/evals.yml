@@ -283,6 +283,28 @@ jobs:
       # Runs even when the eval failed: a red nightly is exactly when the
       # health page needs to say so. The page is generated from the committed
       # report files, never hand-written.
+      - name: Stage this run's report BEFORE regenerating the page
+        if: always() && github.event_name == 'schedule' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Order matters, and getting it wrong cost a run of lag on every
+          # nightly. gen_eval_health.py reads `git ls-files` (the 0.8.7 fix that
+          # stopped the page being built from whatever was on the author's disk).
+          # `git ls-files` reads the INDEX, so a report that is merely written to
+          # disk is invisible to it -- but a staged one is not.
+          #
+          # Regenerating first therefore built the page from N-1 reports and then
+          # committed the Nth alongside it, so the published page described the
+          # previous night's run forever. The 2026-08-18 nightly committed a smoke
+          # report at 100% assertion coverage next to a page still reporting 50%.
+          # Nothing caught it because that commit carries [skip ci].
+          #
+          # `eval_*.json` is un-ignored in .gitignore, so a plain add is enough --
+          # no -f, which means a dropped report shows up as an ordinary
+          # uncommitted change instead of vanishing silently.
+          git add evals/reports/eval_*.json 2>/dev/null || true
+
       - name: Regenerate eval-health page
         if: always()
         run: uv run python scripts/gen_eval_health.py
@@ -292,11 +314,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # The run's own report is the evidence docs/eval-health.md is built
-          # from, so it has to be committed or the consecutive-pass column can
-          # never climb above 1. `eval_*.json` is un-ignored in .gitignore, so
-          # a plain add is enough -- no -f, which means a dropped report shows
-          # up as an ordinary uncommitted change instead of vanishing silently.
           git add evals/reports/eval_*.json 2>/dev/null || true
           git add docs/eval-health.md
           if git diff --cached --quiet; then
