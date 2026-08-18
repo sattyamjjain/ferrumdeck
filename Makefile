@@ -1,7 +1,7 @@
 # FerrumDeck - Development Makefile
 # ================================
 
-.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image eval-health eval-health-check check-suite-reachability reproduce-readme-figures
+.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image eval-health eval-health-check check-suite-reachability check-route-backing reproduce-readme-figures
 
 # Default target
 help:
@@ -302,6 +302,10 @@ check-suite-reachability:
 	@echo "Checking every declared eval suite is reachable from a workflow trigger..."
 	uv run python scripts/check_suite_reachability.py
 
+check-route-backing:
+	@echo "Checking every BFF/gateway route reaches a backend or is a declared honest stub..."
+	uv run python scripts/check_route_backing.py
+
 eval-injection-defense:
 	@echo "Running injection-defense benchmark (deterministic, offline, no LLM)..."
 	uv run python -m fd_evals injection-defense --suite injection_defense
@@ -364,7 +368,7 @@ clean-docker:
 # CI Helpers
 # =============================================================================
 
-ci-check: check-claims check-changelog-issues eval-health-check check-suite-reachability
+ci-check: check-claims check-changelog-issues eval-health-check check-suite-reachability check-route-backing
 	@echo "Running CI checks..."
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings

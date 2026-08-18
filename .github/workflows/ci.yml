@@ -271,6 +271,20 @@ jobs:
           # than a gate on it. gen_eval_health.py now exits non-zero instead.
           uv run python scripts/gen_eval_health.py --check
 
+      - name: Assert no route serves plausible data without a backend
+        run: |
+          # Fourth and last surface of the same class. An eval that never runs, a
+          # test CI never collects, a suite no workflow triggers -- and a route
+          # that answers 200 without asking anything. Issue #7 named this one:
+          # /api/v1/evals/* was BFF-stubbed, so the dashboard rendered a shape
+          # that had never touched the control plane.
+          #
+          # The invariant is the one both planes already follow: an unimplemented
+          # route returns 501 with an issue link, never an empty 200. `200
+          # {"suites": []}` reads as "we looked and found none"; 501 says "we
+          # never looked", which is the true statement.
+          uv run python scripts/check_route_backing.py
+
       - name: Run unit tests
         env:
           DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
