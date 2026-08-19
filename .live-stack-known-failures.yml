@@ -23,9 +23,15 @@
 #   confirms it. Do not edit `floor.executed` downward to make a red build green.
 
 floor:
-  # Measured 76-80 executed across repeated local runs against `make dev-up`
-  # (135 collected, ~55-59 skipped: LLM-dependent scenarios and the
-  # separately-seeded multi-tenant cases skip honestly).
+  # 80 executed in CI against a FRESH database (135 collected, 55 skipped:
+  # the separately-seeded multi-tenant cases skip honestly). Local runs against
+  # a `make dev-up` database that has accumulated state from earlier runs sit
+  # lower, around 76, because some workflow-creating tests collide on
+  # `workflows_project_id_name_version_key` the second time round.
+  #
+  # CI is the source of truth for the entries below, because CI is where this
+  # gate actually runs. A local run is advisory; if it disagrees, the database
+  # is dirty, not the declarations.
   #
   # Set below the observed range on purpose. This is a CLIFF DETECTOR: it
   # catches the failure mode that actually happened -- the stack not coming up,
@@ -89,13 +95,6 @@ known_failures:
       handler. Real input-validation defect.
     issue: 6
 
-  - test: "tests/security/test_input_validation.py::TestOversizedPayloadRejected::test_reasonable_payload_accepted"
-    reason: >-
-      Asserts a reasonable payload is accepted on an endpoint that requires
-      fields the payload does not carry; returns 400 BAD_REQUEST. Test needs
-      rewriting against the real contract.
-    issue: 6
-
   # ---------------------------------------------------------------------------
   # Test-side defects (the gateway behaves correctly)
   # ---------------------------------------------------------------------------
@@ -134,27 +133,55 @@ known_failures:
     issue: 6
 
   # ---------------------------------------------------------------------------
-  # E2E agent scenarios: need a worker actually executing steps (LLM-backed)
+  # E2E run + agent scenarios: outcome depends on whether a worker is executing
+  # steps, which differs by environment. CI runs no worker (and no
+  # ANTHROPIC_API_KEY), so a created run never advances; a local `make dev-up`
+  # brings a worker up, so some of these pass there. All are marked `flaky`,
+  # which exempts them from the stale-declaration check only -- they may still
+  # never fail undeclared. The honest fix is a worker in the job, at which point
+  # these stop being environment-dependent and the `flaky` markers come off.
   # ---------------------------------------------------------------------------
+  - test: "tests/e2e/test_agent_runs.py::TestCreateAndCompleteRun::test_create_and_complete_run"
+    reason: "Waits for a created run to reach a terminal state; needs a worker executing steps."
+    flaky: true
+    issue: 6
+  - test: "tests/e2e/test_agent_runs.py::TestRunWithApproval::test_run_with_approval"
+    reason: "Drives a run to an approval gate through the worker; needs a worker executing steps."
+    flaky: true
+    issue: 6
+  - test: "tests/e2e/test_agent_runs.py::TestRunWithToolCalls::test_run_with_tool_calls"
+    reason: "Needs a worker to dispatch the tool call the assertion inspects."
+    flaky: true
+    issue: 6
   - test: "tests/e2e/test_agent_runs.py::TestRunTimeout::test_run_timeout"
     reason: >-
-      Waits for a run to reach a terminal state within a timeout. Requires a
-      worker executing LLM steps; without ANTHROPIC_API_KEY the run never
-      advances and the assertion times out rather than skipping.
+      Waits for a run to reach a terminal state within a timeout. Passes in CI
+      (the run never starts, so the timeout assertion holds vacuously) and fails
+      against a local stack with a worker -- which is itself a sign the test
+      asserts the wrong thing and wants rewriting.
+    flaky: true
     issue: 6
-
   - test: "tests/e2e/test_agent_scenarios.py::TestSafePRAgentReadRepo::test_agent_read_repo"
     reason: "Full agent scenario; needs a worker executing LLM steps end to end."
+    flaky: true
     issue: 6
   - test: "tests/e2e/test_agent_scenarios.py::TestSafePRAgentPropose::test_agent_propose_changes"
     reason: "Full agent scenario; needs a worker executing LLM steps end to end."
+    flaky: true
+    issue: 6
+  - test: "tests/e2e/test_agent_scenarios.py::TestSafePRAgentApproval::test_agent_approval_for_write"
+    reason: "Drives the write path to an approval gate; needs a worker executing LLM steps."
+    flaky: true
     issue: 6
   - test: "tests/e2e/test_agent_scenarios.py::TestAgentErrorRecovery::test_agent_retry_on_failure"
     reason: "Full agent scenario; needs a worker executing LLM steps end to end."
+    flaky: true
     issue: 6
   - test: "tests/e2e/test_agent_scenarios.py::TestAgentContextPassing::test_context_passed_between_steps"
     reason: "Full agent scenario; needs a worker executing LLM steps end to end."
+    flaky: true
     issue: 6
   - test: "tests/e2e/test_agent_scenarios.py::TestAgentLoopDetection::test_agent_loop_detection"
     reason: "Full agent scenario; needs a worker executing LLM steps end to end."
+    flaky: true
     issue: 6
