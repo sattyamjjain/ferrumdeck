@@ -29,8 +29,20 @@ use fd_policy::{
 use fd_storage::models::{action, actor, resource, AuditEventBuilder};
 use fd_storage::repos::{AuditRepo, PoliciesRepo};
 
-fn database_url() -> Option<String> {
-    std::env::var("DATABASE_URL").ok()
+/// The dev database URL, following the convention already set by
+/// `fd_storage::migrations`'s own `#[ignore]`d tests: default to the
+/// `make dev-up` address rather than skipping when `DATABASE_URL` is unset.
+///
+/// This used to return `Option<String>`, and each test returned early on
+/// `None` after printing a note to stderr -- which still reports `... ok`. That
+/// is a vacuous pass: a run with no database was indistinguishable from a run
+/// that actually proved the invariant, which is the exact failure mode this
+/// file exists to rule out. These tests are `#[ignore]`d, so you only get here
+/// by asking for them by name with `--ignored`; failing loudly when the
+/// database is absent is the honest answer to that request.
+fn database_url() -> String {
+    std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://ferrumdeck:ferrumdeck@localhost:5433/ferrumdeck".into())
 }
 
 fn allowlist(allowed: &[&str], approval: &[&str], denied: &[&str]) -> ToolAllowlist {
@@ -93,13 +105,10 @@ async fn record_decision(
 #[tokio::test]
 #[ignore = "requires DATABASE_URL"]
 async fn permissions_are_reconstructable_from_the_log_alone_across_a_policy_change() {
-    let Some(url) = database_url() else {
-        eprintln!("DATABASE_URL unset — skipping");
-        return;
-    };
+    let url = database_url();
     let pool = fd_storage::pool::create_pool(&url, 4, 1)
         .await
-        .expect("connect");
+        .expect("connect to the dev database (make dev-up)");
     let audit = AuditRepo::new(pool.clone());
     let policies = PoliciesRepo::new(pool.clone());
 
@@ -275,13 +284,10 @@ async fn permissions_are_reconstructable_from_the_log_alone_across_a_policy_chan
 #[tokio::test]
 #[ignore = "requires DATABASE_URL"]
 async fn a_recorded_policy_document_cannot_be_rewritten_under_its_hash() {
-    let Some(url) = database_url() else {
-        eprintln!("DATABASE_URL unset — skipping");
-        return;
-    };
+    let url = database_url();
     let pool = fd_storage::pool::create_pool(&url, 2, 1)
         .await
-        .expect("connect");
+        .expect("connect to the dev database (make dev-up)");
     let policies = PoliciesRepo::new(pool.clone());
 
     let doc = PolicyDocument::new(

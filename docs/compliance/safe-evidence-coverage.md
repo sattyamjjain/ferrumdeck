@@ -122,7 +122,10 @@ identity was permitted to do at time T* — is asserted by
 `rust/crates/fd-storage/tests/permission_reconstruction.rs` against a real database, across a policy
 change, which is the case that matters: an agent permitted to write on Monday and not on Tuesday.
 The reconstruction ships as `PoliciesRepo::reconstruct_permissions_at` rather than living in the
-test, because a capability only a test can perform is not a capability an investigator has. Its SQL
+test, because a capability only a test can perform is not a capability an investigator has. CI executes
+that test: it is `#[ignore]`d for the database, and until this branch nothing in CI ran `--ignored`,
+so the assertion existed and had never once been made. The `live-stack-tests` job now runs it
+against the migrated schema and checks each test reported by name. Its SQL
 reads two tables and names neither `agents` nor `runs`, so the answer survives the agent being
 deleted or re-permissioned.
 

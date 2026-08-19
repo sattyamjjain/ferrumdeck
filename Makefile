@@ -137,7 +137,11 @@ test-python:
 
 test-integration:
 	@echo "Running integration tests..."
-	cargo test --workspace -- --ignored
+	# --lib --tests, not a bare `--ignored`: `--ignored` also force-runs the
+	# ```ignore doctest in fd-audit/src/lib.rs, which is illustrative pseudo-code
+	# referencing the `ferrumdeck` umbrella and cannot compile here. Without this
+	# scope the target always failed, so nobody ran it.
+	cargo test --workspace --lib --tests -- --ignored
 	uv run pytest -m integration
 
 # The three suites that issue #6 found were reporting "135 collected, 135

@@ -645,6 +645,38 @@ jobs:
           cat /tmp/gateway.log
           exit 1
 
+      - name: Run the Rust integration tests against the migrated schema
+        # `cargo test --workspace` in the rust-test job does NOT cover these.
+        # All four are `#[ignore]`d because they need a real Postgres, and until
+        # now NOTHING in CI ran `--ignored` -- `make test-integration` is the
+        # only caller and no workflow invokes it. So
+        # `permission_reconstruction.rs`, which asserts the invariant this whole
+        # job family exists to establish (an investigator can answer "what was
+        # this identity permitted to do at time T" from the log alone), had
+        # never once executed in CI. That is the exact defect class the checker
+        # below gates for pytest; it applied to the Rust side too.
+        #
+        # Ordering matters: the schema comes from the migrations the gateway
+        # runs at startup, so this has to follow the readiness wait above.
+        run: |
+          set -o pipefail
+          cargo test --workspace --lib --tests -- --ignored 2>&1 | tee /tmp/rust-integration.log
+
+          # Exit 0 is not evidence of execution. Each of these tests returns
+          # early (passing) when DATABASE_URL is unset, so a misconfigured job
+          # would go green having asserted nothing -- the same vacuous pass the
+          # eval harness was caught doing. Assert each one reported by name.
+          for t in permissions_are_reconstructable_from_the_log_alone_across_a_policy_change \
+                   a_recorded_policy_document_cannot_be_rewritten_under_its_hash \
+                   migrations::tests::log_migration_status_succeeds_against_a_migrated_database \
+                   migrations::tests::migrations_checksum_column_is_bytea; do
+            if ! grep -qF "test $t ... ok" /tmp/rust-integration.log; then
+              echo "::error title=Integration test did not execute::$t did not report a pass. A test that silently skips its precondition is indistinguishable from one that passed."
+              exit 1
+            fi
+          done
+          echo "OK -- 4 Rust integration tests executed against the migrated schema."
+
       - name: Install uv
         uses: astral-sh/setup-uv@v4
         with:
