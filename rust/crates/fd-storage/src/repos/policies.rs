@@ -336,4 +336,138 @@ impl PoliciesRepo {
         .await?;
         Ok(result.rows_affected())
     }
+
+    // =========================================================================
+    // Policy documents — the hash -> document map behind the per-decision
+    // permission record. See db/migrations/20260819000001_add_policy_documents.sql
+    // and fd_policy::permissions.
+    // =========================================================================
+
+    /// Record the policy document that produced a decision, keyed by its own
+    /// content hash. Idempotent: the table is content-addressed, so a repeat
+    /// observation of the same configuration is a no-op rather than an update
+    /// (UPDATE is rejected by trigger).
+    ///
+    /// Called on the decision path, so it must stay a single cheap statement.
+    /// After the first observation of a given configuration this is a primary-key
+    /// probe that writes nothing.
+    #[instrument(skip(self, document))]
+    pub async fn record_policy_document(
+        &self,
+        content_hash: &str,
+        document: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO policy_documents (content_hash, document)
+            VALUES ($1, $2)
+            ON CONFLICT (content_hash) DO NOTHING
+            "#,
+        )
+        .bind(content_hash)
+        .bind(document)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Resolve a policy hash back to the document it commits to.
+    #[instrument(skip(self))]
+    pub async fn get_policy_document(
+        &self,
+        content_hash: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        let row: Option<(serde_json::Value,)> =
+            sqlx::query_as(r#"SELECT document FROM policy_documents WHERE content_hash = $1"#)
+                .bind(content_hash)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|(d,)| d))
+    }
+
+    /// Answer "what was this identity permitted to do at time `at`" from the
+    /// audit log alone.
+    ///
+    /// This is the reconstruction the whole permission record exists to make
+    /// possible, and it is deliberately shipped as a repo method rather than
+    /// living in a test: a capability that only a test can perform is not a
+    /// capability an investigator has.
+    ///
+    /// Note the FROM clause. It reads `audit_events` and `policy_documents` and
+    /// nothing else — no `agents`, no `agent_versions`, no `runs`. That is the
+    /// invariant made executable: if answering this question needed the live
+    /// registry, this query would have to name it. It does not, so the answer
+    /// survives the agent being deleted, re-versioned, or re-permissioned.
+    ///
+    /// Returns the most recent decision at or before `at`. `None` means the
+    /// log contains no decision for that identity by then — which is a real
+    /// answer ("nothing was permitted, because nothing had been decided"), not
+    /// a failure.
+    #[instrument(skip(self))]
+    pub async fn reconstruct_permissions_at(
+        &self,
+        agent_version_id: &str,
+        at: chrono::DateTime<Utc>,
+    ) -> Result<Option<ReconstructedPermissions>, sqlx::Error> {
+        let row: Option<(
+            String,
+            chrono::DateTime<Utc>,
+            String,
+            serde_json::Value,
+            serde_json::Value,
+            serde_json::Value,
+        )> = sqlx::query_as(
+            r#"
+            SELECT ae.id,
+                   ae.occurred_at,
+                   ae.details->'permissions'->>'policy_hash'        AS policy_hash,
+                   ae.details->'permissions'->'identity'            AS identity,
+                   ae.details->'permissions'->'budget_remaining'    AS budget_remaining,
+                   pd.document
+            FROM audit_events ae
+            JOIN policy_documents pd
+              ON pd.content_hash = ae.details->'permissions'->>'policy_hash'
+            WHERE ae.details->'permissions'->'identity'->>'agent_version_id' = $1
+              AND ae.occurred_at <= $2
+            ORDER BY ae.occurred_at DESC, ae.chain_seq DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(agent_version_id)
+        .bind(at)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(
+            |(audit_event_id, decided_at, policy_hash, identity, budget_remaining, document)| {
+                ReconstructedPermissions {
+                    audit_event_id,
+                    decided_at,
+                    policy_hash,
+                    identity,
+                    budget_remaining,
+                    document,
+                }
+            },
+        ))
+    }
+}
+
+/// The answer to "what was this identity permitted to do at time T", rebuilt
+/// from `audit_events` joined to `policy_documents`.
+///
+/// `document` is the full `fd_policy::PolicyDocument` as stored — allowlist,
+/// budget caps and enforcement mode. Callers that depend on `fd-policy` can
+/// deserialize it into the typed form; `fd-storage` deliberately does not, to
+/// keep the persistence layer independent of the policy crate.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ReconstructedPermissions {
+    /// The audit record this answer was derived from, so the claim is citable.
+    pub audit_event_id: String,
+    /// When that decision was made — at or before the requested instant.
+    pub decided_at: chrono::DateTime<Utc>,
+    pub policy_hash: String,
+    pub identity: serde_json::Value,
+    pub budget_remaining: serde_json::Value,
+    pub document: serde_json::Value,
 }

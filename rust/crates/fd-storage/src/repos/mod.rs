@@ -17,7 +17,7 @@ pub mod workflows;
 pub use agents::AgentsRepo;
 pub use api_keys::ApiKeysRepo;
 pub use audit::AuditRepo;
-pub use policies::PoliciesRepo;
+pub use policies::{PoliciesRepo, ReconstructedPermissions};
 pub use projects::ProjectsRepo;
 pub use runs::{RunForecastSnapshot, RunsRepo};
 pub use steps::StepsRepo;

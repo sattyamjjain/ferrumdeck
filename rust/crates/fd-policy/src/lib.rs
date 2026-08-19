@@ -16,6 +16,7 @@ pub mod engine;
 pub mod forecast;
 pub mod harness;
 pub mod lease;
+pub mod permissions;
 pub mod precedence;
 pub mod promotion;
 pub mod reversibility;
@@ -43,6 +44,10 @@ pub use harness::{
     HARNESS_ANCHOR,
 };
 pub use lease::{BudgetLease, LeaseError, SharedBudget, LEASE_ANCHOR};
+pub use permissions::{
+    AllowlistDigest, BudgetRemaining, CanonicalAllowlist, DecisionIdentity, PermissionSnapshot,
+    PolicyDocument, ToolPermission, PERMISSION_SNAPSHOT_SCHEMA, POLICY_DOCUMENT_SCHEMA,
+};
 pub use precedence::{
     precedence_rank, resolve_conflicts, OverrideRecord, PolicyVerdict, ResolvedDecision,
     VerdictKind, PRECEDENCE_LABEL,

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Budget limits for a run
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Budget {
     /// Maximum input tokens allowed
     pub max_input_tokens: Option<u64>,

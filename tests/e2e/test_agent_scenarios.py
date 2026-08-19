@@ -8,9 +8,15 @@ Prerequisites:
 - ANTHROPIC_API_KEY set
 """
 
+import os
 import time
 
 import httpx
+
+# The project the dev seed creates (db/migrations/20241223000002_seed_dev_data.sql).
+# `POST /v1/workflows` requires it; every workflow payload below omitted it and got
+# a 400, so these scenarios never reached the behaviour they were written to test.
+SEED_PROJECT_ID = os.getenv("FD_SEED_PROJECT_ID", "prj_01JFVX0000000000000000001")
 
 
 # ==========================================================================
@@ -19,9 +25,7 @@ import httpx
 class TestSafePRAgentReadRepo:
     """E2E tests for PR agent reading repository."""
 
-    def test_agent_read_repo(
-        self, gateway_client: httpx.Client
-    ) -> None:
+    def test_agent_read_repo(self, gateway_client: httpx.Client) -> None:
         """Test agent reads repo via git tools.
 
         E2E-PR-001: Repository read access
@@ -57,11 +61,12 @@ class TestSafePRAgentReadRepo:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 5,
             "on_error": "fail",
         }
 
-        resp = gateway_client.post("/api/v1/workflows", json=workflow)
+        resp = gateway_client.post("/v1/workflows", json=workflow)
         assert resp.status_code in (200, 201)
 
         if resp.status_code in (200, 201):
@@ -69,7 +74,7 @@ class TestSafePRAgentReadRepo:
 
             # Start the agent
             run_resp = gateway_client.post(
-                "/api/v1/workflow-runs",
+                "/v1/workflow-runs",
                 json={
                     "workflow_id": workflow_id,
                     "input": {"repo_path": "/tmp/test-repo"},
@@ -84,9 +89,7 @@ class TestSafePRAgentReadRepo:
 class TestSafePRAgentAnalyze:
     """E2E tests for PR agent code analysis."""
 
-    def test_agent_analyze_code(
-        self, gateway_client: httpx.Client
-    ) -> None:
+    def test_agent_analyze_code(self, gateway_client: httpx.Client) -> None:
         """Test agent analyzes code and produces report.
 
         E2E-PR-002: Code analysis
@@ -120,11 +123,12 @@ class TestSafePRAgentAnalyze:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 10,
             "on_error": "fail",
         }
 
-        resp = gateway_client.post("/api/v1/workflows", json=workflow)
+        resp = gateway_client.post("/v1/workflows", json=workflow)
         assert resp.status_code in (200, 201, 400, 422)
 
 
@@ -134,9 +138,7 @@ class TestSafePRAgentAnalyze:
 class TestSafePRAgentPropose:
     """E2E tests for PR agent proposing changes."""
 
-    def test_agent_propose_changes(
-        self, gateway_client: httpx.Client
-    ) -> None:
+    def test_agent_propose_changes(self, gateway_client: httpx.Client) -> None:
         """Test agent proposes code changes.
 
         E2E-PR-003: Change proposal
@@ -171,11 +173,12 @@ class TestSafePRAgentPropose:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 10,
             "on_error": "fail",
         }
 
-        resp = gateway_client.post("/api/v1/workflows", json=workflow)
+        resp = gateway_client.post("/v1/workflows", json=workflow)
         assert resp.status_code in (200, 201)
 
         if resp.status_code in (200, 201):
@@ -183,7 +186,7 @@ class TestSafePRAgentPropose:
 
             # Start the workflow
             run_resp = gateway_client.post(
-                "/api/v1/workflow-runs",
+                "/v1/workflow-runs",
                 json={
                     "workflow_id": workflow_id,
                     "input": {"task": "Add error handling to the main function"},
@@ -198,7 +201,7 @@ class TestSafePRAgentPropose:
                 time.sleep(3)
 
                 # Check run status
-                status_resp = gateway_client.get(f"/api/v1/workflow-runs/{run_id}")
+                status_resp = gateway_client.get(f"/v1/workflow-runs/{run_id}")
                 assert status_resp.status_code == 200
 
 
@@ -208,9 +211,7 @@ class TestSafePRAgentPropose:
 class TestSafePRAgentApproval:
     """E2E tests for PR agent approval flow."""
 
-    def test_agent_approval_for_write(
-        self, gateway_client: httpx.Client
-    ) -> None:
+    def test_agent_approval_for_write(self, gateway_client: httpx.Client) -> None:
         """Test agent requires approval before writing.
 
         E2E-PR-004: Write approval gate
@@ -257,11 +258,12 @@ class TestSafePRAgentApproval:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 10,
             "on_error": "fail",
         }
 
-        resp = gateway_client.post("/api/v1/workflows", json=workflow)
+        resp = gateway_client.post("/v1/workflows", json=workflow)
         assert resp.status_code in (200, 201, 400, 422)
 
         if resp.status_code in (200, 201):
@@ -269,7 +271,7 @@ class TestSafePRAgentApproval:
 
             # Start the workflow
             run_resp = gateway_client.post(
-                "/api/v1/workflow-runs",
+                "/v1/workflow-runs",
                 json={"workflow_id": workflow_id, "input": {}},
             )
             assert run_resp.status_code in (200, 201)
@@ -281,7 +283,7 @@ class TestSafePRAgentApproval:
                 time.sleep(2)
 
                 # Check status - should be waiting for approval
-                status_resp = gateway_client.get(f"/api/v1/workflow-runs/{run_id}")
+                status_resp = gateway_client.get(f"/v1/workflow-runs/{run_id}")
                 assert status_resp.status_code == 200
                 # Status could be running, waiting_approval, or still processing
 
@@ -292,9 +294,7 @@ class TestSafePRAgentApproval:
 class TestSafePRAgentCreatePR:
     """E2E tests for PR agent creating pull requests."""
 
-    def test_agent_create_pr(
-        self, gateway_client: httpx.Client
-    ) -> None:
+    def test_agent_create_pr(self, gateway_client: httpx.Client) -> None:
         """Test agent creates PR after approval.
 
         E2E-PR-005: PR creation
@@ -331,11 +331,12 @@ class TestSafePRAgentCreatePR:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 10,
             "on_error": "fail",
         }
 
-        resp = gateway_client.post("/api/v1/workflows", json=workflow)
+        resp = gateway_client.post("/v1/workflows", json=workflow)
         # May succeed or fail based on tool availability
         assert resp.status_code in (200, 201, 400, 422)
 
@@ -346,9 +347,7 @@ class TestSafePRAgentCreatePR:
 class TestSafePRAgentBlockDangerous:
     """E2E tests for PR agent blocking dangerous operations."""
 
-    def test_agent_block_dangerous(
-        self, gateway_client: httpx.Client
-    ) -> None:
+    def test_agent_block_dangerous(self, gateway_client: httpx.Client) -> None:
         """Test dangerous operations are blocked.
 
         E2E-PR-006: Dangerous operation blocking
@@ -373,11 +372,12 @@ class TestSafePRAgentBlockDangerous:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 10,
             "on_error": "fail",
         }
 
-        resp = gateway_client.post("/api/v1/workflows", json=workflow)
+        resp = gateway_client.post("/v1/workflows", json=workflow)
         # Should be blocked by policy or Airlock
         assert resp.status_code in (200, 201, 400, 403, 422)
 
@@ -386,7 +386,7 @@ class TestSafePRAgentBlockDangerous:
 
             # Try to run - should fail at policy check
             run_resp = gateway_client.post(
-                "/api/v1/workflow-runs",
+                "/v1/workflow-runs",
                 json={"workflow_id": workflow_id, "input": {}},
             )
 
@@ -397,7 +397,7 @@ class TestSafePRAgentBlockDangerous:
                 time.sleep(2)
 
                 # Check status - should be failed or policy_blocked
-                status_resp = gateway_client.get(f"/api/v1/workflow-runs/{run_id}")
+                status_resp = gateway_client.get(f"/v1/workflow-runs/{run_id}")
                 assert status_resp.status_code == 200
                 status = status_resp.json()["status"]
                 # Should be blocked
@@ -410,9 +410,7 @@ class TestSafePRAgentBlockDangerous:
                     "cancelled",
                 )
 
-    def test_agent_block_rce_pattern(
-        self, gateway_client: httpx.Client
-    ) -> None:
+    def test_agent_block_rce_pattern(self, gateway_client: httpx.Client) -> None:
         """Test RCE patterns are blocked by Airlock."""
         workflow = {
             "name": "pr-agent-rce-test",
@@ -434,17 +432,16 @@ class TestSafePRAgentBlockDangerous:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 10,
             "on_error": "fail",
         }
 
-        resp = gateway_client.post("/api/v1/workflows", json=workflow)
+        resp = gateway_client.post("/v1/workflows", json=workflow)
         # Should be flagged by Airlock
         assert resp.status_code in (200, 201, 400, 403, 422)
 
-    def test_agent_block_data_exfil(
-        self, gateway_client: httpx.Client
-    ) -> None:
+    def test_agent_block_data_exfil(self, gateway_client: httpx.Client) -> None:
         """Test data exfiltration attempts are blocked."""
         workflow = {
             "name": "pr-agent-exfil-test",
@@ -468,11 +465,12 @@ class TestSafePRAgentBlockDangerous:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 10,
             "on_error": "fail",
         }
 
-        resp = gateway_client.post("/api/v1/workflows", json=workflow)
+        resp = gateway_client.post("/v1/workflows", json=workflow)
         # Should be flagged by Airlock (raw IP, suspicious endpoint)
         assert resp.status_code in (200, 201, 400, 403, 422)
 
@@ -483,9 +481,7 @@ class TestSafePRAgentBlockDangerous:
 class TestAgentErrorRecovery:
     """E2E tests for agent error recovery."""
 
-    def test_agent_retry_on_failure(
-        self, gateway_client: httpx.Client
-    ) -> None:
+    def test_agent_retry_on_failure(self, gateway_client: httpx.Client) -> None:
         """Test agent retries on transient failures."""
         workflow = {
             "name": "agent-retry-test",
@@ -509,20 +505,19 @@ class TestAgentErrorRecovery:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 10,
             "on_error": "fail",
         }
 
-        resp = gateway_client.post("/api/v1/workflows", json=workflow)
+        resp = gateway_client.post("/v1/workflows", json=workflow)
         assert resp.status_code in (200, 201)
 
 
 class TestAgentContextPassing:
     """E2E tests for context passing between steps."""
 
-    def test_context_passed_between_steps(
-        self, gateway_client: httpx.Client
-    ) -> None:
+    def test_context_passed_between_steps(self, gateway_client: httpx.Client) -> None:
         """Test that context is passed between workflow steps."""
         workflow = {
             "name": "context-passing-test",
@@ -554,11 +549,12 @@ class TestAgentContextPassing:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 10,
             "on_error": "fail",
         }
 
-        resp = gateway_client.post("/api/v1/workflows", json=workflow)
+        resp = gateway_client.post("/v1/workflows", json=workflow)
         assert resp.status_code in (200, 201)
 
         if resp.status_code in (200, 201):
@@ -566,7 +562,7 @@ class TestAgentContextPassing:
 
             # Start the workflow
             run_resp = gateway_client.post(
-                "/api/v1/workflow-runs",
+                "/v1/workflow-runs",
                 json={"workflow_id": workflow_id, "input": {}},
             )
             assert run_resp.status_code in (200, 201)
@@ -578,16 +574,14 @@ class TestAgentContextPassing:
                 time.sleep(5)
 
                 # Verify steps were executed
-                steps_resp = gateway_client.get(f"/api/v1/workflow-runs/{run_id}/steps")
+                steps_resp = gateway_client.get(f"/v1/workflow-runs/{run_id}/steps")
                 assert steps_resp.status_code == 200
 
 
 class TestAgentLoopDetection:
     """E2E tests for agent loop detection."""
 
-    def test_agent_loop_detection(
-        self, gateway_client: httpx.Client
-    ) -> None:
+    def test_agent_loop_detection(self, gateway_client: httpx.Client) -> None:
         """Test that infinite loops are detected and killed."""
         workflow = {
             "name": "loop-detection-test",
@@ -608,11 +602,12 @@ class TestAgentLoopDetection:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 3,  # Low iteration limit
             "on_error": "fail",
         }
 
-        resp = gateway_client.post("/api/v1/workflows", json=workflow)
+        resp = gateway_client.post("/v1/workflows", json=workflow)
         assert resp.status_code in (200, 201)
 
         if resp.status_code in (200, 201):
@@ -620,7 +615,7 @@ class TestAgentLoopDetection:
 
             # Start the workflow
             run_resp = gateway_client.post(
-                "/api/v1/workflow-runs",
+                "/v1/workflow-runs",
                 json={"workflow_id": workflow_id, "input": {"task": "Keep working forever"}},
             )
             assert run_resp.status_code in (200, 201)
@@ -632,7 +627,7 @@ class TestAgentLoopDetection:
                 time.sleep(10)
 
                 # Check status - should be stopped
-                status_resp = gateway_client.get(f"/api/v1/workflow-runs/{run_id}")
+                status_resp = gateway_client.get(f"/v1/workflow-runs/{run_id}")
                 assert status_resp.status_code == 200
                 status = status_resp.json()["status"]
                 # Should be stopped due to iteration limit

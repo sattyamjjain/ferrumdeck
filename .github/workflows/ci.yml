@@ -544,6 +544,178 @@ jobs:
           echo "| Backwards Compatibility (API-BWD) | ✅ |" >> $GITHUB_STEP_SUMMARY
 
   # =============================================================================
+  # Live-stack tests — issue #6.
+  #
+  # tests/security, tests/chaos and tests/e2e reported "135 collected, 135
+  # skipped, 0 run". chaos and e2e appeared in NO workflow at all; security ran
+  # only inside a `|| true` step in python-test, with no gateway behind it. All
+  # three were green and none had asserted anything.
+  #
+  # This job stands a real stack up and gates on tests that actually EXECUTED.
+  # `scripts/check_live_stack_results.py` fails on: executed below the floor (a
+  # cliff detector, same shape as the collection floor in python-test), any
+  # undeclared failure, and any declared failure that has started passing. The
+  # exemptions live in `.live-stack-known-failures.yml` and each carries a real
+  # diagnosis -- that is the difference between this and `|| true`.
+  #
+  # No ANTHROPIC_API_KEY and no worker: the LLM-backed agent scenarios are
+  # declared in that file rather than pretended at. This job asserts the
+  # enforcement surface, which needs neither.
+  # =============================================================================
+  live-stack-tests:
+    name: Live-Stack Tests
+    runs-on: ubuntu-latest
+    needs: rust-check
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ferrumdeck
+          POSTGRES_PASSWORD: ferrumdeck
+          POSTGRES_DB: ferrumdeck
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://ferrumdeck:ferrumdeck@localhost:5432/ferrumdeck
+      REDIS_URL: redis://localhost:6379
+      GATEWAY_URL: http://localhost:8080
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-livestack-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build the gateway
+        run: cargo build -p gateway
+
+      - name: Boot the gateway (migrations + dev seed run on startup)
+        run: |
+          # Dev rate limits: several security tests make bursts, and the
+          # production default would rate-limit them into false failures.
+          RUST_LOG=warn \
+          RATE_LIMIT_PER_MINUTE=1000 \
+          PRE_AUTH_RATE_LIMIT_PER_MINUTE=500 \
+          GATEWAY_PORT=8080 \
+            ./target/debug/gateway > /tmp/gateway.log 2>&1 &
+          echo $! > /tmp/gateway.pid
+
+      - name: Wait for the gateway to be ready
+        run: |
+          # The readiness probe is the thing that broke last time: the suites
+          # polled /health/live, which the gateway does not serve, so they
+          # skipped unconditionally against a healthy stack. Probe the route
+          # that actually exists, and fail loudly rather than proceeding to a
+          # skipped run.
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/health >/dev/null 2>&1; then
+              echo "gateway ready after ${i}s"
+              curl -fsS http://localhost:8080/ready || true
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error title=Gateway never became ready::/health did not answer within 60s"
+          cat /tmp/gateway.log
+          exit 1
+
+      - name: Run the Rust integration tests against the migrated schema
+        # `cargo test --workspace` in the rust-test job does NOT cover these.
+        # All four are `#[ignore]`d because they need a real Postgres, and until
+        # now NOTHING in CI ran `--ignored` -- `make test-integration` is the
+        # only caller and no workflow invokes it. So
+        # `permission_reconstruction.rs`, which asserts the invariant this whole
+        # job family exists to establish (an investigator can answer "what was
+        # this identity permitted to do at time T" from the log alone), had
+        # never once executed in CI. That is the exact defect class the checker
+        # below gates for pytest; it applied to the Rust side too.
+        #
+        # Ordering matters: the schema comes from the migrations the gateway
+        # runs at startup, so this has to follow the readiness wait above.
+        run: |
+          set -o pipefail
+          cargo test --workspace --lib --tests -- --ignored 2>&1 | tee /tmp/rust-integration.log
+
+          # Exit 0 is not evidence of execution. Each of these tests returns
+          # early (passing) when DATABASE_URL is unset, so a misconfigured job
+          # would go green having asserted nothing -- the same vacuous pass the
+          # eval harness was caught doing. Assert each one reported by name.
+          for t in permissions_are_reconstructable_from_the_log_alone_across_a_policy_change \
+                   a_recorded_policy_document_cannot_be_rewritten_under_its_hash \
+                   migrations::tests::log_migration_status_succeeds_against_a_migrated_database \
+                   migrations::tests::migrations_checksum_column_is_bytea; do
+            if ! grep -qF "test $t ... ok" /tmp/rust-integration.log; then
+              echo "::error title=Integration test did not execute::$t did not report a pass. A test that silently skips its precondition is indistinguishable from one that passed."
+              exit 1
+            fi
+          done
+          echo "OK -- 4 Rust integration tests executed against the migrated schema."
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-packages
+
+      - name: Run the live-stack suites
+        # Not `|| true`, and not a bare pytest either: pytest's exit code is
+        # non-zero for the declared failures, so the verdict belongs to the
+        # checker below, which knows which failures are declared.
+        run: |
+          uv run pytest tests/security tests/chaos tests/e2e \
+            -v --tb=short --junitxml=live-stack-results.xml || true
+
+      - name: Assert the suites actually executed, and only known failures failed
+        run: uv run python scripts/check_live_stack_results.py --junit live-stack-results.xml
+
+      - name: Gateway log (on failure)
+        if: failure()
+        run: tail -200 /tmp/gateway.log || true
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-stack-results
+          path: live-stack-results.xml
+          retention-days: 7
+
+      - name: Stop the gateway
+        if: always()
+        run: kill "$(cat /tmp/gateway.pid)" 2>/dev/null || true
+
+  # =============================================================================
   # Deterministic governance regression gate — runs on EVERY push + PR (the
   # workflow's push/pull_request triggers), with NO services and NO secrets.
   # It fails the build the moment a golden fixture or a real-engine pin
@@ -730,7 +902,7 @@ jobs:
   test-summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: [rust-test, python-test, nextjs-test, api-contract-tests]
+    needs: [rust-test, python-test, nextjs-test, api-contract-tests, live-stack-tests]
     if: always()
     steps:
       - name: Download test artifacts
@@ -752,6 +924,7 @@ jobs:
           echo "| Python Tests | ${{ needs.python-test.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend Tests | ${{ needs.nextjs-test.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| API Contract Tests | ${{ needs.api-contract-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Live-Stack Tests | ${{ needs.live-stack-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Expected Test Counts" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

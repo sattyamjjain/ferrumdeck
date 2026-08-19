@@ -869,7 +869,7 @@ pub async fn get_routing(
 }
 
 /// Submit step result (from worker)
-#[instrument(skip(state, _auth), fields(
+#[instrument(skip(state, auth), fields(
     run_id = %run_id,
     step_id = %step_id,
     ferrumdeck.reliability.claim_grounding_rate = tracing::field::Empty,
@@ -879,7 +879,7 @@ pub async fn get_routing(
 ))]
 pub async fn submit_step_result(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthContext>,
+    Extension(auth): Extension<AuthContext>,
     Path((run_id, step_id)): Path<(String, String)>,
     ValidatedJson(request): ValidatedJson<SubmitStepResultRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -1286,6 +1286,30 @@ pub async fn submit_step_result(
             .await?;
 
         if coherence_gated {
+            // Opening the gate is what makes this a control rather than a
+            // status. Setting the run to WaitingApproval (above) parks it, but
+            // without an approval request there is nothing for a human to act
+            // on and no record that a human was ever asked.
+            if let Err(e) = crate::handlers::approvals::open_approval_gate(
+                &state,
+                crate::handlers::approvals::ApprovalGateRequest {
+                    run_id: &run_id,
+                    step_id: &step_id,
+                    project_id: &run.project_id,
+                    tenant_id: &auth.tenant_id,
+                    action_type: "coherence_divergence",
+                    reason: "coherence divergence — human review required (enforce mode)",
+                    action_details: serde_json::json!({
+                        "step_id": step_id,
+                        "coherence_divergence_flagged": coherence_flagged,
+                        "response_level": coherence_level.map(|l| l.as_str()),
+                    }),
+                },
+            )
+            .await
+            {
+                warn!(run_id = %run_id, error = ?e, "Failed to open approval gate for coherence divergence");
+            }
             info!(run_id = %run_id, "Run gated for human review (coherence divergence, enforce mode)");
         } else {
             // Audit: Run completed
@@ -1342,6 +1366,30 @@ pub async fn submit_step_result(
             .runs()
             .update_status(&run_id, RunStatus::WaitingApproval, None)
             .await?;
+
+        // Same reason as the coherence branch: a run parked in WaitingApproval
+        // with no approval_requests row is a run nobody can unblock, and an
+        // escalation nothing recorded.
+        if let Err(e) = crate::handlers::approvals::open_approval_gate(
+            &state,
+            crate::handlers::approvals::ApprovalGateRequest {
+                run_id: &run_id,
+                step_id: &step_id,
+                project_id: &run.project_id,
+                tenant_id: &auth.tenant_id,
+                action_type: "step_requires_approval",
+                reason: "step reported WaitingApproval — human review required",
+                action_details: serde_json::json!({
+                    "step_id": step_id,
+                    "step_type": format!("{:?}", updated_step.step_type).to_lowercase(),
+                    "tool_name": updated_step.tool_name,
+                }),
+            },
+        )
+        .await
+        {
+            warn!(run_id = %run_id, error = ?e, "Failed to open approval gate for step");
+        }
 
         info!(run_id = %run_id, step_id = %step_id, "Run waiting for approval");
     }
@@ -1661,13 +1709,72 @@ pub async fn check_tool_policy(
     }
 
     // Step 5: Audit the policy decision
-    let audit_action = if decision.is_allowed() {
-        action::POLICY_ALLOWED
-    } else if decision.needs_approval() {
-        action::POLICY_APPROVAL_REQUIRED
-    } else {
-        action::POLICY_DENIED
+    //
+    // Derived from `combined_kind`, the EFFECTIVE decision, not from the raw
+    // allowlist verdict in `decision`. Those differ whenever the reversibility
+    // ladder escalates -- an `Allow` from the allowlist that the R3 rung gates
+    // for approval. Keying off `decision.is_allowed()` (as this did) wrote
+    // `policy.allowed` for a call that was actually held for a human, so the
+    // indexed action field said the opposite of what happened and
+    // `policy.approval_required` had never once been written. `details` carried
+    // `effective_decision` and was right, but `action` is the field that gets
+    // filtered and read. See docs/compliance/safe-evidence-coverage.md.
+    let audit_action = match combined_kind {
+        fd_policy::PolicyDecisionKind::Allow | fd_policy::PolicyDecisionKind::AllowWithWarning => {
+            action::POLICY_ALLOWED
+        }
+        fd_policy::PolicyDecisionKind::RequiresApproval => action::POLICY_APPROVAL_REQUIRED,
+        fd_policy::PolicyDecisionKind::Deny => action::POLICY_DENIED,
     };
+
+    // The permissions and credentials in force at this instant (SAFE evidence
+    // class "permissions and credentials available during the run"). The
+    // document -- allowlist, budget caps, enforcement mode -- is stored once
+    // under its own content hash; the decision record carries the hash, the
+    // identity, and the budget remaining as quantities. See
+    // fd_policy::permissions for why the hash rather than the document.
+    let policy_document = fd_policy::PolicyDocument::new(
+        &allowlist,
+        &effective_budget,
+        if airlock_result.shadow_mode {
+            "shadow"
+        } else {
+            "enforce"
+        },
+    );
+    let (permission_snapshot, policy_hash) = fd_policy::PermissionSnapshot::new(
+        fd_policy::DecisionIdentity {
+            tenant_id: auth.tenant_id.clone(),
+            project_id: run.project_id.clone(),
+            agent_id: agent_version.as_ref().map(|av| av.agent_id.clone()),
+            agent_version_id: run.agent_version_id.clone(),
+            run_id: run_id.clone(),
+            api_key_id: Some(auth.api_key_id.clone()),
+        },
+        &policy_document,
+        &usage,
+    );
+    // Persist the hash -> document mapping before the record that references
+    // it. Idempotent, and a primary-key probe after the first observation of a
+    // given configuration. A failure here is logged at ERROR and does NOT block
+    // the decision: enforcement must not depend on evidence storage. The
+    // failure mode is a hash that resolves to nothing, which
+    // `reconstruct_permissions_at` reports as a miss rather than silently
+    // answering from stale data.
+    if let Ok(doc_json) = serde_json::to_value(&policy_document) {
+        if let Err(e) = repos
+            .policies()
+            .record_policy_document(&policy_hash, &doc_json)
+            .await
+        {
+            tracing::error!(
+                error = %e,
+                policy_hash = %policy_hash,
+                "Failed to record the policy document behind a decision; the audit \
+                 record will reference a hash that does not resolve"
+            );
+        }
+    }
 
     let mut audit_details = serde_json::json!({
         "tool_name": request.tool_name,
@@ -1680,6 +1787,7 @@ pub async fn check_tool_policy(
         "budget_headroom": has_headroom,
         "airlock_risk_score": airlock_result.risk_score,
         "airlock_blocked": !airlock_result.allowed,
+        "permissions": permission_snapshot,
     });
     // MCP SEP-414: record the extracted W3C trace linkage on the persisted
     // decision record so an audit query can join this policy decision to its

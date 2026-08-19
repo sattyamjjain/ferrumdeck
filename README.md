@@ -65,7 +65,7 @@ Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_
 
 The enforcement engine is published — you can depend on it, not just clone it. One dependency via the umbrella crate:
 
-> **Current version: `v0.8.8`.** <!-- x-current-version: 0.8.8 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
+> **Current version: `v0.8.9`.** <!-- x-current-version: 0.8.9 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
 
 ```bash
 cargo add ferrumdeck
@@ -254,6 +254,21 @@ FerrumDeck is an **early-stage / alpha** project, built primarily by a single
 maintainer. It is a real, working control plane — but it is not yet
 production-hardened. This is an honest map of what enforces **today** vs. what is
 **scaffolded or on the roadmap**, so you can evaluate it without surprises.
+
+### The CRA clock
+
+**EU Cyber Resilience Act Article 14 reporting obligations begin 2026-09-11**: a
+24-hour early warning, a 72-hour notification and a 14-day final report, filed to
+the coordinating CSIRT and ENISA through the Single Reporting Platform. Those
+windows are short enough that the evidence has to already exist when the clock
+starts — which is what FerrumDeck's hash-chained audit log is designed to
+produce: an ordered, tamper-evident record of what an agent was permitted to do,
+what it attempted, what was blocked, and who approved what and how long they
+took. **FerrumDeck does not file anything, does not notify anyone, and is not a
+compliance product.** It produces evidence; deciding whether an incident is
+reportable, and reporting it, stays with the operator. Which evidence classes the
+log actually covers — and, more usefully, which it does not — is set out per class
+in [`docs/compliance/safe-evidence-coverage.md`](docs/compliance/safe-evidence-coverage.md).
 
 **Implemented and enforced (covered by the Rust test suite):**
 

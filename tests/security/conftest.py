@@ -20,6 +20,12 @@ from collections.abc import Generator
 import httpx
 import pytest
 
+# The project the dev seed creates (db/migrations/20241223000002_seed_dev_data.sql).
+# `POST /v1/workflows` requires it; every workflow payload below omitted it and got
+# a 400, so these scenarios never reached the behaviour they were written to test.
+SEED_PROJECT_ID = os.getenv("FD_SEED_PROJECT_ID", "prj_01JFVX0000000000000000001")
+
+
 # Test configuration
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8080")
 # The seeded dev key (db/migrations/20241223000002_seed_dev_data.sql), scopes
@@ -52,9 +58,7 @@ def wait_for_service(url: str, timeout: int = 30) -> bool:
 def ensure_services_running() -> None:
     """Ensure required services are running before security tests."""
     if not wait_for_service(GATEWAY_URL, timeout=5):
-        pytest.skip(
-            "Gateway service not running. Start with: make quickstart"
-        )
+        pytest.skip("Gateway service not running. Start with: make quickstart")
 
 
 @pytest.fixture(scope="session")
@@ -124,8 +128,7 @@ def created_run(api_client: httpx.Client) -> str:
         json={"agent_id": SEED_AGENT_ID, "input": {"task": "security-test"}},
     )
     assert resp.status_code in (200, 201), (
-        f"could not create run for the seeded agent {SEED_AGENT_ID}: "
-        f"{resp.status_code} {resp.text}"
+        f"could not create run for the seeded agent {SEED_AGENT_ID}: {resp.status_code} {resp.text}"
     )
     run_id = resp.json()["id"]
     assert run_id
@@ -178,6 +181,7 @@ def simple_workflow() -> dict:
                 },
             ],
         },
+        "project_id": SEED_PROJECT_ID,
         "max_iterations": 5,
         "on_error": "fail",
     }

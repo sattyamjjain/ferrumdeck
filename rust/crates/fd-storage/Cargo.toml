@@ -42,6 +42,12 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
+# Path-only dev-dep (stripped from any published manifest) for the
+# permission-reconstruction integration test, which needs the typed
+# PolicyDocument to prove the stored JSON round-trips. fd-storage deliberately
+# does NOT depend on fd-policy at build time -- persistence stays independent
+# of the policy crate; only the test asserts across the boundary.
+fd-policy = { path = "../fd-policy", package = "ferrumdeck-policy" }
 # Path-only dev-dep (stripped from any published manifest) for the end-to-end
 # test that an extracted W3C trace-id lands on the persisted decision record.
 fd-otel = { path = "../fd-otel" }

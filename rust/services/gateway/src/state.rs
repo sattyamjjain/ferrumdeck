@@ -47,6 +47,15 @@ pub struct AppState {
     /// is never gated. Mirrors the Airlock shadow/enforce convention.
     pub coherence_enforce: bool,
 
+    /// How long a human has to act on an approval gate before it expires
+    /// (`FERRUMDECK_APPROVAL_TTL_SECS`, default 3600).
+    ///
+    /// The deadline is recorded on the escalation audit event, so a reader can
+    /// tell an approval that expired against a 60-second window from one that
+    /// expired against a day-long one. Those are different facts about the
+    /// control even though both end in `approval.expired`.
+    pub approval_ttl_secs: i64,
+
     /// Queue client for job publishing (lock-free, uses multiplexed connection)
     pub queue: Arc<QueueClient>,
 
@@ -284,6 +293,12 @@ impl AppState {
         );
         let coherence = Arc::new(CoherenceMonitor::new());
 
+        let approval_ttl_secs = std::env::var("FERRUMDECK_APPROVAL_TTL_SECS")
+            .ok()
+            .and_then(|v| v.parse::<i64>().ok())
+            .filter(|v| *v > 0)
+            .unwrap_or(3600);
+
         // Create rate limiter
         let rate_limiter = create_rate_limiter();
 
@@ -298,6 +313,7 @@ impl AppState {
             coherence,
             coherence_config,
             coherence_enforce,
+            approval_ttl_secs,
             queue: Arc::new(queue),
             rate_limiter,
             oauth2_validator,
