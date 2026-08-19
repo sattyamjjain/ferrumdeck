@@ -1,0 +1,160 @@
+# Declared exemptions for the live-stack suites (tests/security, tests/chaos, tests/e2e).
+#
+# WHY THIS FILE EXISTS
+#   Issue #6: these three suites reported "135 collected, 135 skipped, 0 run".
+#   tests/chaos and tests/e2e appeared in no workflow at all, and tests/security
+#   ran only inside a `|| true` step with no stack behind it. A suite that never
+#   executes looks exactly like a suite that passes.
+#
+#   The fix is a real gate, not a louder `|| true`. `scripts/check_live_stack_results.py`
+#   fails the build when:
+#     * fewer than `floor.executed` tests actually EXECUTED (a cliff detector, not
+#       a ratchet -- the same shape as the collection floor in ci.yml);
+#     * any test failed that is not declared below;
+#     * any non-flaky entry below PASSED, so this list cannot quietly become
+#       permanent.
+#
+#   Every entry names a real, reproduced reason. None of them is "this one is
+#   annoying". Several are genuine product findings that this branch chose to
+#   record rather than silently change -- see docs/compliance/safe-evidence-coverage.md.
+#
+# HOW TO REMOVE AN ENTRY
+#   Fix the underlying issue, delete the line, and the stale-declaration check
+#   confirms it. Do not edit `floor.executed` downward to make a red build green.
+
+floor:
+  # Measured 76-80 executed across repeated local runs against `make dev-up`
+  # (135 collected, ~55-59 skipped: LLM-dependent scenarios and the
+  # separately-seeded multi-tenant cases skip honestly).
+  #
+  # Set below the observed range on purpose. This is a CLIFF DETECTOR: it
+  # catches the failure mode that actually happened -- the stack not coming up,
+  # the readiness probe pointing at a route the gateway does not serve, the API
+  # key not being seeded -- all of which collapse the executed count to ~0. It
+  # is deliberately not a high-water mark, because a ratchet on a number that
+  # legitimately varies produces false failures and gets the gate deleted.
+  executed: 70
+
+known_failures:
+  # ---------------------------------------------------------------------------
+  # Anti-RCE layer (Airlock Layer 1) is name-matched, and the seeded tools are
+  # not on the list. `RcePatternMatcher::should_inspect` tests the tool name
+  # against `RceConfig::target_tools`, whose default is eight literal names
+  # (write_file, create_file, create_or_update_file, python_repl, bash,
+  # execute_command, run_script, shell). The dev seed registers git_read,
+  # git_write, test_run and github_create_pr -- none of which match -- so on a
+  # seeded stack Layer 1 inspects nothing.
+  #
+  # Changing that default is a security-posture decision with real blast radius
+  # (false positives and latency on every tool), so this branch records it
+  # rather than making the call. It was masked until now: every seeded tool was
+  # `irreversible`, so the R3 gate refused the call before the miss was visible.
+  # ---------------------------------------------------------------------------
+  - test: "tests/security/test_audit_trail.py::TestDeniedToolCallIsBlockedAndRecorded::test_denied_tool_call_never_executes_and_is_recorded"
+    reason: >-
+      An RCE payload sent to `git_write` is authorized (allowed=true,
+      risk_score=0). Layer 1 never inspects it because "git_write" is not in
+      RceConfig::target_tools. Real finding; needs a posture decision.
+    issue: 6
+
+  - test: "tests/security/test_policy_engine.py::TestDenyByDefault::test_allowlisted_tool_has_no_false_positive_violation"
+    reason: >-
+      KeyError 'violation_type'. The check-tool response omits the key entirely
+      when there is no violation; the test indexes it unconditionally. Response
+      shape vs test expectation -- decide which is the contract before changing
+      either.
+    issue: 6
+
+  - test: "tests/security/test_airlock.py::TestRcePatternsDetected::test_rce_payload_is_flagged[pickle]"
+    reason: >-
+      Pattern-coverage gap: the pickle deserialization payload is not matched by
+      the built-in anti-RCE pattern set. The other parametrized cases in this
+      class pass, so the layer works -- this specific pattern is missing.
+    issue: 6
+
+  - test: "tests/security/test_input_validation.py::TestCommandInjectionDetected::test_command_injection_is_flagged[newline]"
+    reason: >-
+      Pattern-coverage gap: newline-separated command injection is not matched.
+      Sibling parametrized cases pass.
+    issue: 6
+
+  # ---------------------------------------------------------------------------
+  # Input validation reaching the database
+  # ---------------------------------------------------------------------------
+  - test: "tests/security/test_policy_engine.py::TestPolicyBypassAttempt::test_crafted_tool_name_is_denied[git_read\\x00execute_shell]"
+    reason: >-
+      A NUL byte in the tool name reaches Postgres and returns 500
+      ("invalid byte sequence for encoding UTF8: 0x00", SQLSTATE 22021) instead
+      of a clean deny. A bypass attempt should be refused, not crash the
+      handler. Real input-validation defect.
+    issue: 6
+
+  - test: "tests/security/test_input_validation.py::TestOversizedPayloadRejected::test_reasonable_payload_accepted"
+    reason: >-
+      Asserts a reasonable payload is accepted on an endpoint that requires
+      fields the payload does not carry; returns 400 BAD_REQUEST. Test needs
+      rewriting against the real contract.
+    issue: 6
+
+  # ---------------------------------------------------------------------------
+  # Test-side defects (the gateway behaves correctly)
+  # ---------------------------------------------------------------------------
+  - test: "tests/security/test_authentication.py::TestInvalidKeyBlocked::test_empty_bearer_token"
+    reason: >-
+      httpx refuses to send the header client-side
+      (LocalProtocolError: Illegal header value b'Bearer '), so the request
+      never reaches the gateway. The test must construct the empty-credential
+      case differently; it is not exercising the server today.
+    issue: 6
+
+  - test: "tests/security/test_authentication.py::TestWriteOnlyEndpoint::test_write_only_endpoint"
+    reason: >-
+      Asserts 200 from an endpoint the gateway does not serve (404). Either the
+      route was never built or the test targets the wrong path.
+    issue: 6
+
+  - test: "tests/security/test_authentication.py::TestBruteForceProtection::test_rate_limit_recovery"
+    reason: >-
+      Depends on the rate-limit window and on how many requests earlier tests in
+      the session already spent, so it passes or fails depending on ordering.
+      Needs an isolated limiter or a dedicated key before it can gate anything.
+    flaky: true
+    issue: 6
+
+  # ---------------------------------------------------------------------------
+  # Chaos: needs container control the CI job does not grant
+  # ---------------------------------------------------------------------------
+  - test: "tests/chaos/test_recovery.py::TestPolicyDecisionSurvivesRecovery::test_decision_is_identical_before_and_after_postgres_recovery"
+    reason: >-
+      Stops and restarts the Postgres container by name
+      (POSTGRES_CONTAINER, default ferrumdeck-postgres-1). Under GitHub Actions
+      `services:` the container is not named that and is not stoppable from the
+      job, so the fault is never injected. Genuinely needs a compose-based stack
+      to run; keeping it declared rather than deleted so the gap stays visible.
+    issue: 6
+
+  # ---------------------------------------------------------------------------
+  # E2E agent scenarios: need a worker actually executing steps (LLM-backed)
+  # ---------------------------------------------------------------------------
+  - test: "tests/e2e/test_agent_runs.py::TestRunTimeout::test_run_timeout"
+    reason: >-
+      Waits for a run to reach a terminal state within a timeout. Requires a
+      worker executing LLM steps; without ANTHROPIC_API_KEY the run never
+      advances and the assertion times out rather than skipping.
+    issue: 6
+
+  - test: "tests/e2e/test_agent_scenarios.py::TestSafePRAgentReadRepo::test_agent_read_repo"
+    reason: "Full agent scenario; needs a worker executing LLM steps end to end."
+    issue: 6
+  - test: "tests/e2e/test_agent_scenarios.py::TestSafePRAgentPropose::test_agent_propose_changes"
+    reason: "Full agent scenario; needs a worker executing LLM steps end to end."
+    issue: 6
+  - test: "tests/e2e/test_agent_scenarios.py::TestAgentErrorRecovery::test_agent_retry_on_failure"
+    reason: "Full agent scenario; needs a worker executing LLM steps end to end."
+    issue: 6
+  - test: "tests/e2e/test_agent_scenarios.py::TestAgentContextPassing::test_context_passed_between_steps"
+    reason: "Full agent scenario; needs a worker executing LLM steps end to end."
+    issue: 6
+  - test: "tests/e2e/test_agent_scenarios.py::TestAgentLoopDetection::test_agent_loop_detection"
+    reason: "Full agent scenario; needs a worker executing LLM steps end to end."
+    issue: 6

@@ -8,6 +8,12 @@ from collections.abc import Generator
 import httpx
 import pytest
 
+# The project the dev seed creates (db/migrations/20241223000002_seed_dev_data.sql).
+# `POST /v1/workflows` requires it; every workflow payload below omitted it and got
+# a 400, so these scenarios never reached the behaviour they were written to test.
+SEED_PROJECT_ID = os.getenv("FD_SEED_PROJECT_ID", "prj_01JFVX0000000000000000001")
+
+
 # Test configuration
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8080")
 # The seeded dev key (db/migrations/20241223000002_seed_dev_data.sql). The old
@@ -87,6 +93,7 @@ def simple_workflow() -> dict:
                 },
             ],
         },
+        "project_id": SEED_PROJECT_ID,
         "max_iterations": 5,
         "on_error": "fail",
     }

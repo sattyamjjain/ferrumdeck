@@ -1,7 +1,7 @@
 # FerrumDeck - Development Makefile
 # ================================
 
-.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image eval-health eval-health-check check-suite-reachability check-route-backing reproduce-readme-figures
+.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image eval-health eval-health-check check-suite-reachability check-route-backing reproduce-readme-figures test-live-stack
 
 # Default target
 help:
@@ -139,6 +139,17 @@ test-integration:
 	@echo "Running integration tests..."
 	cargo test --workspace -- --ignored
 	uv run pytest -m integration
+
+# The three suites that issue #6 found were reporting "135 collected, 135
+# skipped, 0 run". Needs a stack: `make dev-up` (or `make quickstart`) first.
+# The verdict is the checker's, not pytest's -- pytest exits non-zero for the
+# failures declared in .live-stack-known-failures.yml, and the checker is what
+# knows which of those are expected. CI runs the same two commands in the
+# `live-stack-tests` job.
+test-live-stack:
+	@echo "Running live-stack suites (security, chaos, e2e) against $${GATEWAY_URL:-http://localhost:8080}..."
+	-uv run pytest tests/security tests/chaos tests/e2e --tb=short --junitxml=live-stack-results.xml
+	uv run python scripts/check_live_stack_results.py --junit live-stack-results.xml
 
 # =============================================================================
 # Code Quality

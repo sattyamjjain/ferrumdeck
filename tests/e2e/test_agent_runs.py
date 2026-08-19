@@ -15,6 +15,12 @@ from typing import ClassVar
 import httpx
 import pytest
 
+# The project the dev seed creates (db/migrations/20241223000002_seed_dev_data.sql).
+# `POST /v1/workflows` requires it; every workflow payload below omitted it and got
+# a 400, so these scenarios never reached the behaviour they were written to test.
+SEED_PROJECT_ID = os.getenv("FD_SEED_PROJECT_ID", "prj_01JFVX0000000000000000001")
+
+
 # Agent seeded by the dev migration, with a known allowlist.
 SEED_AGENT_ID = os.getenv("FD_SEED_AGENT_ID", "agt_01JFVX0000000000000000001")
 
@@ -33,14 +39,14 @@ class TestCreateAndCompleteRun:
         E2E-RUN-001: Complete agent run lifecycle
         """
         # Create workflow
-        workflow_resp = gateway_client.post("/api/v1/workflows", json=simple_agent_workflow)
+        workflow_resp = gateway_client.post("/v1/workflows", json=simple_agent_workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
 
         # Start run
         run_resp = gateway_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={
                 "workflow_id": workflow_id,
                 "input": {"task": "Say hello in one sentence"},
@@ -55,7 +61,7 @@ class TestCreateAndCompleteRun:
         final_status = None
 
         while time.time() - start < max_wait:
-            status_resp = gateway_client.get(f"/api/v1/workflow-runs/{run_id}")
+            status_resp = gateway_client.get(f"/v1/workflow-runs/{run_id}")
             assert status_resp.status_code == 200
             final_status = status_resp.json()["status"]
 
@@ -87,14 +93,14 @@ class TestRunWithToolCalls:
 
         E2E-RUN-002: Agent with tool execution
         """
-        workflow_resp = gateway_client.post("/api/v1/workflows", json=tool_agent_workflow)
+        workflow_resp = gateway_client.post("/v1/workflows", json=tool_agent_workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
 
         # Start run
         run_resp = gateway_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {"task": "Read a file"}},
         )
         assert run_resp.status_code in (200, 201)
@@ -104,7 +110,7 @@ class TestRunWithToolCalls:
         time.sleep(3)
 
         # Check steps were created
-        steps_resp = gateway_client.get(f"/api/v1/workflow-runs/{run_id}/steps")
+        steps_resp = gateway_client.get(f"/v1/workflow-runs/{run_id}/steps")
         assert steps_resp.status_code == 200
 
 
@@ -121,14 +127,14 @@ class TestRunWithApproval:
 
         E2E-RUN-003: Approval gate functionality
         """
-        workflow_resp = gateway_client.post("/api/v1/workflows", json=approval_agent_workflow)
+        workflow_resp = gateway_client.post("/v1/workflows", json=approval_agent_workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
 
         # Start run
         run_resp = gateway_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {}},
         )
         assert run_resp.status_code in (200, 201)
@@ -136,7 +142,7 @@ class TestRunWithApproval:
 
         # Wait and check status
         time.sleep(2)
-        status_resp = gateway_client.get(f"/api/v1/workflow-runs/{run_id}")
+        status_resp = gateway_client.get(f"/v1/workflow-runs/{run_id}")
         assert status_resp.status_code == 200
         # Status could be waiting_approval if approval step was reached
         # or still running if earlier steps are processing
@@ -149,7 +155,7 @@ class TestRunBudgetKill:
     """E2E tests for budget enforcement.
 
     Converted for #6. The previous version posted a workflow to
-    ``/api/v1/workflows`` — the Next.js BFF path, not the gateway's ``/v1`` —
+    ``/v1/workflows`` — the Next.js BFF path, not the gateway's ``/v1`` —
     and asserted the response was ``in (200, 201, 400, 422)``, a set that
     covers success and both failure modes. It then asserted a run could be
     created. Neither statement can fail on a system where budget enforcement
@@ -277,11 +283,12 @@ class TestRunPolicyBlock:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 10,
             "on_error": "fail",
         }
 
-        workflow_resp = gateway_client.post("/api/v1/workflows", json=workflow)
+        workflow_resp = gateway_client.post("/v1/workflows", json=workflow)
         # Should succeed or fail based on policy validation timing
         assert workflow_resp.status_code in (200, 201, 400, 422)
 
@@ -316,11 +323,12 @@ class TestRunAirlockBlock:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 10,
             "on_error": "fail",
         }
 
-        workflow_resp = gateway_client.post("/api/v1/workflows", json=workflow)
+        workflow_resp = gateway_client.post("/v1/workflows", json=workflow)
         # Should be blocked by Airlock or policy
         assert workflow_resp.status_code in (200, 201, 400, 422, 403)
 
@@ -338,21 +346,21 @@ class TestRunCancellation:
 
         E2E-RUN-007: Run cancellation
         """
-        workflow_resp = gateway_client.post("/api/v1/workflows", json=simple_agent_workflow)
+        workflow_resp = gateway_client.post("/v1/workflows", json=simple_agent_workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
 
         # Start run
         run_resp = gateway_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {}},
         )
         assert run_resp.status_code in (200, 201)
         run_id = run_resp.json()["id"]
 
         # Immediately cancel
-        cancel_resp = gateway_client.post(f"/api/v1/workflow-runs/{run_id}/cancel")
+        cancel_resp = gateway_client.post(f"/v1/workflow-runs/{run_id}/cancel")
         assert cancel_resp.status_code == 200
         assert cancel_resp.json()["status"] == "cancelled"
 
@@ -386,11 +394,12 @@ class TestRunTimeout:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 10,
             "on_error": "fail",
         }
 
-        workflow_resp = gateway_client.post("/api/v1/workflows", json=workflow)
+        workflow_resp = gateway_client.post("/v1/workflows", json=workflow)
         assert workflow_resp.status_code in (200, 201)
 
 
@@ -404,21 +413,21 @@ class TestRunStatusTracking:
         self, gateway_client: httpx.Client, simple_agent_workflow: dict
     ) -> None:
         """Test that run status history is tracked."""
-        workflow_resp = gateway_client.post("/api/v1/workflows", json=simple_agent_workflow)
+        workflow_resp = gateway_client.post("/v1/workflows", json=simple_agent_workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
 
         # Start run
         run_resp = gateway_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {}},
         )
         assert run_resp.status_code in (200, 201)
         run_id = run_resp.json()["id"]
 
         # Get run details
-        detail_resp = gateway_client.get(f"/api/v1/workflow-runs/{run_id}")
+        detail_resp = gateway_client.get(f"/v1/workflow-runs/{run_id}")
         assert detail_resp.status_code == 200
         run_data = detail_resp.json()
 
@@ -433,14 +442,14 @@ class TestRunResourceTracking:
         self, gateway_client: httpx.Client, simple_agent_workflow: dict
     ) -> None:
         """Test that token usage is tracked."""
-        workflow_resp = gateway_client.post("/api/v1/workflows", json=simple_agent_workflow)
+        workflow_resp = gateway_client.post("/v1/workflows", json=simple_agent_workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
 
         # Start run
         run_resp = gateway_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {"task": "Count to 5"}},
         )
         assert run_resp.status_code in (200, 201)
@@ -450,6 +459,6 @@ class TestRunResourceTracking:
         time.sleep(5)
 
         # Get run with usage
-        detail_resp = gateway_client.get(f"/api/v1/workflow-runs/{run_id}")
+        detail_resp = gateway_client.get(f"/v1/workflow-runs/{run_id}")
         assert detail_resp.status_code == 200
         # Usage tracking may be included in the response

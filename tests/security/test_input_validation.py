@@ -1,6 +1,6 @@
 """Input-validation security tests (SEC-INP-001..008), behavioural.
 
-Every test here used to POST a workflow to ``/api/v1/workflows`` (a path the
+Every test here used to POST a workflow to ``/v1/workflows`` (a path the
 gateway does not serve — that is the Next.js BFF prefix) and assert
 ``status_code in (200, 201, 400, 422)``. That passes whether the malicious input
 is accepted or rejected, so it asserted only that the service stayed up.
@@ -23,8 +23,15 @@ What replaces it depends on what the policy plane actually *does* with the input
   assert the request is rejected (or, for the control, accepted).
 """
 
+import os
 import httpx
 import pytest
+
+# The project the dev seed creates (db/migrations/20241223000002_seed_dev_data.sql).
+# `POST /v1/workflows` requires it; every workflow payload below omitted it and got
+# a 400, so these scenarios never reached the behaviour they were written to test.
+SEED_PROJECT_ID = os.getenv("FD_SEED_PROJECT_ID", "prj_01JFVX0000000000000000001")
+
 
 # RCE patterns score >= 60 (High/Critical); a detected shell injection must land
 # there. Mirrors tests/security/test_airlock.py.
@@ -86,6 +93,7 @@ class TestOversizedPayloadRejected:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 5,
             "on_error": "fail",
         }
@@ -120,6 +128,7 @@ class TestOversizedPayloadRejected:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 5,
             "on_error": "fail",
         }

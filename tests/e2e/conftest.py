@@ -7,6 +7,12 @@ from collections.abc import Generator
 import httpx
 import pytest
 
+# The project the dev seed creates (db/migrations/20241223000002_seed_dev_data.sql).
+# `POST /v1/workflows` requires it; every workflow payload below omitted it and got
+# a 400, so these scenarios never reached the behaviour they were written to test.
+SEED_PROJECT_ID = os.getenv("FD_SEED_PROJECT_ID", "prj_01JFVX0000000000000000001")
+
+
 # Test configuration
 GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8080")
 DASHBOARD_URL = os.getenv("DASHBOARD_URL", "http://localhost:3000")
@@ -70,32 +76,54 @@ def gateway_client() -> Generator[httpx.Client, None, None]:
         yield client
 
 
-@pytest.fixture(scope="session")
-def tenant_a_client() -> Generator[httpx.Client, None, None]:
-    """Create HTTP client for tenant A."""
-    with httpx.Client(
+def _tenant_client(key: str, label: str) -> Generator[httpx.Client, None, None]:
+    """Client for a separately-seeded tenant, or a skip if it is not seeded.
+
+    The module docstring already says these keys "stay unseeded by default and
+    those tests should skip rather than pretend" -- but nothing enforced it, so
+    the fixture handed back a client whose every request 401s and the tests
+    failed on the auth error instead of skipping. A red suite for a tenant the
+    operator never created is noise, and noise is what gets a suite pulled out
+    of CI.
+
+    The probe is one request per session. A 401/403 means the key is not
+    seeded, which is a statement about the fixture data, not about the gateway.
+    """
+    client = httpx.Client(
         base_url=GATEWAY_URL,
         headers={
-            "Authorization": f"Bearer {TENANT_A_KEY}",
+            "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
         },
         timeout=60.0,
-    ) as client:
+    )
+    try:
+        probe = client.get("/v1/workflows")
+    except httpx.HTTPError as exc:  # gateway not reachable at all
+        client.close()
+        pytest.skip(f"gateway unreachable while probing {label}: {exc}")
+    if probe.status_code in (401, 403):
+        client.close()
+        pytest.skip(
+            f"{label} is not seeded in this stack (set {label} to a real key to "
+            "exercise the multi-tenant isolation tests)"
+        )
+    try:
         yield client
+    finally:
+        client.close()
+
+
+@pytest.fixture(scope="session")
+def tenant_a_client() -> Generator[httpx.Client, None, None]:
+    """Create HTTP client for tenant A."""
+    yield from _tenant_client(TENANT_A_KEY, "TENANT_A_API_KEY")
 
 
 @pytest.fixture(scope="session")
 def tenant_b_client() -> Generator[httpx.Client, None, None]:
     """Create HTTP client for tenant B."""
-    with httpx.Client(
-        base_url=GATEWAY_URL,
-        headers={
-            "Authorization": f"Bearer {TENANT_B_KEY}",
-            "Content-Type": "application/json",
-        },
-        timeout=60.0,
-    ) as client:
-        yield client
+    yield from _tenant_client(TENANT_B_KEY, "TENANT_B_API_KEY")
 
 
 @pytest.fixture
@@ -120,6 +148,7 @@ def simple_agent_workflow() -> dict:
                 },
             ],
         },
+        "project_id": SEED_PROJECT_ID,
         "max_iterations": 5,
         "on_error": "fail",
     }
@@ -157,6 +186,7 @@ def tool_agent_workflow() -> dict:
                 },
             ],
         },
+        "project_id": SEED_PROJECT_ID,
         "max_iterations": 10,
         "on_error": "fail",
     }
@@ -202,6 +232,7 @@ def approval_agent_workflow() -> dict:
                 },
             ],
         },
+        "project_id": SEED_PROJECT_ID,
         "max_iterations": 10,
         "on_error": "fail",
     }
@@ -228,6 +259,7 @@ def budget_limited_workflow() -> dict:
                 },
             ],
         },
+        "project_id": SEED_PROJECT_ID,
         "max_iterations": 1,
         "on_error": "fail",
         "budget": {

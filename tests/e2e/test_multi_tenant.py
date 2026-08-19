@@ -8,10 +8,16 @@ Prerequisites:
 - Multiple tenant API keys configured
 """
 
+import os
 import time
 
 import httpx
 import pytest
+
+# The project the dev seed creates (db/migrations/20241223000002_seed_dev_data.sql).
+# `POST /v1/workflows` requires it; every workflow payload below omitted it and got
+# a 400, so these scenarios never reached the behaviour they were written to test.
+SEED_PROJECT_ID = os.getenv("FD_SEED_PROJECT_ID", "prj_01JFVX0000000000000000001")
 
 
 # ==========================================================================
@@ -33,7 +39,7 @@ class TestTenantDataIsolation:
         # Create workflow as tenant A
         workflow_a = simple_agent_workflow.copy()
         workflow_a["name"] = "tenant-a-workflow"
-        resp_a = tenant_a_client.post("/api/v1/workflows", json=workflow_a)
+        resp_a = tenant_a_client.post("/v1/workflows", json=workflow_a)
         if resp_a.status_code not in (200, 201):
             pytest.skip("Could not create workflow as tenant A")
         workflow_a_id = resp_a.json()["id"]
@@ -41,26 +47,26 @@ class TestTenantDataIsolation:
         # Create workflow as tenant B
         workflow_b = simple_agent_workflow.copy()
         workflow_b["name"] = "tenant-b-workflow"
-        resp_b = tenant_b_client.post("/api/v1/workflows", json=workflow_b)
+        resp_b = tenant_b_client.post("/v1/workflows", json=workflow_b)
         if resp_b.status_code not in (200, 201):
             pytest.skip("Could not create workflow as tenant B")
         workflow_b_id = resp_b.json()["id"]
 
         # Tenant A should see their workflow
-        get_a = tenant_a_client.get(f"/api/v1/workflows/{workflow_a_id}")
+        get_a = tenant_a_client.get(f"/v1/workflows/{workflow_a_id}")
         assert get_a.status_code == 200
         assert get_a.json()["name"] == "tenant-a-workflow"
 
         # Tenant B should see their workflow
-        get_b = tenant_b_client.get(f"/api/v1/workflows/{workflow_b_id}")
+        get_b = tenant_b_client.get(f"/v1/workflows/{workflow_b_id}")
         assert get_b.status_code == 200
         assert get_b.json()["name"] == "tenant-b-workflow"
 
         # Cross-tenant access should be blocked
-        cross_a = tenant_a_client.get(f"/api/v1/workflows/{workflow_b_id}")
+        cross_a = tenant_a_client.get(f"/v1/workflows/{workflow_b_id}")
         assert cross_a.status_code in (403, 404)
 
-        cross_b = tenant_b_client.get(f"/api/v1/workflows/{workflow_a_id}")
+        cross_b = tenant_b_client.get(f"/v1/workflows/{workflow_a_id}")
         assert cross_b.status_code in (403, 404)
 
     def test_tenant_run_isolation(
@@ -73,13 +79,13 @@ class TestTenantDataIsolation:
         # Create workflow and run as tenant A
         workflow = simple_agent_workflow.copy()
         workflow["name"] = "isolation-test-a"
-        workflow_resp = tenant_a_client.post("/api/v1/workflows", json=workflow)
+        workflow_resp = tenant_a_client.post("/v1/workflows", json=workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
 
         run_resp = tenant_a_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {}},
         )
         if run_resp.status_code not in (200, 201):
@@ -87,11 +93,11 @@ class TestTenantDataIsolation:
         run_id = run_resp.json()["id"]
 
         # Tenant A can access their run
-        get_a = tenant_a_client.get(f"/api/v1/workflow-runs/{run_id}")
+        get_a = tenant_a_client.get(f"/v1/workflow-runs/{run_id}")
         assert get_a.status_code == 200
 
         # Tenant B cannot access tenant A's run
-        get_b = tenant_b_client.get(f"/api/v1/workflow-runs/{run_id}")
+        get_b = tenant_b_client.get(f"/v1/workflow-runs/{run_id}")
         assert get_b.status_code in (403, 404)
 
 
@@ -101,9 +107,7 @@ class TestTenantDataIsolation:
 class TestTenantRateLimits:
     """E2E tests for tenant-specific rate limiting."""
 
-    def test_tenant_rate_limits(
-        self, tenant_a_client: httpx.Client
-    ) -> None:
+    def test_tenant_rate_limits(self, tenant_a_client: httpx.Client) -> None:
         """Test rate limits enforced per tenant.
 
         E2E-MT-002: Rate limit enforcement
@@ -111,18 +115,16 @@ class TestTenantRateLimits:
         # Make rapid requests to trigger rate limiting
         responses = []
         for _ in range(50):
-            resp = tenant_a_client.get("/api/v1/workflows")
+            resp = tenant_a_client.get("/v1/workflows")
             responses.append(resp.status_code)
 
         # Should eventually get rate limited (429) or all succeed
         # Depending on configured limits
         assert all(code in (200, 429) for code in responses)
 
-    def test_rate_limit_headers(
-        self, tenant_a_client: httpx.Client
-    ) -> None:
+    def test_rate_limit_headers(self, tenant_a_client: httpx.Client) -> None:
         """Test that rate limit headers are present."""
-        resp = tenant_a_client.get("/api/v1/workflows")
+        resp = tenant_a_client.get("/v1/workflows")
         assert resp.status_code in (200, 429)
 
         # Check for rate limit headers (if implemented)
@@ -135,9 +137,7 @@ class TestTenantRateLimits:
             "ratelimit-remaining",
         ]
         # Check if any rate limit header is present (optional feature)
-        has_rate_limit_header = any(
-            h in resp.headers for h in expected_headers
-        )
+        has_rate_limit_header = any(h in resp.headers for h in expected_headers)
         # At least check request completed (header presence is optional)
         assert resp.status_code in (200, 429) or has_rate_limit_header
 
@@ -175,13 +175,14 @@ class TestTenantPolicies:
                     },
                 ],
             },
+            "project_id": SEED_PROJECT_ID,
             "max_iterations": 10,
             "on_error": "fail",
         }
 
         # Both tenants try to create the workflow
-        resp_a = tenant_a_client.post("/api/v1/workflows", json=workflow)
-        resp_b = tenant_b_client.post("/api/v1/workflows", json=workflow)
+        resp_a = tenant_a_client.post("/v1/workflows", json=workflow)
+        resp_b = tenant_b_client.post("/v1/workflows", json=workflow)
 
         # Results depend on tenant-specific policies
         # Both should get a valid response (success or policy error)
@@ -201,7 +202,7 @@ class TestTenantPolicies:
             "max_cost_cents": 10,
         }
 
-        resp = tenant_a_client.post("/api/v1/workflows", json=workflow)
+        resp = tenant_a_client.post("/v1/workflows", json=workflow)
         # Should succeed or fail validation
         assert resp.status_code in (200, 201, 400, 422)
 
@@ -225,14 +226,14 @@ class TestCrossTenantBlocking:
         # Create workflow as tenant A
         workflow = simple_agent_workflow.copy()
         workflow["name"] = "cross-tenant-test"
-        resp = tenant_a_client.post("/api/v1/workflows", json=workflow)
+        resp = tenant_a_client.post("/v1/workflows", json=workflow)
         if resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = resp.json()["id"]
 
         # Tenant B tries to start a run on tenant A's workflow
         run_resp = tenant_b_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {}},
         )
         # Should be blocked
@@ -248,13 +249,13 @@ class TestCrossTenantBlocking:
         # Create workflow and run as tenant A
         workflow = simple_agent_workflow.copy()
         workflow["name"] = "cancel-isolation-test"
-        workflow_resp = tenant_a_client.post("/api/v1/workflows", json=workflow)
+        workflow_resp = tenant_a_client.post("/v1/workflows", json=workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
 
         run_resp = tenant_a_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {}},
         )
         if run_resp.status_code not in (200, 201):
@@ -262,7 +263,7 @@ class TestCrossTenantBlocking:
         run_id = run_resp.json()["id"]
 
         # Tenant B tries to cancel tenant A's run
-        cancel_resp = tenant_b_client.post(f"/api/v1/workflow-runs/{run_id}/cancel")
+        cancel_resp = tenant_b_client.post(f"/v1/workflow-runs/{run_id}/cancel")
         # Should be blocked
         assert cancel_resp.status_code in (403, 404)
 
@@ -276,13 +277,13 @@ class TestCrossTenantBlocking:
         # Create workflow and run as tenant A
         workflow = simple_agent_workflow.copy()
         workflow["name"] = "step-isolation-test"
-        workflow_resp = tenant_a_client.post("/api/v1/workflows", json=workflow)
+        workflow_resp = tenant_a_client.post("/v1/workflows", json=workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
 
         run_resp = tenant_a_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {}},
         )
         if run_resp.status_code not in (200, 201):
@@ -293,11 +294,11 @@ class TestCrossTenantBlocking:
         time.sleep(1)
 
         # Tenant A can access steps
-        steps_a = tenant_a_client.get(f"/api/v1/workflow-runs/{run_id}/steps")
+        steps_a = tenant_a_client.get(f"/v1/workflow-runs/{run_id}/steps")
         assert steps_a.status_code == 200
 
         # Tenant B cannot access tenant A's steps
-        steps_b = tenant_b_client.get(f"/api/v1/workflow-runs/{run_id}/steps")
+        steps_b = tenant_b_client.get(f"/v1/workflow-runs/{run_id}/steps")
         assert steps_b.status_code in (403, 404)
 
 
@@ -317,15 +318,15 @@ class TestTenantListFiltering:
         # Create workflows for both tenants
         workflow_a = simple_agent_workflow.copy()
         workflow_a["name"] = "list-test-a"
-        tenant_a_client.post("/api/v1/workflows", json=workflow_a)
+        tenant_a_client.post("/v1/workflows", json=workflow_a)
 
         workflow_b = simple_agent_workflow.copy()
         workflow_b["name"] = "list-test-b"
-        tenant_b_client.post("/api/v1/workflows", json=workflow_b)
+        tenant_b_client.post("/v1/workflows", json=workflow_b)
 
         # Get lists
-        list_a = tenant_a_client.get("/api/v1/workflows")
-        list_b = tenant_b_client.get("/api/v1/workflows")
+        list_a = tenant_a_client.get("/v1/workflows")
+        list_b = tenant_b_client.get("/v1/workflows")
 
         if list_a.status_code == 200:
             data_a = list_a.json()
@@ -353,19 +354,19 @@ class TestTenantListFiltering:
         # Create workflow and run for tenant A
         workflow = simple_agent_workflow.copy()
         workflow["name"] = "run-list-test"
-        workflow_resp = tenant_a_client.post("/api/v1/workflows", json=workflow)
+        workflow_resp = tenant_a_client.post("/v1/workflows", json=workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
 
         tenant_a_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {}},
         )
 
         # Get run lists
-        runs_a = tenant_a_client.get("/api/v1/workflow-runs")
-        runs_b = tenant_b_client.get("/api/v1/workflow-runs")
+        runs_a = tenant_a_client.get("/v1/workflow-runs")
+        runs_b = tenant_b_client.get("/v1/workflow-runs")
 
         # Tenant A should see their runs
         assert runs_a.status_code == 200
@@ -394,7 +395,7 @@ class TestTenantAuthentication:
             timeout=10.0,
         ) as client:
             try:
-                resp = client.get("/api/v1/workflows")
+                resp = client.get("/v1/workflows")
                 assert resp.status_code in (401, 403)
             except httpx.ConnectError:
                 pytest.skip("Gateway not running")
@@ -407,7 +408,7 @@ class TestTenantAuthentication:
             timeout=10.0,
         ) as client:
             try:
-                resp = client.get("/api/v1/workflows")
+                resp = client.get("/v1/workflows")
                 assert resp.status_code in (401, 403)
             except httpx.ConnectError:
                 pytest.skip("Gateway not running")

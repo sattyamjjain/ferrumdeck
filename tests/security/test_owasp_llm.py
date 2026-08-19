@@ -1,6 +1,6 @@
 """OWASP LLM Top 10 security tests (SEC-LLM-001..006), behavioural.
 
-Every test here used to POST a workflow to ``/api/v1/workflows`` (a path the
+Every test here used to POST a workflow to ``/v1/workflows`` (a path the
 gateway does not serve) and assert ``status_code in (200, 201, 400, 422)`` — or,
 for SEC-LLM-004, literally ``assert True``. Those asserted only that the service
 stayed up.

@@ -7,7 +7,7 @@ Each test drives the real enforcement endpoint — ``POST /v1/runs/{id}/check-to
 these assertions hold regardless of the deployment's mode; where a test cares
 about block-vs-allow it inspects `blocked_by_airlock` / `shadow_mode` explicitly.
 
-Previously every test here POSTed a workflow to `/api/v1/workflows` (a path the
+Previously every test here POSTed a workflow to `/v1/workflows` (a path the
 gateway does not serve) and asserted ``status_code in (200, 201, 400, 403, 422)``
 — which passes even when the attack is *accepted*. Those liveness assertions are
 gone; a passing test now means the attack was actually detected.

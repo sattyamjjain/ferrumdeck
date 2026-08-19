@@ -5,17 +5,19 @@ use axum::{
     response::IntoResponse,
     Extension, Json,
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use fd_storage::{
     models::{
-        action, actor, resource, ApprovalStatus, AuditEventBuilder, ResolveApproval, RunStatus,
-        StepStatus, UpdateStep,
+        action, actor, resource, ApprovalRequest, ApprovalStatus, AuditEventBuilder,
+        CreateApprovalRequest, CreateAuditEvent, CreatePolicyDecision, PolicyEffect,
+        ResolveApproval, RunStatus, StepStatus, UpdateStep,
     },
     queue::{JobContext, StepJob},
     QueueMessage,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, warn};
+use ulid::Ulid;
 
 use crate::handlers::ApiError;
 use crate::middleware::AuthContext;
@@ -78,6 +80,156 @@ fn approval_to_response(approval: fd_storage::models::ApprovalRequest) -> Approv
     }
 }
 
+/// Wall-clock time a human took to act on an approval gate.
+///
+/// SAFE asks for "human approval and intervention events". An approval that
+/// took 40 minutes and an approval that took 4 seconds are different facts
+/// about the control: one is a human reading the request, the other is a rubber
+/// stamp or an automation, and only one of them is a control that works under
+/// load. Without the latency the log cannot tell them apart, so every
+/// resolution event carries it — including expiries, where it measures how long
+/// the gate stood open before nobody answered.
+fn latency_ms(created_at: DateTime<Utc>, resolved_at: DateTime<Utc>) -> i64 {
+    (resolved_at - created_at).num_milliseconds().max(0)
+}
+
+/// Build the hash-chained record for an approval gate closing, whichever way it
+/// closed.
+///
+/// One builder for approve / reject / expire so the three cannot drift apart in
+/// the fields they carry. `approver` is the identity that resolved it — an API
+/// key id for a human decision, `"system"` for an expiry, which is itself the
+/// distinction between "somebody decided" and "the clock decided".
+#[allow(clippy::too_many_arguments)]
+fn approval_resolution_event(
+    approval: &ApprovalRequest,
+    audit_action: &str,
+    approver_actor_type: &str,
+    approver: &str,
+    tenant_id: &str,
+    note: Option<&str>,
+    resolved_at: DateTime<Utc>,
+) -> CreateAuditEvent {
+    AuditEventBuilder::new(audit_action, resource::APPROVAL)
+        .actor(approver_actor_type, Some(approver.to_string()))
+        .resource_id(&approval.id)
+        .tenant(tenant_id.to_string())
+        .run(&approval.run_id)
+        .details(serde_json::json!({
+            "approval_id": approval.id,
+            "step_id": approval.step_id,
+            "action_type": approval.action_type,
+            "approver": approver,
+            "note": note,
+            "requested_at": approval.created_at.to_rfc3339(),
+            "resolved_at": resolved_at.to_rfc3339(),
+            "latency_ms": latency_ms(approval.created_at, resolved_at),
+            "deadline_at": approval.expires_at.map(|t| t.to_rfc3339()),
+        }))
+        .build()
+}
+
+/// Open a human-approval gate for a step, and record the escalation.
+///
+/// This is the missing half of the approval control. `create_approval` and
+/// `create_decision` both existed and neither had a caller, so
+/// `approval_requests` was empty in every deployment, `GET /approvals` always
+/// returned `[]`, and the two resolution handlers below — which are correct and
+/// carry the approver — could never be reached. `policy.approval_required` had
+/// never been written. A gate nothing can open is not a control.
+///
+/// Creates the policy-decision row the approval's foreign key requires, then the
+/// approval itself, then writes the escalation to the chain with the deadline
+/// the clock will be measured against.
+pub(crate) struct ApprovalGateRequest<'a> {
+    pub run_id: &'a str,
+    pub step_id: &'a str,
+    pub project_id: &'a str,
+    pub tenant_id: &'a str,
+    /// Coarse category of what is being gated, e.g. `coherence_divergence`.
+    pub action_type: &'a str,
+    /// Human-readable why, shown to the approver and recorded on the chain.
+    pub reason: &'a str,
+    pub action_details: serde_json::Value,
+}
+
+pub(crate) async fn open_approval_gate(
+    state: &AppState,
+    req: ApprovalGateRequest<'_>,
+) -> Result<String, sqlx::Error> {
+    let ApprovalGateRequest {
+        run_id,
+        step_id,
+        project_id,
+        tenant_id,
+        action_type,
+        reason,
+        action_details,
+    } = req;
+    let repos = state.repos();
+    let requested_at = Utc::now();
+    let expires_at = requested_at + chrono::Duration::seconds(state.approval_ttl_secs);
+
+    let decision_id = format!("pdc_{}", Ulid::new());
+    repos
+        .policies()
+        .create_decision(CreatePolicyDecision {
+            id: decision_id.clone(),
+            run_id: Some(run_id.to_string()),
+            step_id: Some(step_id.to_string()),
+            action_type: action_type.to_string(),
+            action_details: action_details.clone(),
+            decision: PolicyEffect::RequireApproval,
+            matched_rule_id: None,
+            reason: reason.to_string(),
+            evaluation_time_ms: None,
+        })
+        .await?;
+
+    let approval_id = format!("apr_{}", Ulid::new());
+    repos
+        .policies()
+        .create_approval(CreateApprovalRequest {
+            id: approval_id.clone(),
+            run_id: run_id.to_string(),
+            step_id: step_id.to_string(),
+            policy_decision_id: decision_id.clone(),
+            action_type: action_type.to_string(),
+            action_details,
+            reason: reason.to_string(),
+            expires_at: Some(expires_at),
+        })
+        .await?;
+
+    let audit_event = AuditEventBuilder::new(action::POLICY_APPROVAL_REQUIRED, resource::APPROVAL)
+        .actor(actor::SYSTEM, None)
+        .resource_id(&approval_id)
+        .tenant(tenant_id.to_string())
+        .run(run_id)
+        .project(project_id)
+        .details(serde_json::json!({
+            "approval_id": approval_id,
+            "policy_decision_id": decision_id,
+            "step_id": step_id,
+            "action_type": action_type,
+            "reason": reason,
+            "requested_at": requested_at.to_rfc3339(),
+            "expires_at": expires_at.to_rfc3339(),
+            "deadline_secs": state.approval_ttl_secs,
+        }))
+        .build();
+    repos.spawn_audit(audit_event);
+
+    info!(
+        run_id = %run_id,
+        step_id = %step_id,
+        approval_id = %approval_id,
+        deadline_secs = state.approval_ttl_secs,
+        "Opened approval gate for human review"
+    );
+    Ok(approval_id)
+}
+
 // =============================================================================
 // Handlers
 // =============================================================================
@@ -85,10 +237,10 @@ fn approval_to_response(approval: fd_storage::models::ApprovalRequest) -> Approv
 /// List pending approval requests
 ///
 /// This handler also checks for and auto-expires any approvals past their expiry time.
-#[instrument(skip(state, _auth))]
+#[instrument(skip(state, auth))]
 pub async fn list_pending_approvals(
     State(state): State<AppState>,
-    Extension(_auth): Extension<AuthContext>,
+    Extension(auth): Extension<AuthContext>,
     Query(query): Query<ListApprovalsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let repos = state.repos();
@@ -122,6 +274,23 @@ pub async fn list_pending_approvals(
                     );
                 } else {
                     info!(approval_id = %approval.id, "Auto-expired stale approval");
+
+                    // A timeout is an intervention event: nobody acted, and the
+                    // run was failed because of it. This previously resolved the
+                    // row and wrote nothing, so `approval.expired` — declared
+                    // since the first schema — had never once been written, and
+                    // the log could not distinguish "expired" from "never
+                    // happened". The approver is `system` because the clock
+                    // decided, not a person.
+                    repos.spawn_audit(approval_resolution_event(
+                        &approval,
+                        action::APPROVAL_EXPIRED,
+                        actor::SYSTEM,
+                        "system",
+                        &auth.tenant_id,
+                        Some("Auto-expired during list"),
+                        now,
+                    ));
 
                     // Also fail the associated run
                     let _ = repos
@@ -182,7 +351,8 @@ pub async fn resolve_approval(
 
     // Check if expired
     if let Some(expires_at) = approval.expires_at {
-        if Utc::now() > expires_at {
+        let now = Utc::now();
+        if now > expires_at {
             // Auto-expire the approval
             let expiry_resolution = ResolveApproval {
                 status: ApprovalStatus::Expired,
@@ -193,6 +363,20 @@ pub async fn resolve_approval(
                 .policies()
                 .resolve_approval(&approval_id, expiry_resolution)
                 .await;
+
+            // Same omission as the list path: the row was resolved and nothing
+            // was recorded. Worth noting this branch fires when a human DID
+            // arrive, just too late — which is a different and more interesting
+            // fact than nobody arriving, so the note distinguishes them.
+            repos.spawn_audit(approval_resolution_event(
+                &approval,
+                action::APPROVAL_EXPIRED,
+                actor::SYSTEM,
+                "system",
+                &auth.tenant_id,
+                Some("Expired before resolution was attempted"),
+                now,
+            ));
 
             return Err(ApiError::bad_request("Approval has expired"));
         }
@@ -225,24 +409,24 @@ pub async fn resolve_approval(
         .await?
         .ok_or_else(|| ApiError::internal("Failed to resolve approval"))?;
 
-    // Audit log the approval decision
+    // Audit log the approval decision, with the wall-clock latency the human
+    // took. `updated.resolved_at` is the value the database actually stored,
+    // rather than a second `Utc::now()` here, so the recorded latency matches
+    // the row an investigator would read next to it.
     let audit_action = if request.approved {
         action::APPROVAL_APPROVED
     } else {
         action::APPROVAL_REJECTED
     };
-    let audit_event = AuditEventBuilder::new(audit_action, resource::APPROVAL)
-        .actor(actor::API_KEY, Some(auth.api_key_id.clone()))
-        .resource_id(&approval_id)
-        .tenant(auth.tenant_id.clone())
-        .run(&approval.run_id)
-        .details(serde_json::json!({
-            "step_id": approval.step_id,
-            "action_type": approval.action_type,
-            "note": request.note,
-        }))
-        .build();
-    repos.spawn_audit(audit_event);
+    repos.spawn_audit(approval_resolution_event(
+        &approval,
+        audit_action,
+        actor::API_KEY,
+        &auth.api_key_id,
+        &auth.tenant_id,
+        request.note.as_deref(),
+        updated.resolved_at.unwrap_or_else(Utc::now),
+    ));
 
     // Update the step status based on the decision
     if request.approved {
@@ -344,4 +528,142 @@ pub async fn resolve_approval(
     }
 
     Ok(Json(approval_to_response(updated)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn approval(created_at: DateTime<Utc>, expires_at: Option<DateTime<Utc>>) -> ApprovalRequest {
+        ApprovalRequest {
+            id: "apr_test".to_string(),
+            run_id: "run_test".to_string(),
+            step_id: "stp_test".to_string(),
+            policy_decision_id: "pdc_test".to_string(),
+            action_type: "step_requires_approval".to_string(),
+            action_details: serde_json::json!({}),
+            reason: "needs a human".to_string(),
+            status: ApprovalStatus::Pending,
+            resolved_by: None,
+            resolved_at: None,
+            resolution_note: None,
+            created_at,
+            expires_at,
+        }
+    }
+
+    // =========================================================================
+    // APR-EVT-001: latency is wall-clock, and never negative
+    // =========================================================================
+    #[test]
+    fn latency_is_the_wall_clock_gap() {
+        let t0 = Utc::now();
+        assert_eq!(
+            latency_ms(t0, t0 + chrono::Duration::seconds(40 * 60)),
+            2_400_000
+        );
+        assert_eq!(
+            latency_ms(t0, t0 + chrono::Duration::milliseconds(4_000)),
+            4_000
+        );
+    }
+
+    #[test]
+    fn clock_skew_cannot_produce_a_negative_latency() {
+        let t0 = Utc::now();
+        // A resolution stamped before the request (NTP step, replica clock)
+        // must not emit a negative duration into the evidence record.
+        assert_eq!(latency_ms(t0, t0 - chrono::Duration::seconds(5)), 0);
+    }
+
+    // =========================================================================
+    // APR-EVT-002: every close of the gate carries approver + latency
+    //
+    // The three outcomes share one builder precisely so they cannot drift.
+    // This asserts the fields SAFE asks for are on all of them -- an approval
+    // that took 40 minutes and one that took 4 seconds are different facts
+    // about the control, and only one of them is a control that works.
+    // =========================================================================
+    #[test]
+    fn approve_reject_and_expire_all_carry_approver_and_latency() {
+        let requested = Utc::now();
+        let resolved = requested + chrono::Duration::seconds(2_400); // 40 minutes
+        let a = approval(requested, Some(requested + chrono::Duration::seconds(3600)));
+
+        for (action, actor_type, approver) in [
+            (action::APPROVAL_APPROVED, actor::API_KEY, "key_1"),
+            (action::APPROVAL_REJECTED, actor::API_KEY, "key_1"),
+            (action::APPROVAL_EXPIRED, actor::SYSTEM, "system"),
+        ] {
+            let ev = approval_resolution_event(
+                &a,
+                action,
+                actor_type,
+                approver,
+                "tnt_1",
+                Some("note"),
+                resolved,
+            );
+            assert_eq!(ev.action, action);
+            assert_eq!(ev.actor_type, actor_type);
+            assert_eq!(ev.actor_id.as_deref(), Some(approver));
+            assert_eq!(ev.resource_type, resource::APPROVAL);
+            assert_eq!(ev.resource_id.as_deref(), Some("apr_test"));
+            assert_eq!(ev.run_id.as_deref(), Some("run_test"));
+
+            assert_eq!(
+                ev.details["latency_ms"], 2_400_000,
+                "{action} lost its latency"
+            );
+            assert_eq!(ev.details["approver"], approver);
+            assert_eq!(ev.details["approval_id"], "apr_test");
+            assert_eq!(ev.details["step_id"], "stp_test");
+            assert!(ev.details["requested_at"].is_string());
+            assert!(ev.details["resolved_at"].is_string());
+            // The deadline the clock was measured against: an expiry after a
+            // 60-second window and one after a day are different facts.
+            assert!(ev.details["deadline_at"].is_string());
+        }
+    }
+
+    // =========================================================================
+    // APR-EVT-003: a timeout is attributable to the clock, not to a person
+    // =========================================================================
+    #[test]
+    fn an_expiry_is_recorded_as_a_system_decision() {
+        let requested = Utc::now();
+        let ev = approval_resolution_event(
+            &approval(requested, Some(requested)),
+            action::APPROVAL_EXPIRED,
+            actor::SYSTEM,
+            "system",
+            "tnt_1",
+            None,
+            requested + chrono::Duration::seconds(90),
+        );
+        assert_eq!(ev.actor_type, actor::SYSTEM);
+        assert_eq!(ev.details["approver"], "system");
+        assert_eq!(ev.details["latency_ms"], 90_000);
+        assert!(
+            ev.details["note"].is_null(),
+            "an unnoted expiry must not invent one"
+        );
+    }
+
+    #[test]
+    fn a_gate_with_no_deadline_records_that_honestly() {
+        let requested = Utc::now();
+        let ev = approval_resolution_event(
+            &approval(requested, None),
+            action::APPROVAL_APPROVED,
+            actor::API_KEY,
+            "key_1",
+            "tnt_1",
+            None,
+            requested,
+        );
+        // Null, not a fabricated deadline: "no deadline" and "deadline unknown"
+        // must not be presented as a concrete time.
+        assert!(ev.details["deadline_at"].is_null());
+    }
 }

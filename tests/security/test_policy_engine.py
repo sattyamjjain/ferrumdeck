@@ -91,9 +91,7 @@ class TestPolicyInjection:
             "input-borne policy override must not grant access to an unknown tool"
         )
 
-    def test_injected_policy_in_tool_input_is_ignored(
-        self, check_tool, created_run: str
-    ) -> None:
+    def test_injected_policy_in_tool_input_is_ignored(self, check_tool, created_run: str) -> None:
         """A `__policy__` key inside tool_input does not allowlist a tool."""
         decision = check_tool(
             created_run,
@@ -109,22 +107,17 @@ class TestPolicyInjection:
 # SEC-POL-004: Decisions are consistent (no race-condition bypass)
 # ==========================================================================
 class TestDecisionConsistency:
-    def test_repeated_denies_are_consistent(
-        self, check_tool, created_run: str
-    ) -> None:
+    def test_repeated_denies_are_consistent(self, check_tool, created_run: str) -> None:
         """Ten identical checks of an unknown tool all deny — no call slips
         through under repetition (the old test asserted `... or True`)."""
         decisions = [
-            check_tool(created_run, UNKNOWN_TOOL, {"idx": i})["allowed"]
-            for i in range(10)
+            check_tool(created_run, UNKNOWN_TOOL, {"idx": i})["allowed"] for i in range(10)
         ]
         assert decisions == [False] * 10, (
             f"deny-by-default was inconsistent across repeats: {decisions}"
         )
 
-    def test_same_tool_yields_same_decision(
-        self, check_tool, created_run: str
-    ) -> None:
+    def test_same_tool_yields_same_decision(self, check_tool, created_run: str) -> None:
         """An allowlisted tool yields a stable allow-decision across repeats."""
         first = check_tool(created_run, "git_read", {"path": "a.txt"})["allowed"]
         again = check_tool(created_run, "git_read", {"path": "a.txt"})["allowed"]

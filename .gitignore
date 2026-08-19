@@ -156,3 +156,8 @@ deploy/helm/*/charts/
 # =============================================================================
 security-scan/
 nextjs/refactor/
+
+# JUnit reports from `make test-live-stack` / the live-stack CI job (never committed;
+# scripts/check_live_stack_results.py reads them in place).
+live-stack-results.xml
+pytest-*.xml

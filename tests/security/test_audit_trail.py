@@ -3,7 +3,7 @@
 Tests for SEC-AUD-001 to SEC-AUD-004 from the testing plan.
 
 SEC-AUD-005 (below) is the behavioural one, and the reason this file was
-revisited for #6. The rest of this module talks to ``/api/v1/...``, which is the
+revisited for #6. The rest of this module talks to ``/v1/...``, which is the
 Next.js BFF rather than the gateway (the gateway serves ``/v1/...``), so every
 request 404s, every test takes its ``pytest.skip`` branch, and the handful that
 do not end in ``assert True  # Actions completed`` or ``assert x not in y or
@@ -36,25 +36,25 @@ class TestAuditImmutability:
         SEC-AUD-001: Audit logs can't be modified
         """
         # Create a workflow (generates audit event)
-        workflow_resp = api_client.post("/api/v1/workflows", json=simple_workflow)
+        workflow_resp = api_client.post("/v1/workflows", json=simple_workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
 
         # Try to access audit logs endpoint
-        audit_resp = api_client.get(f"/api/v1/audit/workflows/{workflow_id}")
+        audit_resp = api_client.get(f"/v1/audit/workflows/{workflow_id}")
 
         if audit_resp.status_code == 200:
             # Try to modify audit logs (should fail)
             modify_resp = api_client.put(
-                f"/api/v1/audit/workflows/{workflow_id}",
+                f"/v1/audit/workflows/{workflow_id}",
                 json={"modified": True},
             )
             # Should not allow modification
             assert modify_resp.status_code in (403, 404, 405)
 
             # Try to delete audit logs (should fail)
-            delete_resp = api_client.delete(f"/api/v1/audit/workflows/{workflow_id}")
+            delete_resp = api_client.delete(f"/v1/audit/workflows/{workflow_id}")
             assert delete_resp.status_code in (403, 404, 405)
         else:
             # Audit endpoint may not be exposed via API
@@ -63,14 +63,14 @@ class TestAuditImmutability:
     def test_audit_append_only(self, api_client: httpx.Client, simple_workflow: dict) -> None:
         """Test that audit logs are append-only."""
         # Create workflow
-        workflow_resp = api_client.post("/api/v1/workflows", json=simple_workflow)
+        workflow_resp = api_client.post("/v1/workflows", json=simple_workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
 
         # Create a run
         run_resp = api_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {}},
         )
         if run_resp.status_code not in (200, 201):
@@ -78,10 +78,10 @@ class TestAuditImmutability:
         run_id = run_resp.json()["id"]
 
         # Subsequent operations should add to audit log, not replace
-        api_client.post(f"/api/v1/workflow-runs/{run_id}/cancel")
+        api_client.post(f"/v1/workflow-runs/{run_id}/cancel")
 
         # Verify run history shows both events
-        detail_resp = api_client.get(f"/api/v1/workflow-runs/{run_id}")
+        detail_resp = api_client.get(f"/v1/workflow-runs/{run_id}")
         assert detail_resp.status_code == 200
 
 
@@ -98,27 +98,27 @@ class TestAuditCompleteness:
         """
         # Perform various actions
         # 1. Create workflow
-        workflow_resp = api_client.post("/api/v1/workflows", json=simple_workflow)
+        workflow_resp = api_client.post("/v1/workflows", json=simple_workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
 
         # 2. Get workflow
-        api_client.get(f"/api/v1/workflows/{workflow_id}")
+        api_client.get(f"/v1/workflows/{workflow_id}")
 
         # 3. Create run
         run_resp = api_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {}},
         )
         if run_resp.status_code in (200, 201):
             run_id = run_resp.json()["id"]
 
             # 4. Get run
-            api_client.get(f"/api/v1/workflow-runs/{run_id}")
+            api_client.get(f"/v1/workflow-runs/{run_id}")
 
             # 5. Cancel run
-            api_client.post(f"/api/v1/workflow-runs/{run_id}/cancel")
+            api_client.post(f"/v1/workflow-runs/{run_id}/cancel")
 
         # All these actions should be logged
         # Verification would depend on audit API or log access
@@ -127,10 +127,10 @@ class TestAuditCompleteness:
     def test_error_actions_logged(self, api_client: httpx.Client) -> None:
         """Test that error actions are also logged."""
         # Try to access non-existent resource (should log 404)
-        api_client.get("/api/v1/workflows/non_existent_id")
+        api_client.get("/v1/workflows/non_existent_id")
 
         # Try to create invalid workflow (should log 400)
-        api_client.post("/api/v1/workflows", json={"invalid": "workflow"})
+        api_client.post("/v1/workflows", json={"invalid": "workflow"})
 
         # These errors should be logged
         assert True  # Actions completed
@@ -148,7 +148,7 @@ class TestPIIRedaction:
         SEC-AUD-003: PII redacted in logs
         """
         # Create workflow with PII in input
-        workflow_resp = api_client.post("/api/v1/workflows", json=simple_workflow)
+        workflow_resp = api_client.post("/v1/workflows", json=simple_workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
@@ -162,7 +162,7 @@ class TestPIIRedaction:
         }
 
         run_resp = api_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": pii_data},
         )
 
@@ -171,7 +171,7 @@ class TestPIIRedaction:
 
             # Try to access audit/logs (if available)
             # PII should be redacted
-            audit_resp = api_client.get(f"/api/v1/audit/runs/{run_id}")
+            audit_resp = api_client.get(f"/v1/audit/runs/{run_id}")
 
             if audit_resp.status_code == 200:
                 audit_data = audit_resp.json()
@@ -231,7 +231,7 @@ class TestAuditTimestampIntegrity:
         SEC-AUD-004: Timestamps are accurate
         """
         # Create workflow
-        workflow_resp = api_client.post("/api/v1/workflows", json=simple_workflow)
+        workflow_resp = api_client.post("/v1/workflows", json=simple_workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
 
@@ -245,14 +245,14 @@ class TestAuditTimestampIntegrity:
 
     def test_timestamps_sequential(self, api_client: httpx.Client, simple_workflow: dict) -> None:
         """Test that timestamps are sequential."""
-        workflow_resp = api_client.post("/api/v1/workflows", json=simple_workflow)
+        workflow_resp = api_client.post("/v1/workflows", json=simple_workflow)
         if workflow_resp.status_code not in (200, 201):
             pytest.skip("Could not create workflow")
         workflow_id = workflow_resp.json()["id"]
 
         # Create run
         run_resp = api_client.post(
-            "/api/v1/workflow-runs",
+            "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {}},
         )
         if run_resp.status_code not in (200, 201):
@@ -261,11 +261,11 @@ class TestAuditTimestampIntegrity:
 
         # Wait and cancel
         time.sleep(0.5)
-        cancel_resp = api_client.post(f"/api/v1/workflow-runs/{run_id}/cancel")
+        cancel_resp = api_client.post(f"/v1/workflow-runs/{run_id}/cancel")
 
         if cancel_resp.status_code == 200:
             # Get final state
-            final_resp = api_client.get(f"/api/v1/workflow-runs/{run_id}")
+            final_resp = api_client.get(f"/v1/workflow-runs/{run_id}")
             if final_resp.status_code == 200:
                 final_data = final_resp.json()
 
