@@ -134,7 +134,7 @@ test_counts:
   # Suites that gate CI (unit/lint) — the honest headline.
   gating:
     rust:
-      count: 749
+      count: 768
       method: "cargo test --workspace -- --list | grep -cE ': test$'"
     python_unit:
       count: 532
@@ -145,7 +145,7 @@ test_counts:
     api_contracts:
       count: 50
       method: "uv run pytest tests/api --collect-only -q"
-  gating_total: 1954
+  gating_total: 1973
   # Live-stack suites: require `make dev-up`, skip without it, and (per the
   # README testing caveat) assert liveness more than behaviour. NOT counted in
   # the headline, reported on their own line.
@@ -156,3 +156,30 @@ test_counts:
     integration: 81
     method: "uv run pytest tests/<suite> --collect-only -q (skip at runtime without a live gateway)"
     note: "excluded from the headline; assert liveness more than behaviour (security/chaos/e2e)"
+
+    # ---------------------------------------------------------------------
+    # THE NUMBER THAT ACTUALLY MATTERS.
+    #
+    # Everything above is COLLECTED. Collected is what pytest found; it says
+    # nothing about whether a single assertion ran. Until 0.8.9 these three
+    # suites reported 135 collected / 135 SKIPPED / 0 executed, and the CI
+    # check was green the whole time, because a skipped test and a passing
+    # test are indistinguishable in a green check.
+    #
+    # `executed_floor` is the floor on collected-minus-skipped in the
+    # `live-stack-tests` CI job. `scripts/check_live_stack_results.py` reads
+    # it FROM HERE, so the claims-integrity check owns this number like every
+    # other count on this page and there is exactly one place to change it.
+    #
+    # 80 is what executes today against a fresh database, observed stable
+    # across CI runs. That makes this a ratchet at the current value, not the
+    # slack cliff-detector it started as: a drop of even one test fails the
+    # build. That is deliberate -- the regression being guarded is silent, so
+    # the guard has to be tight. If a test starts skipping for a GOOD reason,
+    # re-baseline consciously (drop the entry from
+    # .live-stack-known-failures.yml if it is a declared failure, then lower
+    # this number in the same commit that explains why). Never lower it to
+    # turn a red build green.
+    # ---------------------------------------------------------------------
+    executed_floor: 80
+    executed_floor_method: "scripts/check_live_stack_results.py --junit live-stack-results.xml  (executed = collected - skipped, measured in the live-stack-tests job)"

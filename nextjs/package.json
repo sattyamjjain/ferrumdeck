@@ -1,6 +1,6 @@
 {
   "name": "nextjs",
-  "version": "0.8.9",
+  "version": "0.8.10",
   "private": true,
   "scripts": {
     "dev": "next dev --port 3001",
