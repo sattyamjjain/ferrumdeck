@@ -1,6 +1,6 @@
 [project]
 name = "fd-mcp-tools"
-version = "0.8.9"
+version = "0.8.10"
 # Workspace-internal, not a PyPI distribution. Rejects an accidental `twine
 # upload`; install from source (uv sync), not `pip install fd-mcp-tools`.
 classifiers = ["Private :: Do Not Upload"]

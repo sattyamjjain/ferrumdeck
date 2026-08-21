@@ -27,6 +27,7 @@ import argparse
 import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import yaml
@@ -84,8 +85,7 @@ def check_test_block(src: dict, readme: str, errors: list[str]) -> None:
     lv = tc["liveness"]
     # The liveness caveat must be adjacent to the number, naming the excluded suites.
     if not (
-        "live-stack" in readme.lower()
-        and all(s in readme for s in ("security", "chaos", "e2e"))
+        "live-stack" in readme.lower() and all(s in readme for s in ("security", "chaos", "e2e"))
     ):
         errors.append(
             "README test-count block must name the live-stack suites "
@@ -94,15 +94,33 @@ def check_test_block(src: dict, readme: str, errors: list[str]) -> None:
     for suite in ("security", "chaos", "e2e"):
         if str(lv[suite]) not in readme:
             errors.append(
-                f"README test-count block is missing the live-stack {suite} "
-                f"count ({lv[suite]})."
+                f"README test-count block is missing the live-stack {suite} count ({lv[suite]})."
             )
+
+    # The executed-test floor: the number that says how many of those collected
+    # tests actually RUN. It is the one count here that guards a silent
+    # regression (135 collected / 135 skipped / 0 executed, CI green), so the
+    # README has to state it and this check owns it like every other count.
+    #
+    # Matched as a phrase, not a bare substring: the README contains "8080" (the
+    # gateway port), so `str(80) in readme` would pass vacuously.
+    floor = lv.get("executed_floor")
+    if floor is None:
+        errors.append(
+            "docs/feature-status.yml is missing test_counts.liveness.executed_floor. "
+            "scripts/check_live_stack_results.py reads the live-stack gate's floor "
+            "from there; without it the gate accepts zero executed tests."
+        )
+    elif f"executed-test floor of {floor}" not in readme:
+        errors.append(
+            f"README test-count block must render the executed-test floor as "
+            f"'executed-test floor of {floor}'. Collected is not run, and the "
+            "README should say which number is which."
+        )
 
 
 def _run(cmd: str) -> str:
-    return subprocess.run(
-        cmd, shell=True, cwd=ROOT, capture_output=True, text=True
-    ).stdout
+    return subprocess.run(cmd, shell=True, cwd=ROOT, capture_output=True, text=True).stdout
 
 
 def _collect_count(paths: str) -> int:
@@ -143,11 +161,42 @@ def recount(src: dict, errors: list[str]) -> None:
         print(f"  {status} rust: declared {rust_declared}, re-derived {rust_actual}")
         if rust_actual != rust_declared:
             errors.append(
-                f"test count drift [rust]: declared {rust_declared}, "
-                f"re-derived {rust_actual}."
+                f"test count drift [rust]: declared {rust_declared}, re-derived {rust_actual}."
             )
     else:
         print("  --  rust: skipped (no build output; run `cargo test` first)")
+
+    # Executed-test floor. Re-derived from a live-stack JUnit report rather than
+    # by booting a stack: `claims-recount` must stay a local, cheap command.
+    # `make test-live-stack` (or the CI job) writes the report; without one this
+    # skips with a note, the same way rust/frontend skip when their toolchain
+    # output is absent. A skip is reported, never silently treated as agreement.
+    floor = tc["liveness"].get("executed_floor")
+    report = ROOT / "live-stack-results.xml"
+    if floor is None:
+        errors.append("docs/feature-status.yml is missing test_counts.liveness.executed_floor.")
+    elif not report.exists():
+        print(
+            f"  --  live_stack_executed_floor: skipped (declared {floor}; no "
+            "live-stack-results.xml — run `make test-live-stack` against a stack)"
+        )
+    else:
+        root = ET.parse(report).getroot()
+        suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
+        collected = sum(int(x.get("tests", 0)) for x in suites)
+        skipped = sum(int(x.get("skipped", 0)) for x in suites)
+        executed = collected - skipped
+        status = "OK " if executed >= floor else "BAD"
+        print(
+            f"  {status} live_stack_executed_floor: floor {floor}, "
+            f"last run executed {executed} ({collected} collected, {skipped} skipped)"
+        )
+        if executed < floor:
+            errors.append(
+                f"live-stack executed count {executed} is below the declared floor "
+                f"{floor}. Either the stack is not healthy, or the floor needs a "
+                "conscious re-baseline in docs/feature-status.yml."
+            )
 
 
 def main() -> int:
@@ -177,7 +226,9 @@ def main() -> int:
         for e in errors:
             print(f"  ::error:: {e}", file=sys.stderr)
         return 1
-    print("\nOK — Key Features, ROADMAP, and the test-count block agree with docs/feature-status.yml.")
+    print(
+        "\nOK — Key Features, ROADMAP, and the test-count block agree with docs/feature-status.yml."
+    )
     return 0
 
 

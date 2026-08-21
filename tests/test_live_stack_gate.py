@@ -42,22 +42,45 @@ def junit(cases: list[tuple[str, str, str]], skipped: int = 0) -> str:
     )
 
 
-def run(tmp_path: Path, xml: str, declarations: dict | None = None) -> subprocess.CompletedProcess:
+def run(
+    tmp_path: Path,
+    xml: str,
+    declarations: dict | None = None,
+    floor: int | None = 3,
+) -> subprocess.CompletedProcess:
+    """Drive the checker against a synthetic report.
+
+    The floor lives in docs/feature-status.yml, not in the declarations file, so
+    each case writes its own stub. `floor=None` writes a feature-status with the
+    key absent, which exercises the "somebody deleted the floor" case.
+    """
     report = tmp_path / "report.xml"
     report.write_text(xml)
     decl_path = DECLARATIONS
     if declarations is not None:
         decl_path = tmp_path / "declarations.yml"
         decl_path.write_text(yaml.safe_dump(declarations))
+    fs_path = tmp_path / "feature-status.yml"
+    liveness: dict = {} if floor is None else {"executed_floor": floor}
+    fs_path.write_text(yaml.safe_dump({"test_counts": {"liveness": liveness}}))
     return subprocess.run(
-        [sys.executable, str(SCRIPT), "--junit", str(report), "--declarations", str(decl_path)],
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--junit",
+            str(report),
+            "--declarations",
+            str(decl_path),
+            "--feature-status",
+            str(fs_path),
+        ],
         capture_output=True,
         text=True,
         cwd=REPO,
     )
 
 
-BASE = {"floor": {"executed": 3}, "known_failures": []}
+BASE: dict = {"known_failures": []}
 
 
 # ==========================================================================
@@ -104,7 +127,6 @@ def test_a_declared_failure_is_tolerated(tmp_path: Path) -> None:
     cases = [("tests.security.test_a.TestX", f"test_{i}", "pass") for i in range(3)]
     cases.append(("tests.security.test_a.TestX", "test_known", "fail"))
     decl = {
-        "floor": {"executed": 3},
         "known_failures": [
             {"test": "tests/security/test_a.py::TestX::test_known", "reason": "documented"}
         ],
@@ -120,7 +142,6 @@ def test_a_declaration_that_now_passes_is_rejected(tmp_path: Path) -> None:
     cases = [("tests.security.test_a.TestX", f"test_{i}", "pass") for i in range(3)]
     cases.append(("tests.security.test_a.TestX", "test_fixed", "pass"))
     decl = {
-        "floor": {"executed": 3},
         "known_failures": [
             {"test": "tests/security/test_a.py::TestX::test_fixed", "reason": "was broken"}
         ],
@@ -135,7 +156,6 @@ def test_a_flaky_declaration_is_exempt_from_the_stale_check(tmp_path: Path) -> N
     cases = [("tests.security.test_a.TestX", f"test_{i}", "pass") for i in range(3)]
     cases.append(("tests.security.test_a.TestX", "test_racy", "pass"))
     decl = {
-        "floor": {"executed": 3},
         "known_failures": [
             {
                 "test": "tests/security/test_a.py::TestX::test_racy",
@@ -153,7 +173,6 @@ def test_a_flaky_declaration_still_may_not_fail_undeclared(tmp_path: Path) -> No
     cases = [("tests.security.test_a.TestX", f"test_{i}", "pass") for i in range(3)]
     cases.append(("tests.security.test_a.TestX", "test_other", "fail"))
     decl = {
-        "floor": {"executed": 3},
         "known_failures": [
             {"test": "tests/security/test_a.py::TestX::test_racy", "reason": "r", "flaky": True}
         ],
@@ -169,7 +188,6 @@ def test_a_flaky_declaration_still_may_not_fail_undeclared(tmp_path: Path) -> No
 def test_a_declaration_without_a_reason_is_rejected(tmp_path: Path) -> None:
     cases = [("tests.security.test_a.TestX", f"test_{i}", "pass") for i in range(3)]
     decl = {
-        "floor": {"executed": 3},
         "known_failures": [{"test": "tests/security/test_a.py::TestX::test_known"}],
     }
     result = run(tmp_path, junit(cases), decl)
@@ -244,8 +262,71 @@ def test_junit_classnames_map_back_to_pytest_node_ids(
 # ==========================================================================
 def test_committed_declarations_are_valid() -> None:
     doc = yaml.safe_load(DECLARATIONS.read_text())
-    assert doc["floor"]["executed"] > 0, "a floor of zero gates nothing"
+    assert "floor" not in doc, (
+        "the executed floor moved to docs/feature-status.yml; two homes for one "
+        "number is a number nobody reconciles"
+    )
     for entry in doc["known_failures"]:
         assert entry.get("test"), entry
         assert entry.get("reason", "").strip(), f"{entry['test']} has no reason"
         assert "::" in entry["test"], f"{entry['test']} is not a pytest node id"
+
+
+# ==========================================================================
+# LSG-008: the floor has one home, and its absence is loud
+# ==========================================================================
+def test_a_missing_floor_is_rejected_rather_than_defaulted_to_zero(tmp_path: Path) -> None:
+    """A floor that silently defaults to 0 accepts a fully-skipped suite.
+
+    That is the precise regression this gate exists to catch, so losing the
+    number must fail the build rather than quietly disable the check.
+    """
+    cases = [("tests.security.test_a.TestX", f"test_{i}", "pass") for i in range(4)]
+    result = run(tmp_path, junit(cases), BASE, floor=None)
+    assert result.returncode == 1
+    assert "executed_floor" in result.stderr
+
+
+def test_the_committed_floor_is_owned_by_feature_status_and_rendered_in_the_readme() -> None:
+    fs = yaml.safe_load((REPO / "docs" / "feature-status.yml").read_text())
+    floor = fs["test_counts"]["liveness"]["executed_floor"]
+    assert isinstance(floor, int) and floor > 0, "a floor of zero gates nothing"
+
+    # Collected is the ceiling: you cannot execute more than pytest found.
+    lv = fs["test_counts"]["liveness"]
+    collected = lv["security"] + lv["chaos"] + lv["e2e"]
+    assert floor <= collected, f"floor {floor} exceeds {collected} collected"
+
+    # claims-integrity holds the README to this file. Assert the number appears
+    # in its own phrase, not merely as a substring -- the README contains "8080"
+    # (the gateway port), so a bare `str(80) in readme` passes vacuously, which
+    # is the defect class this whole file exists to guard.
+    readme = (REPO / "README.md").read_text()
+    assert f"executed-test floor of {floor}" in readme, (
+        f"README must render the executed-test floor as 'executed-test floor of {floor}'"
+    )
+
+
+# ==========================================================================
+# LSG-009: the failure message is the deliverable
+#
+# Whoever hits this in six months has forgotten every detail, so the message
+# has to say what happened (skipped, not ran) and where to look first.
+# ==========================================================================
+def test_the_failure_message_says_skipped_and_names_the_likely_causes(tmp_path: Path) -> None:
+    cases = [("tests.security.test_a.TestX", f"test_{i}", "skip") for i in range(5)]
+    result = run(tmp_path, junit(cases, skipped=5), BASE)
+    assert result.returncode == 1
+    err = result.stderr
+
+    # It must say the suites skipped, not merely that a number is low.
+    assert "skipped instead of ran" in err
+    assert "SKIPPED" in err
+    assert "not\n  the same as passing" in err or "not the same as passing" in err
+
+    # And name the four causes that have actually happened in this repo.
+    for hint in ("did not come up", "readiness probe", "seeded API key", "/api/v1"):
+        assert hint in err, f"failure message should mention {hint!r}"
+
+    # And say where the number lives, so the reader can re-baseline correctly.
+    assert "docs/feature-status.yml" in err

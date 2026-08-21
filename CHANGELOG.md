@@ -17,6 +17,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **An executed-test floor on the live-stack suites, owned by the same check as every other test count.** 0.8.9 moved `tests/security`, `tests/chaos` and `tests/e2e` from *135 collected / 135 skipped / 0 executed* to *135 / 55 / 80*. Nothing protected that: the next time a service in the compose stack fails to come up, the suites skip and the check goes green, because a skipped test and a passing test are the same green dot.
+
+  The floor now lives in `docs/feature-status.yml` as `test_counts.liveness.executed_floor: 80`, beside the Rust/Python/frontend/API counts, and `scripts/check_live_stack_results.py` reads it from there. It used to sit in `.live-stack-known-failures.yml`; two homes for one number is a number nobody reconciles, so that file now carries a pointer instead. `make check-claims` holds the README to it and `make claims-recount` re-derives it from a live-stack JUnit report when one exists (and says it skipped when one does not, rather than treating absence as agreement).
+
+  This is now a **ratchet at the observed value**, not the slack cliff-detector 0.8.9 shipped. A drop of one test fails the build. The regression being guarded is silent, so the guard is tight; the comment in `feature-status.yml` says how to re-baseline consciously when a test starts skipping for a good reason.
+
+  The failure message is the deliverable. It leads with *"THE SUITES DID NOT RUN. They were collected and skipped, which is not the same as passing"*, gives the skip percentage, and names the four causes that have actually occurred here — a service that did not come up, a readiness probe pointing at a route the gateway does not serve (`/health/live`, which shipped), an unseeded API key, and suites addressing `/api/v1` (the BFF) instead of `/v1` — each with the command to check it. Guarded by `tests/test_live_stack_gate.py`, which asserts the message says "skipped instead of ran" and names each cause.
+
+### Fixed
+- **The Rust test count had drifted 19 tests and nobody noticed, because `make claims-recount` was not run at 0.8.9.** `docs/feature-status.yml` declared 749; `cargo test --workspace -- --list` re-derives **768** — exactly the 19 tests 0.8.9 added (12 in `fd_policy::permissions`, 5 approval-evidence tests, 2 reconstruction integration tests). Headline total 1,954 → **1,973**. Found by running the recount this release asks for, which is the argument for running it.
+- **`cargo clippy -- -D warnings` stopped compiling on Rust 1.98, which shipped three days ago.** `clippy::result_large_err` now flags `readiness_check`'s 152-byte `(StatusCode, Json<ReadinessResponse>)` error type; it did not fire on 1.97, so main was already broken for anyone on current stable and for CI, which pins `dtolnay/rust-toolchain@stable`. The suggested fix does not apply: Axum resolves a handler's return type through `IntoResponse`, and `Box<(StatusCode, Json<T>)>` does not implement it, so boxing would stop the function being usable as a route. The tuple is also what lets `/ready` return 503 *with* the same body as 200, so a caller can see which dependency is unhealthy. Scoped `#[allow]` on that one function with the reasoning written down.
+- **A vacuous assertion in the new floor guard, caught while writing it.** The test that the README renders the floor was `str(80) in readme` — which passes on `8080`, the gateway port, whatever the README says about floors. Tightened to match the phrase `executed-test floor of 80`, and `check_claims_integrity` matches the same phrase rather than a bare substring.
+
+### Verified (no change required)
+- **The published GHCR images are anonymously pullable, and the quickstart runs end to end from a logged-out shell in 103 seconds against a stated 5 minutes.** Checked because a README that tells a stranger to pull an image they cannot pull is worse than shipping no image. `ghcr.io/sattyamjjain/ferrumdeck` does return `DENIED: invalid token` anonymously — but no such package exists and nothing references it; GHCR answers `DENIED` rather than 404 for a package that was never published. The images that exist and that `deploy/docker/compose.demo.yaml` names are **`ferrumdeck-gateway`** and **`ferrumdeck-worker`**, both public, both listing `0.8.9` and `sha-da3fc65`. Verified with an isolated empty `DOCKER_CONFIG` (no `auths` at all — stronger than `docker logout`, and it does not disturb the developer's keychain), images deleted first for a genuine cold pull: `EXIT=0 ELAPSED=103s`, six governance assertions passed. No README or docs change needed.
+
+
 ## [0.8.9] - 2026-08-19
 
 > **0.8.8 was bumped in `Cargo.toml` and never tagged**, so its entries — the stub gate, the

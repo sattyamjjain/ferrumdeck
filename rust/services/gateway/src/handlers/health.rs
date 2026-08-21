@@ -83,6 +83,17 @@ pub async fn health_check() -> Json<HealthResponse> {
         (status = 503, description = "Service is not ready", body = ReadinessResponse)
     )
 )]
+// `(StatusCode, Json<ReadinessResponse>)` is 152 bytes, which trips
+// `clippy::result_large_err` as of Rust 1.98 (2026-08-18); it did not fire on
+// 1.97, so this is a lint change rather than a code change. The suggested fix --
+// boxing the Err variant -- is not available here: Axum resolves a handler's
+// return type through `IntoResponse`, and `Box<(StatusCode, Json<T>)>` does not
+// implement it, so boxing would stop this compiling as a route. The tuple is
+// also the idiomatic Axum way to return a body alongside a non-200 status, which
+// this probe needs: /ready answers 503 WITH the same ReadinessResponse body as
+// 200, so a caller can see which dependency is unhealthy rather than just that
+// something is. Scoped to this one function.
+#[allow(clippy::result_large_err)]
 pub async fn readiness_check(
     State(state): State<AppState>,
 ) -> Result<Json<ReadinessResponse>, (StatusCode, Json<ReadinessResponse>)> {

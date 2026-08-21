@@ -8,8 +8,9 @@
 #
 #   The fix is a real gate, not a louder `|| true`. `scripts/check_live_stack_results.py`
 #   fails the build when:
-#     * fewer than `floor.executed` tests actually EXECUTED (a cliff detector, not
-#       a ratchet -- the same shape as the collection floor in ci.yml);
+#     * fewer than `test_counts.liveness.executed_floor` tests actually EXECUTED
+#       (see docs/feature-status.yml -- a ratchet at the observed value, because
+#       the regression it guards is silent);
 #     * any test failed that is not declared below;
 #     * any non-flaky entry below PASSED, so this list cannot quietly become
 #       permanent.
@@ -20,26 +21,13 @@
 #
 # HOW TO REMOVE AN ENTRY
 #   Fix the underlying issue, delete the line, and the stale-declaration check
-#   confirms it. Do not edit `floor.executed` downward to make a red build green.
+#   confirms it. Do not edit the executed floor downward to make a red build green.
 
-floor:
-  # 80 executed in CI against a FRESH database (135 collected, 55 skipped:
-  # the separately-seeded multi-tenant cases skip honestly). Local runs against
-  # a `make dev-up` database that has accumulated state from earlier runs sit
-  # lower, around 76, because some workflow-creating tests collide on
-  # `workflows_project_id_name_version_key` the second time round.
-  #
-  # CI is the source of truth for the entries below, because CI is where this
-  # gate actually runs. A local run is advisory; if it disagrees, the database
-  # is dirty, not the declarations.
-  #
-  # Set below the observed range on purpose. This is a CLIFF DETECTOR: it
-  # catches the failure mode that actually happened -- the stack not coming up,
-  # the readiness probe pointing at a route the gateway does not serve, the API
-  # key not being seeded -- all of which collapse the executed count to ~0. It
-  # is deliberately not a high-water mark, because a ratchet on a number that
-  # legitimately varies produces false failures and gets the gate deleted.
-  executed: 70
+# The executed-test floor is NOT here any more. It lives in
+# docs/feature-status.yml as `test_counts.liveness.executed_floor`, beside every
+# other test count in this repository, so the claims-integrity check owns it and
+# the README is held to it. Two homes for one number is a number nobody
+# reconciles. `scripts/check_live_stack_results.py` reads it from there.
 
 known_failures:
   # ---------------------------------------------------------------------------

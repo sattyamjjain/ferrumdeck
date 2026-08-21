@@ -43,10 +43,34 @@ from typing import Any
 import yaml
 
 
-def load_declarations(path: Path) -> tuple[int, dict[str, dict[str, Any]]]:
-    """Return (executed floor, {test id: entry})."""
+def load_floor(path: Path) -> int:
+    """Read the executed-test floor from docs/feature-status.yml.
+
+    Deliberately NOT from `.live-stack-known-failures.yml`, where it used to
+    live. Every other test count in this repository is owned by
+    `docs/feature-status.yml` and held to the README by the claims-integrity
+    check; a second, separate home for this one would be a number nobody
+    reconciles, which is the drift this repo keeps finding. One file, one
+    number, one check that owns it.
+    """
     doc = yaml.safe_load(path.read_text()) or {}
-    floor = int((doc.get("floor") or {}).get("executed", 0))
+    try:
+        floor = doc["test_counts"]["liveness"]["executed_floor"]
+    except (KeyError, TypeError):
+        print(
+            f"::error::{path} has no test_counts.liveness.executed_floor. "
+            "The live-stack gate reads its floor from there; without it the gate "
+            "would silently accept zero executed tests, which is the exact "
+            "regression it exists to catch.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None
+    return int(floor)
+
+
+def load_declarations(path: Path) -> dict[str, dict[str, Any]]:
+    """Return {test id: entry} for the declared known failures."""
+    doc = yaml.safe_load(path.read_text()) or {}
     declared: dict[str, dict[str, Any]] = {}
     for entry in doc.get("known_failures") or []:
         test = entry.get("test")
@@ -59,7 +83,7 @@ def load_declarations(path: Path) -> tuple[int, dict[str, dict[str, Any]]]:
             print(f"::error::{path}: {test} is declared with no `reason:`", file=sys.stderr)
             raise SystemExit(1)
         declared[test] = entry
-    return floor, declared
+    return declared
 
 
 def case_id(case: ET.Element) -> str:
@@ -116,6 +140,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--junit", type=Path, required=True, help="pytest --junitxml report")
     ap.add_argument("--declarations", type=Path, default=Path(".live-stack-known-failures.yml"))
+    ap.add_argument(
+        "--feature-status",
+        type=Path,
+        default=Path("docs/feature-status.yml"),
+        help="source of truth for the executed-test floor",
+    )
     args = ap.parse_args()
 
     if not args.junit.exists():
@@ -127,7 +157,8 @@ def main() -> int:
         )
         return 1
 
-    floor, declared = load_declarations(args.declarations)
+    floor = load_floor(args.feature_status)
+    declared = load_declarations(args.declarations)
     collected, skipped, failed, passed = parse_junit(args.junit)
     executed = collected - skipped
 
@@ -141,11 +172,49 @@ def main() -> int:
 
     # --- 1. the cliff detector --------------------------------------------
     if executed < floor:
+        short = floor - executed
+        pct = (skipped / collected * 100) if collected else 0.0
         print(
-            f"::error::Only {executed} tests executed against the live stack, below the "
-            f"floor of {floor}. This is the shape of a stack that did not come up, a "
-            f"readiness probe pointing at a route the gateway does not serve, or an "
-            f"unseeded API key -- not of a code change. {collected} collected, {skipped} skipped.",
+            f"::error title=Live-stack suites skipped instead of ran::"
+            f"{executed} tests executed, {short} below the floor of {floor}. "
+            f"{skipped} of {collected} collected were SKIPPED ({pct:.0f}%).",
+            file=sys.stderr,
+        )
+        print(
+            "\n"
+            "  THE SUITES DID NOT RUN. They were collected and skipped, which is not\n"
+            "  the same as passing -- pytest reports both as a green dot, which is why\n"
+            "  this went unnoticed for months before 0.8.9 (135 collected, 135 skipped,\n"
+            "  0 executed, CI green throughout).\n"
+            "\n"
+            "  This is almost never a code change. In order of likelihood:\n"
+            "\n"
+            "    1. A service in the compose stack did not come up. The suites' session\n"
+            "       fixtures call pytest.skip() when the gateway is unreachable, so the\n"
+            "       whole file skips silently.\n"
+            "         docker compose -f deploy/docker/compose.dev.yaml ps\n"
+            "         curl -fsS http://localhost:8080/health\n"
+            "\n"
+            "    2. The readiness probe points at a route the gateway does not serve.\n"
+            "       This exact bug shipped: the fixtures probed /health/live, which does\n"
+            "       not exist (the routes are /health and /ready), so they skipped\n"
+            "       unconditionally even against a healthy stack.\n"
+            "         grep -rn 'wait_for_service' tests/*/conftest.py\n"
+            "\n"
+            "    3. The seeded API key or agent id changed. An unseeded key 401s every\n"
+            "       request and the fixtures skip rather than fail.\n"
+            "         FD_API_KEY (default fd_dev_key_abc123, from\n"
+            "         db/migrations/20241223000002_seed_dev_data.sql)\n"
+            "\n"
+            "    4. The suites are addressing the wrong service. The gateway serves\n"
+            "       /v1/...; /api/v1/... is the Next.js BFF on :3001. 144 assertions\n"
+            "       were pointed at the wrong one and 404'd, and many still 'passed'\n"
+            "       because `assert status in (403, 404)` holds for a 404.\n"
+            "\n"
+            f"  The floor lives in docs/feature-status.yml (test_counts.liveness.executed_floor\n"
+            f"  = {floor}), owned by the claims-integrity check like every other count.\n"
+            "  If a test now skips for a GOOD reason, lower it there in the same commit\n"
+            "  that explains why. Do not lower it to turn this build green.\n",
             file=sys.stderr,
         )
         rc = 1
