@@ -206,6 +206,34 @@ pub struct SubmitStepResultRequest {
     pub output_tokens: Option<i32>,
 }
 
+/// Reject control characters in a tool name — NUL above all.
+///
+/// A crafted name like `git_read\0execute_shell` used to reach Postgres and
+/// come back as a 500 (`invalid byte sequence for encoding "UTF8": 0x00`,
+/// SQLSTATE 22021). A policy-bypass attempt should be *refused by validation*,
+/// not surface as an unhandled database error: a 500 tells the caller the
+/// server broke rather than that the request was rejected, and it means a
+/// deliberately malformed name gets a different, noisier failure mode than a
+/// clean deny.
+///
+/// Rejects the whole C0/C1 control range plus DEL rather than NUL alone.
+/// Embedded newlines and escapes are log-injection and display-spoofing
+/// vectors in their own right, and no legitimate tool name contains one.
+fn validate_tool_name_charset(name: &str) -> Result<(), validator::ValidationError> {
+    if let Some(bad) = name.chars().find(|c| c.is_control()) {
+        let mut err = validator::ValidationError::new("invalid_tool_name");
+        err.message = Some(
+            format!(
+                "tool_name must not contain control characters (found U+{:04X})",
+                bad as u32
+            )
+            .into(),
+        );
+        return Err(err);
+    }
+    Ok(())
+}
+
 /// Custom validator for step status
 fn validate_step_status(status: &str) -> Result<(), validator::ValidationError> {
     match status {
@@ -1404,7 +1432,13 @@ pub async fn submit_step_result(
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CheckToolRequest {
     /// Tool name being called
-    #[validate(length(min = 1, max = 255, message = "tool_name must be 1-255 characters"))]
+    // One `validate` attribute, not two: separate attributes do not stack in
+    // this derive and the second is silently ignored, which is how the first
+    // attempt at this shipped a validator that never ran.
+    #[validate(
+        length(min = 1, max = 255, message = "tool_name must be 1-255 characters"),
+        custom(function = "validate_tool_name_charset")
+    )]
     pub tool_name: String,
 
     /// Tool input payload for Airlock inspection

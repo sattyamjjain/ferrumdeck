@@ -65,7 +65,7 @@ Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_
 
 The enforcement engine is published — you can depend on it, not just clone it. One dependency via the umbrella crate:
 
-> **Current version: `v0.8.11`.** <!-- x-current-version: 0.8.11 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
+> **Current version: `v0.8.12`.** <!-- x-current-version: 0.8.12 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
 
 ```bash
 cargo add ferrumdeck
@@ -281,26 +281,22 @@ reportable, and reporting it, stays with the operator. Which evidence classes th
 log actually covers — and, more usefully, which it does not — is set out per class
 in [`docs/compliance/safe-evidence-coverage.md`](docs/compliance/safe-evidence-coverage.md).
 
-> **A verifying chain is not a complete chain.** This is the sharpest limit on
-> the evidence claim above, and it applies equally to **EU AI Act Art. 12/19**
-> record-keeping. `AuditRepo::create` reads the tenant's chain tip `FOR UPDATE`
-> and inserts at `tip + 1`; that lock does not stop a concurrent transaction
-> inserting a new maximum, so two writers can read the same tip and collide on
-> `idx_audit_events_chain` — and at genesis there is no row to lock at all.
-> **Nothing retries the loser.** The caller on the hot path is fire-and-forget,
-> so the event is *lost*. What survives is a chain that still verifies: every
-> remaining row links correctly to its predecessor, `verify_chain` reports no
-> break, and the missing record leaves no gap because its `chain_seq` was never
-> allocated. So a passing `verify_chain` proves the log was **not tampered
-> with**; it does **not** prove the log is **complete**. Those are different
-> claims and only the first is made here. The loss is likeliest under load,
-> which is when an incident is likeliest to be under way. Reproducible: 17 of 24
-> concurrent writers collided in
-> `rust/crates/fd-storage/tests/audit_chain_collision.rs`, which also asserts
-> each drop is logged at ERROR with the tenant and the `chain_seq` that could not
-> be claimed, so drops are countable rather than merely observable. The fix — a
-> retry on unique violation, or a per-tenant advisory lock — is a design change
-> with its own trade-offs and is deliberately **not** attempted yet.
+> **Concurrent writes no longer drop audit records.** Until 0.8.12
+> `AuditRepo::create` read the tenant's chain tip `FOR UPDATE` and inserted at
+> `tip + 1`; that lock does not stop a concurrent transaction inserting a new
+> maximum, and at genesis there was no row to lock at all. Two writers could
+> collide on `idx_audit_events_chain`, nothing retried the loser, and because
+> the hot-path caller is fire-and-forget the event was **lost** — while the
+> surviving chain still verified, because the missing `chain_seq` was never
+> allocated. Measured: **17 of 24 concurrent writers collided.** A
+> transaction-scoped per-tenant advisory lock closes it;
+> `rust/crates/fd-storage/tests/audit_chain_collision.rs` drives the same race
+> and asserts zero collisions, zero drops and a contiguous `chain_seq` run.
+> Two honest limits remain: a write that fails for any *other* reason
+> (connection loss, disk) is still dropped by the fire-and-forget caller —
+> logged at ERROR with the tenant and index so it is countable — and rows
+> written by anything that bypasses `AuditRepo::create` are outside the
+> guarantee.
 
 **Implemented and enforced (covered by the Rust test suite):**
 
@@ -330,24 +326,33 @@ in [`docs/compliance/safe-evidence-coverage.md`](docs/compliance/safe-evidence-c
   fail-open by default; `FERRUMDECK_SCHEMA_DRIFT_FAIL_CLOSED=true` flips that
   case to deny-by-default.
 
-  > **The anti-RCE layer is name-matched, and its default list is shell-shaped.**
-  > `RcePatternMatcher::should_inspect` compares the tool name against
-  > `airlock.rce.target_tools`, whose default is eight literal names —
-  > `write_file`, `create_file`, `create_or_update_file`, `python_repl`, `bash`,
-  > `execute_command`, `run_script`, `shell`. A tool whose name is not on that
-  > list is **never pattern-scanned**. That default matches nothing in a
-  > deployment that names its tools after its own domain, including this one:
-  > the dev seed registers `git_read`, `git_write`, `test_run` and
-  > `github_create_pr`, so on a seeded stack Layer 1 inspects **zero of four**.
-  > The same RCE payload scores `risk_score: 90, violation: rcepattern` sent to
-  > `bash` and `risk_score: 0` sent to `git_write`. **Operators must extend
-  > `target_tools` with their own tool names**; the default is a starting point,
-  > not coverage. Widening it by default is a posture change with real blast
-  > radius (false positives and latency on every call), so it is the operator's
-  > call — but it is no longer a silent one: the gateway reconciles the registry
-  > against `target_tools` at boot, logs a WARN naming both lists when the
-  > intersection is empty, and reports `anti_rce_coverage.status` (`full` /
-  > `partial` / `blind` / `disabled`) on `GET /ready`.
+  > **Two layers are name-matched — and their defaults used to match nothing.**
+  > Layer 1 (anti-RCE) and Layer 3 (exfiltration + credential DLP) each filter by
+  > tool NAME before doing any work. Until 0.8.12 Layer 1 defaulted to eight
+  > shell-shaped literals (`bash`, `python_repl`, `write_file`, …) and Layer 3 to
+  > eight HTTP-shaped ones (`http_get`, `curl`, `send_email`, …). Neither matched
+  > anything in a deployment that names its tools after its own domain —
+  > including this one, whose seed registers `git_read` / `git_write` /
+  > `test_run` / `github_create_pr`. **Both layers inspected zero of four** while
+  > reporting enabled and passing their tests.
+  >
+  > Both defaults are now **empty, meaning inspect every tool**. Fail-closed is
+  > the right default for a security layer. Measured on a seeded stack, same
+  > payload before and after: `git_write` went from `risk_score: 0` to
+  > `risk_score: 90, violation: rcepattern`, and `github_create_pr` with a
+  > link-local URL now returns `violation: ipaddressused`. Benign calls still
+  > score 0.
+  >
+  > Narrowing is still supported — set `target_tools` to control cost or a
+  > specific false positive — and the gateway reconciles each layer's list
+  > against the registry at boot, logs a WARN naming both lists when a layer
+  > covers nothing, and reports `airlock_coverage.{anti_rce,exfiltration}.status`
+  > (`full` / `partial` / `blind` / `disabled`) on `GET /ready`.
+  >
+  > **Airlock still defaults to `shadow`**, which records violations without
+  > blocking them. Detection and refusal are different things; set
+  > `FERRUMDECK_AIRLOCK_MODE=enforce` for the latter.
+
 - **Enforcement on the agentic execution path.** The Python worker's in-loop
   agentic executor authorizes **every** tool call against the control-plane
   `check-tool` endpoint *before* it runs: `allow` → execute, `deny` → refuse,
@@ -401,7 +406,17 @@ in [`docs/compliance/safe-evidence-coverage.md`](docs/compliance/safe-evidence-c
   > `regression` suite scored **1.00 with assertion coverage of 50%**: half of
   > its scorer results asserted nothing at all and returned a full score for
   > having nothing to check, so that 1.00 is an average over the covered half
-  > only, not over twenty tasks. `smoke` sits at 100% coverage. This is stated
+  > only, not over twenty tasks. `smoke` sits at 100% coverage.
+  >
+  > **That 50% is measured on the 2026-08-16 run, which predates the rescope in
+  > the same commit.** `schema_valid` was removed from the suite because no task
+  > declared an `output_schema`, so it skipped on every task while contributing a
+  > full score. The suite now declares three scorers, of which
+  > `expected_output_match` still reports "No output expectations declared" on all
+  > twenty tasks — so the next run should land near **67%**, not 100%. The figure
+  > on the eval-health page will stay at 50% until the suite is re-run, and it is
+  > labelled with its run date there. It is LLM-backed, so re-running it costs
+  > real model calls; it has not been re-run purely to refresh a number. This is stated
   > plainly on the eval-health page and is repeated here because "eval gating in
   > CI" — which is also in this repository's GitHub description — reads as a
   > stronger claim than a half-covered suite supports. The deterministic suites

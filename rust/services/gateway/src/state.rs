@@ -41,14 +41,14 @@ pub struct AppState {
     /// Config for the coherence monitor (enable flag, lookahead, confidence).
     pub coherence_config: CoherenceConfig,
 
-    /// What Airlock Layer 1 (anti-RCE) actually inspects on THIS deployment,
-    /// reconciled at boot from the tool registry against
-    /// `airlock.rce.target_tools`. Layer 1 is name-matched, and the default
-    /// target list is shell-shaped (`bash`, `python_repl`, …), so a deployment
-    /// that names its tools after its own domain can have the layer enabled,
-    /// passing its tests, and inspecting nothing. Surfaced on `/ready` so that
-    /// is visible without reading boot logs.
-    pub rce_coverage: Arc<fd_policy::airlock::RceCoverage>,
+    /// What the two NAME-MATCHED Airlock layers actually inspect on THIS
+    /// deployment — Layer 1 (anti-RCE) and Layer 3 (exfiltration + credential
+    /// DLP) — reconciled at boot from the tool registry against each layer's
+    /// `target_tools`. Both now default to empty, meaning inspect everything;
+    /// this stays because narrowing is still allowed, and an operator who
+    /// narrows should be able to see what it leaves uncovered. Surfaced on
+    /// `/ready` so it is visible without reading boot logs.
+    pub airlock_coverage: Arc<fd_policy::airlock::AirlockCoverage>,
 
     /// When `true` (`FERRUMDECK_COHERENCE_MODE=enforce`), a coherence divergence
     /// that maps to the R3 rung gates the run (→ `WaitingApproval`). Default
@@ -255,8 +255,10 @@ impl AppState {
         };
 
         // Captured before `airlock_config` is moved into the inspector below;
-        // the coverage reconciliation needs it after that point.
+        // the coverage reconciliation needs both name-matched layers after that
+        // point.
         let rce_config = airlock_config.rce.clone();
+        let exfil_config = airlock_config.exfiltration.clone();
 
         tracing::info!(
             mode = ?airlock_mode,
@@ -314,45 +316,48 @@ impl AppState {
         // target list produce a layer that is enabled, tested, and inert. This
         // does not change any decision -- widening the default is a posture
         // call for the operator -- it makes the answer sayable.
-        let rce_coverage = Arc::new(
+        let airlock_coverage = Arc::new(
             match ToolsRepo::new(db.clone()).list(None, None, 1_000, 0).await {
                 Ok(tools) => {
                     let names: Vec<String> = tools.into_iter().map(|t| t.slug).collect();
-                    fd_policy::airlock::RceCoverage::reconcile(names, &rce_config)
+                    fd_policy::airlock::AirlockCoverage::reconcile(
+                        &names,
+                        &rce_config,
+                        &exfil_config,
+                    )
                 }
                 Err(e) => {
                     // Report nothing rather than assert coverage we did not verify.
                     tracing::warn!(
                         error = %e,
-                        "could not read the tool registry to reconcile anti-RCE coverage; \
+                        "could not read the tool registry to reconcile Airlock coverage; \
                          reporting it as unknown (no tools counted)"
                     );
-                    fd_policy::airlock::RceCoverage::reconcile(Vec::<String>::new(), &rce_config)
+                    fd_policy::airlock::AirlockCoverage::reconcile(&[], &rce_config, &exfil_config)
                 }
             },
         );
-        if rce_coverage.is_blind() {
-            tracing::warn!(
-                status = rce_coverage.status().as_str(),
-                registered_tools = ?rce_coverage.uninspected,
-                target_tools = ?rce_coverage.target_tools,
-                "{}",
-                rce_coverage.summary()
-            );
-        } else if !rce_coverage.uninspected.is_empty() {
-            tracing::warn!(
-                status = rce_coverage.status().as_str(),
-                uninspected = ?rce_coverage.uninspected,
-                inspected = ?rce_coverage.inspected,
-                "{}",
-                rce_coverage.summary()
-            );
-        } else {
-            tracing::info!(
-                status = rce_coverage.status().as_str(),
-                "{}",
-                rce_coverage.summary()
-            );
+        for layer in airlock_coverage.layers() {
+            if layer.is_blind() {
+                tracing::warn!(
+                    layer = %layer.layer,
+                    status = layer.status().as_str(),
+                    registered_tools = ?layer.uninspected,
+                    target_tools = ?layer.target_tools,
+                    "{}",
+                    layer.summary()
+                );
+            } else if !layer.uninspected.is_empty() {
+                tracing::warn!(
+                    layer = %layer.layer,
+                    status = layer.status().as_str(),
+                    uninspected = ?layer.uninspected,
+                    "{}",
+                    layer.summary()
+                );
+            } else {
+                tracing::info!(layer = %layer.layer, status = layer.status().as_str(), "{}", layer.summary());
+            }
         }
 
         // Coherence-divergence monitor — fed live from the step stream in
@@ -394,7 +399,7 @@ impl AppState {
             coherence,
             coherence_config,
             coherence_enforce,
-            rce_coverage,
+            airlock_coverage,
             approval_ttl_secs,
             queue: Arc::new(queue),
             rate_limiter,

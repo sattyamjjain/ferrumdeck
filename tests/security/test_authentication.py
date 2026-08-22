@@ -3,10 +3,21 @@
 Tests for SEC-AUTH-001 to SEC-AUTH-008 from the testing plan.
 """
 
+import os
 import time
 
 import httpx
 import pytest
+
+# The gateway's base URL, honouring GATEWAY_URL like every other suite.
+#
+# These cases used to hardcode "http://localhost:8080". That is not a cosmetic
+# difference: a hardcoded URL means the test talks to whatever happens to be
+# listening on that port rather than to the stack under test, and it fails --
+# or worse, passes -- for reasons that have nothing to do with the code. It was
+# caught when an unrelated local service held :8080 and five authentication
+# tests "failed" against a healthy gateway on another port.
+GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8080")
 
 
 # ==========================================================================
@@ -52,7 +63,7 @@ class TestInvalidKeyBlocked:
         SEC-AUTH-002: Invalid key → 401
         """
         with httpx.Client(
-            base_url="http://localhost:8080",
+            base_url=GATEWAY_URL,
             headers={
                 "Authorization": "Bearer invalid_key_12345",
                 "Content-Type": "application/json",
@@ -68,7 +79,7 @@ class TestInvalidKeyBlocked:
     def test_malformed_auth_header(self) -> None:
         """Test that malformed auth header is rejected."""
         with httpx.Client(
-            base_url="http://localhost:8080",
+            base_url=GATEWAY_URL,
             headers={
                 "Authorization": "NotBearer some_key",
                 "Content-Type": "application/json",
@@ -84,7 +95,7 @@ class TestInvalidKeyBlocked:
     def test_empty_bearer_token(self) -> None:
         """Test that empty bearer token is rejected."""
         with httpx.Client(
-            base_url="http://localhost:8080",
+            base_url=GATEWAY_URL,
             headers={
                 "Authorization": "Bearer ",
                 "Content-Type": "application/json",
@@ -111,7 +122,7 @@ class TestExpiredKeyBlocked:
         """
         # Use a key that simulates an expired key
         with httpx.Client(
-            base_url="http://localhost:8080",
+            base_url=GATEWAY_URL,
             headers={
                 "Authorization": "Bearer fd_expired_key_12345",
                 "Content-Type": "application/json",
@@ -138,7 +149,7 @@ class TestRevokedKeyBlocked:
         SEC-AUTH-004: Revoked key → 401
         """
         with httpx.Client(
-            base_url="http://localhost:8080",
+            base_url=GATEWAY_URL,
             headers={
                 "Authorization": "Bearer fd_revoked_key_12345",
                 "Content-Type": "application/json",
@@ -234,7 +245,7 @@ class TestTenantIsolation:
 
         # Try to access with different tenant (simulated by different key)
         with httpx.Client(
-            base_url="http://localhost:8080",
+            base_url=GATEWAY_URL,
             headers={
                 "Authorization": "Bearer fd_tenant_b_key",
                 "Content-Type": "application/json",
@@ -264,7 +275,7 @@ class TestBruteForceProtection:
         results: list[int] = []
 
         with httpx.Client(
-            base_url="http://localhost:8080",
+            base_url=GATEWAY_URL,
             headers={
                 "Authorization": "Bearer invalid_brute_force_key",
                 "Content-Type": "application/json",
@@ -288,7 +299,7 @@ class TestBruteForceProtection:
         """Test that rate limit recovers after cooldown."""
         # This test verifies the system doesn't permanently block
         with httpx.Client(
-            base_url="http://localhost:8080",
+            base_url=GATEWAY_URL,
             headers={
                 "Authorization": "Bearer fd_test_key",
                 "Content-Type": "application/json",

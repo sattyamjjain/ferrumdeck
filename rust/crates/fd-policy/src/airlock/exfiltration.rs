@@ -136,8 +136,14 @@ impl ExfiltrationShield {
     }
 
     /// Check if this tool should be inspected
+    /// **An empty `target_tools` means inspect everything** (default as of
+    /// 0.8.12). Layer 3 had exactly the same blindness as Layer 1: its default
+    /// was eight HTTP-shaped names (`http_get`, `curl`, `send_email`, …), none
+    /// of which matches a domain-named tool, so the exfiltration + credential-
+    /// DLP shield inspected nothing on a seeded stack either. Fixing Layer 1
+    /// and leaving its twin would have been incoherent.
     fn should_inspect(&self, tool_name: &str) -> bool {
-        self.target_tools.iter().any(|t| t == tool_name)
+        self.target_tools.is_empty() || self.target_tools.iter().any(|t| t == tool_name)
     }
 
     /// Check if a domain is allowed

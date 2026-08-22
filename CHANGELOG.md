@@ -17,6 +17,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.12] - 2026-08-22
+
+Closes the three gaps 0.8.9-0.8.11 documented but deliberately left open, plus
+the two they turned up on the way.
+
+### Fixed
+- **Two of the five Airlock layers were inspecting nothing, and both are fixed.** Layer 1 (anti-RCE) and Layer 3 (exfiltration + credential DLP) each filter by tool NAME before doing any work. Layer 1 defaulted to eight shell-shaped literals (`bash`, `python_repl`, `write_file`, …); Layer 3 to eight HTTP-shaped ones (`http_get`, `curl`, `send_email`, …). Neither matched anything in a deployment that names its tools after its own domain — including this one, whose seed registers `git_read` / `git_write` / `test_run` / `github_create_pr`. **Both inspected zero of four** while reporting enabled and passing their tests.
+
+  Only Layer 1 was on the list of known gaps. Layer 3 was found while fixing it, had the identical defect, and fixing one while leaving its twin would have been incoherent.
+
+  Both defaults are now **empty, meaning inspect every tool** — fail-closed is the right default for a security layer, and a list of literal name guesses decides on the operator's behalf that their tools are uninteresting. Measured on a seeded stack, same payload before and after: `git_write` moved from `risk_score: 0` to `risk_score: 90, violation: rcepattern`; `github_create_pr` with a link-local URL now returns `violation: ipaddressused`. Benign calls still score 0. Narrowing remains supported and is now reported per layer at boot and on `GET /ready` as `airlock_coverage.{anti_rce,exfiltration}.status`.
+
+  **Airlock still defaults to `shadow`**, so a detected violation is recorded and not blocked. Detection and refusal are different claims; `FERRUMDECK_AIRLOCK_MODE=enforce` is the second one. That default is a bigger posture decision than a target list and is not changed here.
+
+- **Concurrent audit writes no longer drop records.** `AuditRepo::create` read the tenant's chain tip `FOR UPDATE` and inserted at `tip + 1`. That lock does not stop a concurrent transaction inserting a new maximum, and at genesis there was no row to lock at all, so two writers could collide on `idx_audit_events_chain`. Nothing retried the loser and the hot-path caller is fire-and-forget, so the event was **lost** — while the surviving chain still verified, because the missing `chain_seq` was never allocated. Measured at 0.8.11: **17 of 24 concurrent writers collided.**
+
+  A transaction-scoped per-tenant advisory lock makes read-tip-then-insert atomic. Writes for different tenants still run fully concurrently; one tenant's appends are linearized, which is the trade-off the function's docs already claimed. `audit_chain_collision.rs` drives the same 24-writer race and now asserts **zero collisions, zero drops, and a contiguous `chain_seq`** — its assertions are inverted from the version that shipped a week ago, and the old diagnostics are kept as a guard so a regression stays countable.
+
+  Residual, stated plainly: a write failing for a non-collision reason is still dropped by the fire-and-forget caller (ERROR with tenant and index), and rows written by anything bypassing `AuditRepo::create` are outside the guarantee.
+
+- **A NUL byte in `tool_name` returned 500.** `git_read\0execute_shell` reached Postgres and came back as `invalid byte sequence for encoding "UTF8": 0x00` (SQLSTATE 22021). A policy-bypass attempt should be refused by validation, not surface as an unhandled database error. `tool_name` now rejects the whole C0/C1 control range plus DEL and returns **422** naming the offending code point. Newlines are rejected too — log-injection and display-spoofing vectors, and no legitimate tool name contains one.
+
+- **Ten tests hardcoded `http://localhost:8080` and ignored `GATEWAY_URL`.** Found when an unrelated local service held that port and five authentication tests "failed" against a healthy gateway listening elsewhere. A hardcoded URL means the test talks to whatever is on the port rather than the stack under test — and can pass for reasons unrelated to the code.
+
+### Changed
+- **`ROADMAP.md` still listed dashboard SSO/RBAC as live work** four days after [#10](https://github.com/sattyamjjain/ferrumdeck/issues/10) was declined as not planned. Struck through with the reason rather than deleted: a roadmap that silently drops an item leaves the reader unable to tell done from forgotten.
+- **The README now says which run the regression suite's 50% assertion coverage was measured on.** That figure predates the rescope in the same commit, which removed `schema_valid`; the suite now declares three scorers and the next run should land near 67%, not 100%. It is LLM-backed and has not been re-run purely to refresh a number.
+
+### Known gaps
+- **Most declared audit actions are still never written.** 24 constants are defined; a full run exercises 6. No `run.started`, `step.started` or `step.failed`, so the incident timeline covers decisions and completions but not the run lifecycle. Largest remaining item on the SAFE coverage page.
+- **No artifact inventory** (SAFE row 5) and **no dependency inventory / SBOM** (row 1).
+- **Airlock's default mode is `shadow`.** Violations are detected and recorded, not blocked.
+
+
 ## [0.8.11] - 2026-08-22
 
 > **0.8.10 was bumped and never tagged or published**, so its entries — the

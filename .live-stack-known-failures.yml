@@ -31,24 +31,29 @@
 
 known_failures:
   # ---------------------------------------------------------------------------
-  # Anti-RCE layer (Airlock Layer 1) is name-matched, and the seeded tools are
-  # not on the list. `RcePatternMatcher::should_inspect` tests the tool name
-  # against `RceConfig::target_tools`, whose default is eight literal names
-  # (write_file, create_file, create_or_update_file, python_repl, bash,
-  # execute_command, run_script, shell). The dev seed registers git_read,
-  # git_write, test_run and github_create_pr -- none of which match -- so on a
-  # seeded stack Layer 1 inspects nothing.
+  # Airlock is in SHADOW mode by default: it records violations and does not
+  # block them.
   #
-  # Changing that default is a security-posture decision with real blast radius
-  # (false positives and latency on every tool), so this branch records it
-  # rather than making the call. It was masked until now: every seeded tool was
-  # `irreversible`, so the R3 gate refused the call before the miss was visible.
+  # These entries used to say the anti-RCE layer inspected nothing, which was
+  # true until 0.8.12 -- both name-matched layers defaulted to literal tool-name
+  # lists that matched nothing a domain-named deployment registers. That is
+  # fixed; both now default to inspecting every tool, and the same payload that
+  # scored `risk_score: 0` now scores 65 with `violation_type: rcepattern`.
+  #
+  # The tests still fail, for a different and legitimate reason: with
+  # `FERRUMDECK_AIRLOCK_MODE=shadow` (the default, chosen for safety) a detected
+  # violation is recorded and the call is still allowed. These cases assert the
+  # call is BLOCKED. Whether the shipped default should be `enforce` is a
+  # posture decision, not a bug -- and it is a much bigger one than widening a
+  # target list, because it changes what a running deployment refuses.
   # ---------------------------------------------------------------------------
   - test: "tests/security/test_audit_trail.py::TestDeniedToolCallIsBlockedAndRecorded::test_denied_tool_call_never_executes_and_is_recorded"
     reason: >-
-      An RCE payload sent to `git_write` is authorized (allowed=true,
-      risk_score=0). Layer 1 never inspects it because "git_write" is not in
-      RceConfig::target_tools. Real finding; needs a posture decision.
+      The RCE payload IS now detected (risk_score 65, violation_type
+      rcepattern, "Shell pipe detected") -- fixed in 0.8.12. It is still
+      allowed because Airlock defaults to shadow mode, which records without
+      blocking. The test asserts a block. Flipping the default to enforce is a
+      posture decision about what a running deployment refuses.
     issue: 6
 
   - test: "tests/security/test_policy_engine.py::TestDenyByDefault::test_allowlisted_tool_has_no_false_positive_violation"

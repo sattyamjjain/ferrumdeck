@@ -29,19 +29,28 @@ pub struct ReadinessResponse {
     pub version: &'static str,
     /// Individual component health status
     pub components: ComponentStatus,
-    /// What Airlock Layer 1 (anti-RCE) actually inspects on this deployment.
+    /// What the two NAME-MATCHED Airlock layers actually inspect here.
     ///
-    /// Reported here because the layer is name-matched: a tool whose name is
-    /// not in `airlock.rce.target_tools` is never pattern-scanned, and the
-    /// default target list is shell-shaped. A deployment can therefore have
-    /// the layer enabled, its tests passing, and nothing inspected. That is
-    /// invisible in logs after boot, so it is a field.
-    pub anti_rce_coverage: RceCoverageReport,
+    /// Reported because both filter by tool name before doing any work: a tool
+    /// not on a layer's `target_tools` is never inspected by it. Both default
+    /// to empty (= inspect everything) as of 0.8.12, but narrowing is still
+    /// allowed, and a narrowed layer covering nothing is invisible in logs
+    /// after boot. So it is a field.
+    pub airlock_coverage: AirlockCoverageReport,
 }
 
-/// Anti-RCE (Airlock Layer 1) coverage for the registered tool set.
+/// Coverage for every name-matched Airlock layer.
 #[derive(Serialize, ToSchema)]
-pub struct RceCoverageReport {
+pub struct AirlockCoverageReport {
+    /// Airlock Layer 1 — anti-RCE pattern matching.
+    pub anti_rce: LayerCoverageReport,
+    /// Airlock Layer 3 — exfiltration shield + credential DLP.
+    pub exfiltration: LayerCoverageReport,
+}
+
+/// One name-matched layer's coverage of the registered tool set.
+#[derive(Serialize, ToSchema)]
+pub struct LayerCoverageReport {
     /// `full` | `partial` | `blind` | `disabled` | `no_tools_registered`.
     /// **`blind` means tools are registered and none of them is inspected.**
     #[schema(example = "blind")]
@@ -55,7 +64,21 @@ pub struct RceCoverageReport {
     /// Registered tools Layer 1 will NOT pattern-scan.
     pub uninspected: Vec<String>,
     /// The configured `target_tools` list, so the two can be compared here.
+    /// **Empty means every tool is inspected** — that is the default.
     pub target_tools: Vec<String>,
+}
+
+impl LayerCoverageReport {
+    fn from(c: &fd_policy::airlock::LayerCoverage) -> Self {
+        Self {
+            status: c.status().as_str(),
+            summary: c.summary(),
+            registered_tools: c.registered_tools,
+            inspected: c.inspected.clone(),
+            uninspected: c.uninspected.clone(),
+            target_tools: c.target_tools.clone(),
+        }
+    }
 }
 
 /// Health status of all backend components
@@ -167,13 +190,9 @@ pub async fn readiness_check(
         // Reconciled once at boot (AppState::new) rather than per probe: the
         // registry is read there already, and a readiness probe should not do
         // a table scan on every poll.
-        anti_rce_coverage: RceCoverageReport {
-            status: state.rce_coverage.status().as_str(),
-            summary: state.rce_coverage.summary(),
-            registered_tools: state.rce_coverage.registered_tools,
-            inspected: state.rce_coverage.inspected.clone(),
-            uninspected: state.rce_coverage.uninspected.clone(),
-            target_tools: state.rce_coverage.target_tools.clone(),
+        airlock_coverage: AirlockCoverageReport {
+            anti_rce: LayerCoverageReport::from(&state.airlock_coverage.rce),
+            exfiltration: LayerCoverageReport::from(&state.airlock_coverage.exfiltration),
         },
     };
 

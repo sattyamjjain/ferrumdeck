@@ -119,15 +119,16 @@ is a feature.
   policy/allowlist/budget — deny-by-default, never silent.
 - **Tracking:** [#9](https://github.com/sattyamjjain/ferrumdeck/issues/9)
 
-### Dashboard auth/session + SSO/RBAC + API-key self-service
-- **Problem:** tenant isolation is enforced, but there is **no dashboard
-  auth/session layer, no SSO/RBAC, and no API-key self-service** — the dashboard +
-  gateway must be treated as a **trusted-operator** deployment.
-- **Lives in:** `nextjs/` (no auth/session module today) + the gateway API-key
-  middleware.
-- **Done:** the dashboard requires authenticated sessions, roles gate write actions
-  (RBAC), and operators can mint/rotate API keys without a manual DB seed.
-- **Tracking:** [#10](https://github.com/sattyamjjain/ferrumdeck/issues/10)
+### ~~Dashboard auth/session + SSO/RBAC + API-key self-service~~ — declined
+- **Status: not planned.** [#10](https://github.com/sattyamjjain/ferrumdeck/issues/10)
+  was closed as not planned on 2026-08-18. It is the feature set of a hosted
+  product, and the trusted-operator posture it would replace is stated in two
+  places in the README. An identity-aware proxy in front of the dashboard is the
+  better answer than a bespoke credential store in a repository whose argument is
+  about not granting components more authority than they need.
+- Kept here, struck through rather than deleted, because a roadmap that silently
+  drops an item leaves the reader unsure whether it was done or forgotten. This
+  entry sat here as live work for four days after the issue was declined.
 
 ### Optional enforcement for the coherence + claim-grounding reliability signals
 - **Problem:** the coherence-divergence monitor and the claim-grounding-rate metric

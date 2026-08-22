@@ -331,30 +331,24 @@ fn default_loop_threshold() -> u32 {
     3
 }
 
+/// Empty means **inspect every tool** (see `RcePatternMatcher::should_inspect`).
+///
+/// This used to return eight literal shell-shaped names. That is a reasonable
+/// guess about what a tool is called and a poor default for a security layer:
+/// any deployment naming its tools after its own domain got zero anti-RCE
+/// inspection, silently. Narrowing is still available by setting the list; the
+/// default no longer decides on the operator's behalf that their tools are
+/// uninteresting.
 fn default_rce_tools() -> Vec<String> {
-    vec![
-        "write_file".to_string(),
-        "create_file".to_string(),
-        "create_or_update_file".to_string(),
-        "python_repl".to_string(),
-        "bash".to_string(),
-        "execute_command".to_string(),
-        "run_script".to_string(),
-        "shell".to_string(),
-    ]
+    Vec::new()
 }
 
+/// Empty means **inspect every tool** (see `ExfiltrationShield::should_inspect`).
+/// Same reasoning as `default_rce_tools`: the previous eight HTTP-shaped names
+/// matched nothing in a deployment that names its tools after its own domain,
+/// so the exfiltration + credential-DLP shield inspected nothing there.
 fn default_network_tools() -> Vec<String> {
-    vec![
-        "http_get".to_string(),
-        "http_post".to_string(),
-        "http_request".to_string(),
-        "curl".to_string(),
-        "fetch".to_string(),
-        "requests".to_string(),
-        "webhook".to_string(),
-        "send_email".to_string(),
-    ]
+    Vec::new()
 }
 
 #[cfg(test)]
@@ -370,11 +364,24 @@ mod tests {
         assert!(config.exfiltration.enabled);
     }
 
+    /// The default target lists are EMPTY, which means "inspect every tool".
+    ///
+    /// This test used to assert the opposite — that the list contained
+    /// `write_file` and `bash`. Those eight literals were a guess about what
+    /// tools are called, and any deployment naming its tools after its own
+    /// domain got no inspection from either name-matched layer and no
+    /// indication of it. Asserting emptiness pins the fail-closed default so a
+    /// future "let's ship sensible defaults" change has to argue with a test.
     #[test]
-    fn test_default_rce_tools() {
-        let tools = default_rce_tools();
-        assert!(tools.contains(&"write_file".to_string()));
-        assert!(tools.contains(&"bash".to_string()));
+    fn default_target_lists_are_empty_meaning_inspect_everything() {
+        assert!(
+            default_rce_tools().is_empty(),
+            "a non-empty default silently excludes every tool not on the list"
+        );
+        assert!(default_network_tools().is_empty());
+        // And the configs that consume them agree.
+        assert!(RceConfig::default().target_tools.is_empty());
+        assert!(ExfiltrationConfig::default().target_tools.is_empty());
     }
 
     #[test]

@@ -54,7 +54,8 @@ use crate::handlers::{harness_suggestions, health, promotions, runs, training_si
             health::ReadinessResponse,
             health::ComponentStatus,
             health::ComponentHealth,
-            health::RceCoverageReport,
+            health::AirlockCoverageReport,
+            health::LayerCoverageReport,
             // Run schemas
             runs::CreateRunRequest,
             runs::RunResponse,
