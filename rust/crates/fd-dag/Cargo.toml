@@ -1,11 +1,19 @@
 [package]
-name = "fd-dag"
+name = "ferrumdeck-dag"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "DAG scheduler for workflow orchestration in FerrumDeck"
+description = "DAG scheduler for workflow orchestration in FerrumDeck: dependency resolution, cycle detection, and topological execution order"
 license.workspace = true
 repository.workspace = true
+homepage = "https://github.com/sattyamjjain/ferrumdeck"
+keywords = ["dag", "scheduler", "workflow", "orchestration", "agent"]
+categories = ["development-tools"]
+readme = "README.md"
+
+# Published as `ferrumdeck-dag`; the Rust import path stays `fd_dag`.
+[lib]
+name = "fd_dag"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

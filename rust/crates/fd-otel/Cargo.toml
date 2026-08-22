@@ -1,13 +1,27 @@
 [package]
-name = "fd-otel"
-description = "FerrumDeck OpenTelemetry helpers with GenAI semantic conventions"
+name = "ferrumdeck-otel"
+description = "FerrumDeck OpenTelemetry helpers: GenAI semantic conventions, enforcement-decision spans, and cost/firing-rate attributes"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage = "https://github.com/sattyamjjain/ferrumdeck"
+keywords = ["opentelemetry", "genai", "tracing", "agent", "otel"]
+categories = ["development-tools::debugging"]
+readme = "README.md"
+
+# Published as `ferrumdeck-otel`; the Rust import path stays `fd_otel`.
+[lib]
+name = "fd_otel"
 
 [dependencies]
-fd-core = { path = "../fd-core", package = "ferrumdeck-core" }
+# ^0.8.9 (the latest ferrumdeck-core ON crates.io), not the workspace version:
+# the workspace bumped past 0.8.9 without the family being re-published, and a
+# published crate must name a requirement the registry can actually satisfy.
+# fd-core is unchanged since 0.8.9, so `^0.8.9` is an accurate claim and the
+# local path dep satisfies it too.
+fd-core = { path = "../fd-core", version = "0.8.9", package = "ferrumdeck-core" }
 
 # OpenTelemetry
 opentelemetry = { workspace = true }

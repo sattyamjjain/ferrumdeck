@@ -512,7 +512,7 @@ mod registry_tests {
 #[cfg(test)]
 mod health_tests {
     use crate::handlers::health::{
-        ComponentHealth, ComponentStatus, HealthResponse, ReadinessResponse,
+        ComponentHealth, ComponentStatus, HealthResponse, RceCoverageReport, ReadinessResponse,
     };
 
     #[test]
@@ -525,6 +525,21 @@ mod health_tests {
         let json = serde_json::to_string(&response).unwrap();
         assert!(json.contains("healthy"));
         assert!(json.contains("0.1.0"));
+    }
+
+    /// Coverage as it actually is on a seeded stack: four registered tools,
+    /// none of them in the shell-shaped default `target_tools`. Using the real
+    /// shape here rather than an empty placeholder keeps these serialization
+    /// tests honest about what `/ready` returns today.
+    fn blind_coverage() -> RceCoverageReport {
+        RceCoverageReport {
+            status: "blind",
+            summary: "anti-RCE inspection (Airlock Layer 1) will inspect NOTHING".to_string(),
+            registered_tools: 4,
+            inspected: vec![],
+            uninspected: vec!["git_read".into(), "git_write".into()],
+            target_tools: vec!["bash".into(), "shell".into()],
+        }
     }
 
     #[test]
@@ -544,6 +559,7 @@ mod health_tests {
                     error: None,
                 },
             },
+            anti_rce_coverage: blind_coverage(),
         };
 
         let json = serde_json::to_string(&response).unwrap();
@@ -569,6 +585,7 @@ mod health_tests {
                     error: Some("Connection refused".to_string()),
                 },
             },
+            anti_rce_coverage: blind_coverage(),
         };
 
         assert_eq!(response.status, "not_ready");

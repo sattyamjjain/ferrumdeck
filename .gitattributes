@@ -1,0 +1,45 @@
+# Normalize line endings so a checkout on Windows does not rewrite every file.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+
+# ---------------------------------------------------------------------------
+# Linguist overrides.
+#
+# Scope note, because the obvious motive for a file like this is to make the
+# language bar say something flattering. Only genuinely vendored, generated or
+# documentation paths are marked below. Real dashboard source is NOT marked
+# `linguist-detectable=false`, and here is the measurement behind that decision:
+# excluding tests and vendored code from BOTH sides, the dashboard is
+# ~1,358 KB of TypeScript against ~943 KB of Rust in the control plane. GitHub
+# reporting TypeScript first is therefore accurate. Suppressing real source to
+# change that would be making the repository host misreport the repository,
+# which is the exact failure mode the rest of this project is organised against
+# (see README "Project Status & Limitations"). If the language bar should say
+# Rust, the honest route is a smaller dashboard or a bigger control plane.
+# ---------------------------------------------------------------------------
+
+# shadcn/ui primitives are copied in by the shadcn CLI, not authored here.
+# That is how shadcn distributes: the components land in your tree verbatim.
+nextjs/src/components/ui/** linguist-vendored
+
+# Generated API contracts — `make gen-openapi` / `make gen-schemas` write these.
+contracts/** linguist-generated
+
+# Generated documentation pages. Editing these by hand is a CI failure:
+# `make eval-health-check` regenerates and diffs eval-health.md, and
+# observability/genai_mapping.py owns otel-genai-mapping.md.
+docs/eval-health.md linguist-generated
+docs/otel-genai-mapping.md linguist-generated
+examples/demo/TRANSCRIPT.md linguist-generated
+
+# Prose, not code.
+docs/** linguist-documentation
+*.md linguist-documentation
+
+# Lockfiles carry no authorship.
+uv.lock linguist-generated
+nextjs/package-lock.json linguist-generated

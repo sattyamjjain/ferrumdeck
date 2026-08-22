@@ -1,6 +1,6 @@
 {
-  "name": "nextjs",
-  "version": "0.8.10",
+  "name": "ferrumdeck-dashboard",
+  "version": "0.8.11",
   "private": true,
   "scripts": {
     "dev": "next dev --port 3001",

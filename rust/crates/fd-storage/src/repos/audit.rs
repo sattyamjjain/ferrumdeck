@@ -52,6 +52,31 @@ pub struct AuditRepo {
     pool: DbPool,
 }
 
+/// Sentinel used by `idx_audit_events_chain` for the NULL-tenant (system) chain,
+/// so global events form one chain rather than N distinct NULL "tenants".
+/// Mirrors `COALESCE(tenant_id, '__ferrumdeck_global__')` in migration
+/// 20260801000001. Used only for logging attribution.
+pub const GLOBAL_CHAIN_TENANT: &str = "__ferrumdeck_global__";
+
+/// Is this the per-tenant chain-sequence collision (SQLSTATE 23505 on
+/// `idx_audit_events_chain`) rather than some other insert failure?
+///
+/// Checked two ways because `idx_audit_events_chain` is a unique *index*, not a
+/// named table constraint: depending on driver and server version the index name
+/// may arrive via `constraint()` or only inside the message. Matching either
+/// keeps the ERROR specific -- a foreign-key or not-null failure is a different
+/// bug and must not be reported as an evidence drop.
+fn is_chain_collision(e: &sqlx::Error) -> bool {
+    let Some(db) = e.as_database_error() else {
+        return false;
+    };
+    if db.code().as_deref() != Some("23505") {
+        return false;
+    }
+    db.constraint() == Some("idx_audit_events_chain")
+        || db.message().contains("idx_audit_events_chain")
+}
+
 impl AuditRepo {
     pub fn new(pool: DbPool) -> Self {
         Self { pool }
@@ -66,12 +91,39 @@ impl AuditRepo {
     /// a hash ([`CreateAuditEvent`] has no hash fields).
     ///
     /// **Throughput trade-off (documented, not hidden):** the `FOR UPDATE` row
-    /// lock **serializes audit writes per tenant** so the chain has one
-    /// well-defined order. Writes for *different* tenants still run concurrently;
-    /// a single tenant's audit inserts are linearized. At genesis there is no tip
-    /// row to lock — two racing genesis inserts are instead resolved by the
-    /// `UNIQUE(tenant, chain_seq)` index (the loser gets a unique violation and
-    /// retries).
+    /// lock serializes writes against an *existing* tip so the chain has one
+    /// well-defined order. Writes for different tenants still run concurrently.
+    ///
+    /// # A verifying chain is not a complete chain
+    ///
+    /// `FOR UPDATE` locks the row it finds; it does not prevent a concurrent
+    /// transaction *inserting a new maximum*. Two writers can therefore read the
+    /// same tip, both compute `chain_seq = tip + 1`, and collide on
+    /// `idx_audit_events_chain` — and at genesis there is no row to lock at all,
+    /// so the first two writes for a tenant race unconditionally.
+    ///
+    /// **The loser is not retried.** An earlier version of this comment said it
+    /// was; nothing in this repository retries it. `create` returns the unique
+    /// violation to its caller, and the caller on the hot path
+    /// (`Repos::spawn_audit`) is fire-and-forget: it logs and moves on. The
+    /// event is **lost**.
+    ///
+    /// What survives is a chain that still verifies — every remaining row links
+    /// correctly to its predecessor, `verify_chain` reports no break, and the
+    /// missing record leaves no gap because `chain_seq` was never allocated to
+    /// it. So a passing [`Self::verify_chain`] proves the log was **not
+    /// tampered with**; it does not prove the log is **complete**. Those are
+    /// different claims and only the first one is made anywhere in this
+    /// codebase. The loss is loudest exactly when the system is busiest, which
+    /// is when an incident is most likely to be under way.
+    ///
+    /// The collision is logged at ERROR with the tenant and the `chain_seq` that
+    /// could not be claimed, so drops are countable in whatever aggregates the
+    /// deployment's logs rather than only observable by tailing them. Closing
+    /// the gap for real — a retry loop on unique violation, or a per-tenant
+    /// advisory lock — is a design change with its own trade-offs and is
+    /// deliberately not attempted here. See README "Audit trail" and
+    /// `docs/compliance/safe-evidence-coverage.md`.
     #[instrument(skip(self, event), fields(event_id = %event.id))]
     pub async fn create(&self, event: CreateAuditEvent) -> Result<AuditEvent, sqlx::Error> {
         use chrono::SubsecRound;
@@ -164,7 +216,32 @@ impl AuditRepo {
         .bind(&record_hash)
         .bind(chain_seq)
         .fetch_one(&mut *tx)
-        .await?;
+        .await;
+
+        let row = match row {
+            Ok(row) => row,
+            Err(e) => {
+                // A unique violation here is the chain race described above: a
+                // concurrent writer claimed this chain_seq first and this event
+                // is about to be dropped by the fire-and-forget caller. ERROR,
+                // not WARN -- a lost audit record is an evidence loss, and the
+                // tenant + index make it countable and attributable rather than
+                // merely visible.
+                if is_chain_collision(&e) {
+                    tracing::error!(
+                        tenant_id = event.tenant_id.as_deref().unwrap_or(GLOBAL_CHAIN_TENANT),
+                        chain_seq,
+                        event_id = %event.id,
+                        action = %event.action,
+                        error = %e,
+                        "audit chain collision: chain_seq already claimed by a concurrent \
+                         write for this tenant; this audit event is LOST. The chain still \
+                         verifies -- a verifying chain is not a complete one."
+                    );
+                }
+                return Err(e);
+            }
+        };
 
         tx.commit().await?;
         Ok(row)
