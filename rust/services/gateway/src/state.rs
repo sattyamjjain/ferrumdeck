@@ -41,6 +41,15 @@ pub struct AppState {
     /// Config for the coherence monitor (enable flag, lookahead, confidence).
     pub coherence_config: CoherenceConfig,
 
+    /// What Airlock Layer 1 (anti-RCE) actually inspects on THIS deployment,
+    /// reconciled at boot from the tool registry against
+    /// `airlock.rce.target_tools`. Layer 1 is name-matched, and the default
+    /// target list is shell-shaped (`bash`, `python_repl`, …), so a deployment
+    /// that names its tools after its own domain can have the layer enabled,
+    /// passing its tests, and inspecting nothing. Surfaced on `/ready` so that
+    /// is visible without reading boot logs.
+    pub rce_coverage: Arc<fd_policy::airlock::RceCoverage>,
+
     /// When `true` (`FERRUMDECK_COHERENCE_MODE=enforce`), a coherence divergence
     /// that maps to the R3 rung gates the run (→ `WaitingApproval`). Default
     /// `false` (shadow): the R-tier response is recorded + surfaced but the run
@@ -85,11 +94,32 @@ impl Repos {
 
     /// Spawn an audit event write in the background (fire-and-forget).
     /// This reduces API latency by not waiting for audit writes to complete.
+    /// Write an audit event off the request path.
+    ///
+    /// Fire-and-forget: nothing retries, so a failure here means the event is
+    /// **lost**. That is why the failure is ERROR rather than WARN — the audit
+    /// trail is the evidence base for the EU AI Act Art. 12 record-keeping and
+    /// CRA Art. 14 reporting claims, and a dropped record is an evidence loss,
+    /// not a degraded-service notice. `AuditRepo::create` logs the chain-
+    /// collision case with the tenant and the `chain_seq` that could not be
+    /// claimed; this line catches every other failure mode.
     pub fn spawn_audit(&self, event: fd_storage::models::CreateAuditEvent) {
         let audit_repo = self.audit();
+        let tenant_id = event
+            .tenant_id
+            .clone()
+            .unwrap_or_else(|| fd_storage::repos::audit::GLOBAL_CHAIN_TENANT.to_string());
+        let event_id = event.id.clone();
+        let action = event.action.clone();
         tokio::spawn(async move {
             if let Err(e) = audit_repo.create(event).await {
-                tracing::warn!(error = %e, "Failed to create audit event");
+                tracing::error!(
+                    error = %e,
+                    tenant_id = %tenant_id,
+                    event_id = %event_id,
+                    action = %action,
+                    "audit event DROPPED: nothing retries this write, so the record is lost"
+                );
             }
         });
     }
@@ -224,6 +254,10 @@ impl AppState {
             ..AirlockConfig::default()
         };
 
+        // Captured before `airlock_config` is moved into the inspector below;
+        // the coverage reconciliation needs it after that point.
+        let rce_config = airlock_config.rce.clone();
+
         tracing::info!(
             mode = ?airlock_mode,
             "Airlock security inspector initialized"
@@ -274,6 +308,53 @@ impl AppState {
                 .with_behavioral_drift_monitor(behavioral_monitor),
         );
 
+        // Reconcile what Layer 1 will actually inspect. `RcePatternMatcher::
+        // should_inspect` matches the tool NAME against `rce.target_tools`, so
+        // a registry full of domain-named tools and a shell-shaped default
+        // target list produce a layer that is enabled, tested, and inert. This
+        // does not change any decision -- widening the default is a posture
+        // call for the operator -- it makes the answer sayable.
+        let rce_coverage = Arc::new(
+            match ToolsRepo::new(db.clone()).list(None, None, 1_000, 0).await {
+                Ok(tools) => {
+                    let names: Vec<String> = tools.into_iter().map(|t| t.slug).collect();
+                    fd_policy::airlock::RceCoverage::reconcile(names, &rce_config)
+                }
+                Err(e) => {
+                    // Report nothing rather than assert coverage we did not verify.
+                    tracing::warn!(
+                        error = %e,
+                        "could not read the tool registry to reconcile anti-RCE coverage; \
+                         reporting it as unknown (no tools counted)"
+                    );
+                    fd_policy::airlock::RceCoverage::reconcile(Vec::<String>::new(), &rce_config)
+                }
+            },
+        );
+        if rce_coverage.is_blind() {
+            tracing::warn!(
+                status = rce_coverage.status().as_str(),
+                registered_tools = ?rce_coverage.uninspected,
+                target_tools = ?rce_coverage.target_tools,
+                "{}",
+                rce_coverage.summary()
+            );
+        } else if !rce_coverage.uninspected.is_empty() {
+            tracing::warn!(
+                status = rce_coverage.status().as_str(),
+                uninspected = ?rce_coverage.uninspected,
+                inspected = ?rce_coverage.inspected,
+                "{}",
+                rce_coverage.summary()
+            );
+        } else {
+            tracing::info!(
+                status = rce_coverage.status().as_str(),
+                "{}",
+                rce_coverage.summary()
+            );
+        }
+
         // Coherence-divergence monitor — fed live from the step stream in
         // `submit_step_result`. Enabled by default; disable via
         // FERRUMDECK_COHERENCE_ENABLED=false (it only surfaces, never blocks).
@@ -313,6 +394,7 @@ impl AppState {
             coherence,
             coherence_config,
             coherence_enforce,
+            rce_coverage,
             approval_ttl_secs,
             queue: Arc::new(queue),
             rate_limiter,

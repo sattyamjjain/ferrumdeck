@@ -42,6 +42,10 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
+# Capturing subscriber for tests/audit_chain_collision.rs: the claim under test
+# is about what reaches the LOGS when an audit write is dropped, so the log is
+# what gets asserted on rather than a return value standing in for it.
+tracing-subscriber = { workspace = true }
 # Path-only dev-dep (stripped from any published manifest) for the
 # permission-reconstruction integration test, which needs the typed
 # PolicyDocument to prove the stored JSON round-trips. fd-storage deliberately
@@ -50,5 +54,5 @@ tokio-test = { workspace = true }
 fd-policy = { path = "../fd-policy", package = "ferrumdeck-policy" }
 # Path-only dev-dep (stripped from any published manifest) for the end-to-end
 # test that an extracted W3C trace-id lands on the persisted decision record.
-fd-otel = { path = "../fd-otel" }
+fd-otel = { path = "../fd-otel", package = "ferrumdeck-otel" }
 serde_json = { workspace = true }

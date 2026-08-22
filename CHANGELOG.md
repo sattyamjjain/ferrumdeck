@@ -17,6 +17,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.11] - 2026-08-22
+
+> **0.8.10 was bumped and never tagged or published**, so its entries — the
+> live-stack executed floor, the Rust test-count drift, the Rust 1.98 clippy
+> fix — are folded in below rather than left accumulating in `[Unreleased]`.
+> `ferrumdeck-otel` and `ferrumdeck-dag` went to crates.io at **0.8.11**; the
+> rest of the family is still published at 0.8.9 (see *Known gaps*).
+
+### Added
+- **The anti-RCE layer now says when it is inspecting nothing.** Airlock Layer 1 is name-matched: `RcePatternMatcher::should_inspect` compares the tool name against `airlock.rce.target_tools`, whose default is eight shell-shaped literals (`bash`, `python_repl`, `execute_command`, …). A tool whose name is not on that list is never pattern-scanned, and that default matches nothing in a deployment that names its tools after its own domain — including this one. Confirmed against a seeded stack, same payload both times: `git_write` (registered) scored `risk_score: 0`, `bash` (in `target_tools`, not registered) scored `risk_score: 90, violation: rcepattern`. Zero of the four seeded tools were inspected.
+
+  The layer was working correctly and pointed somewhere else, and nothing said so — a deployment could run for a year believing it had anti-RCE inspection because the feature is enabled and the tests pass. `fd_policy::airlock::RceCoverage` now reconciles the registry against `target_tools` at gateway boot and reports one of `full` / `partial` / `blind` / `disabled` / `no_tools_registered`. `blind` logs a **WARN naming both lists** and stating plainly that Layer 1 will inspect nothing; `partial` names the registered tools that are not covered. The same is a field on `GET /ready` (`anti_rce_coverage`), so it is visible without reading boot logs. No decision changes and nothing is blocked — widening the default is a posture call with real blast radius, and it stays the operator's. What changed is that the operator can now know.
+
+- **`ferrumdeck-otel` and `ferrumdeck-dag` published to crates.io** (0.8.11). `fd-otel` is the crate the OTel claims in the README actually rest on — GenAI semantic conventions, enforcement-decision spans with their stable `ferrumdeck.*` attributes, cost decomposition, MCP SEP-414 trace-context extraction — and it was workspace-internal, so the span contract the README describes was one nobody outside the repository could inspect. Import paths are unchanged (`fd_otel`, `fd_dag`). Smoke-tested with `cargo add` in a fresh project against the registry artifact, not the local path.
+
+- **A regression test for the audit chain race** (`rust/crates/fd-storage/tests/audit_chain_collision.rs`). Provokes the collision with 24 concurrent writers — **17 collided** — and asserts each drop is logged at ERROR with the tenant and the `chain_seq` that could not be claimed, and that the surviving chain still verifies. This does not fix the race; it turns a known gap into a tracked one.
+
+### Changed
+- **Caveats now sit with the claims they qualify, not in a different document.** Three claims gained their qualifier inline:
+  - The Airlock section said "all five layers fire at the gateway tool-policy check". It now states that the RCE layer fires only for tools named in `target_tools`, that the default list is shell-shaped, and that operators must extend it — with the observed `risk_score` figures.
+  - The CRA Art. 14 / EU AI Act Art. 12 evidence section now states that under concurrent writes to one tenant a write can be dropped, that the resulting chain still verifies, and that **a verifying chain is therefore not a proof of completeness**. The same caveat is a doc comment on `AuditRepo::create`, which also corrects an inaccurate line claiming the losing write "retries" — nothing retries it.
+  - The "eval gating in CI" claim (also in the GitHub repo description) now states that the `regression` suite's assertion coverage is **50%**: half its scorer results asserted nothing and returned a full score for having nothing to check. The eval-health page said this; the README did not.
+
+- **A dropped audit write is an ERROR, not a WARN**, and carries the tenant and the attempted chain index. A lost audit record is an evidence loss, not a degraded-service notice, and the fields make drops countable rather than only observable.
+
+- **The three deterministic eval suites re-run** rather than date-stamped: `injection_defense`, `asb` and `governed-benchmark` were last measured 2026-08-10 while the README presented their figures as current. All three reproduce exactly — 17/17 block with CI [81.6%, 100%], 8/8 benign, Art.50 6/6 denied and 4/4 preserved, 85.4¢ governed vs 184.0¢ ungoverned — and `docs/eval-health.md` now dates them 2026-08-22.
+
+- **`nextjs/package.json` renamed** from `nextjs` to `ferrumdeck-dashboard`, and a `.gitattributes` added marking genuinely vendored (shadcn/ui primitives), generated (`contracts/`, the generated doc pages) and documentation paths.
+
+### Fixed
+- Carried over from the untagged 0.8.10: the live-stack executed floor moved to `docs/feature-status.yml` and raised to 80; the Rust test count corrected 749 → 768 (headline 1,954 → 1,973); and `cargo clippy -- -D warnings` fixed for Rust 1.98's `result_large_err`.
+
+### Known gaps
+- **The `.gitattributes` does not change the reported primary language, and deliberately so.** The stated goal was to stop GitHub reporting TypeScript first. Measured like-for-like — excluding tests and vendored code from **both** sides — the dashboard is **1,358 KB of TypeScript against 943 KB of Rust** in the control plane. TypeScript first is accurate. Only genuinely vendored, generated and documentation paths are marked; real dashboard source is **not** marked `linguist-detectable=false`, because suppressing it would make the repository host misreport the repository, which is the failure mode this project is organised against. The honest routes are a smaller dashboard or a bigger control plane.
+- **The crates.io family is version-skewed.** `ferrumdeck`, `-core`, `-policy` and `-audit` are published at **0.8.9**; the workspace is at 0.8.11 because 0.8.10 and 0.8.11 were bumped without a family release. `ferrumdeck-otel` therefore declares `ferrumdeck-core = "0.8.9"` — accurate (fd-core is unchanged since 0.8.9) and the only requirement the registry can satisfy. A full family release would close the skew.
+- The audit chain race itself is **not fixed**. A retry on unique violation, or a per-tenant advisory lock, is a design change with its own trade-offs and needs its own decision.
+
+
 ### Added
 - **An executed-test floor on the live-stack suites, owned by the same check as every other test count.** 0.8.9 moved `tests/security`, `tests/chaos` and `tests/e2e` from *135 collected / 135 skipped / 0 executed* to *135 / 55 / 80*. Nothing protected that: the next time a service in the compose stack fails to come up, the suites skip and the check goes green, because a skipped test and a passing test are the same green dot.
 

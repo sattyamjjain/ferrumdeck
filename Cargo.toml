@@ -6,7 +6,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.8.10"
+version = "0.8.11"
 edition = "2021"
 rust-version = "1.80"
 license = "Apache-2.0"
@@ -84,7 +84,7 @@ tokio-test = "0.4"
 fake = { version = "3.0", features = ["derive"] }
 
 # Internal crates
-fd-dag = { path = "rust/crates/fd-dag" }
+fd-dag = { path = "rust/crates/fd-dag", package = "ferrumdeck-dag" }
 
 [profile.release]
 lto = true

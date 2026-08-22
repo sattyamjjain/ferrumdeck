@@ -17,8 +17,8 @@ fd-storage = { path = "../../crates/fd-storage" }
 fd-policy = { path = "../../crates/fd-policy", package = "ferrumdeck-policy" }
 fd-registry = { path = "../../crates/fd-registry" }
 fd-audit = { path = "../../crates/fd-audit", package = "ferrumdeck-audit" }
-fd-otel = { path = "../../crates/fd-otel" }
-fd-dag = { path = "../../crates/fd-dag" }
+fd-otel = { path = "../../crates/fd-otel", package = "ferrumdeck-otel" }
+fd-dag = { path = "../../crates/fd-dag", package = "ferrumdeck-dag" }
 
 # Async runtime
 tokio = { workspace = true }

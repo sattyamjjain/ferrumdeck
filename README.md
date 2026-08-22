@@ -65,7 +65,7 @@ Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_
 
 The enforcement engine is published — you can depend on it, not just clone it. One dependency via the umbrella crate:
 
-> **Current version: `v0.8.10`.** <!-- x-current-version: 0.8.10 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
+> **Current version: `v0.8.11`.** <!-- x-current-version: 0.8.11 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
 
 ```bash
 cargo add ferrumdeck
@@ -89,7 +89,18 @@ The 0.8.0 headline feature — the audit trail + out-of-band **chain-head checkp
 cargo add ferrumdeck --features audit
 ```
 
-access path `ferrumdeck::audit` (e.g. `ferrumdeck::audit::CheckpointSigner`, `ferrumdeck::audit::verify_against_checkpoints`). The remaining crates (`fd-registry`, `fd-storage`, and the gateway service) are **workspace-internal today** — they build from a clone but are not published.
+access path `ferrumdeck::audit` (e.g. `ferrumdeck::audit::CheckpointSigner`, `ferrumdeck::audit::verify_against_checkpoints`).
+
+Two more crates are published so the claims that rest on them can be inspected without cloning:
+
+```bash
+cargo add ferrumdeck-otel   # import path `fd_otel`
+cargo add ferrumdeck-dag    # import path `fd_dag`
+```
+
+**`ferrumdeck-otel`** is the crate the OTel claims on this page actually rest on — the GenAI semantic conventions, the enforcement-decision spans with their stable `ferrumdeck.*` attributes, cost decomposition, and W3C trace-context extraction from MCP `_meta` (SEP-414). It was workspace-internal until 0.8.11, which meant the span contract this README describes was one nobody outside the repository could check. **`ferrumdeck-dag`** is the dependency-ordering scheduler: cycle detection and topological order, no execution and no policy, useful on its own.
+
+The remaining crates (`fd-registry`, `fd-storage`, and the gateway service) are **workspace-internal today** — they build from a clone but are not published.
 
 > **What the default omits, and why `audit` is opt-in.** A plain `cargo add ferrumdeck` gives you the enforcement engine — deny-by-default tool policy, per-run budgets, Airlock RASP — but **not** the audit hash-chain and signed chain-head checkpoints, which sit behind `--features audit`. That's deliberate, not an oversight: the audit trail is a separate concern from the in-path allow/deny decision (it pulls in Ed25519 signing and is about *after-the-fact tamper-evidence*, not *stopping the call*), so the default stays the lean policy engine most callers reach for. Turn it on when you need tamper-evident record-keeping — e.g. **EU AI Act Art. 12/19** logging or **Colorado SB 26-189** retention.
 
@@ -270,6 +281,27 @@ reportable, and reporting it, stays with the operator. Which evidence classes th
 log actually covers — and, more usefully, which it does not — is set out per class
 in [`docs/compliance/safe-evidence-coverage.md`](docs/compliance/safe-evidence-coverage.md).
 
+> **A verifying chain is not a complete chain.** This is the sharpest limit on
+> the evidence claim above, and it applies equally to **EU AI Act Art. 12/19**
+> record-keeping. `AuditRepo::create` reads the tenant's chain tip `FOR UPDATE`
+> and inserts at `tip + 1`; that lock does not stop a concurrent transaction
+> inserting a new maximum, so two writers can read the same tip and collide on
+> `idx_audit_events_chain` — and at genesis there is no row to lock at all.
+> **Nothing retries the loser.** The caller on the hot path is fire-and-forget,
+> so the event is *lost*. What survives is a chain that still verifies: every
+> remaining row links correctly to its predecessor, `verify_chain` reports no
+> break, and the missing record leaves no gap because its `chain_seq` was never
+> allocated. So a passing `verify_chain` proves the log was **not tampered
+> with**; it does **not** prove the log is **complete**. Those are different
+> claims and only the first is made here. The loss is likeliest under load,
+> which is when an incident is likeliest to be under way. Reproducible: 17 of 24
+> concurrent writers collided in
+> `rust/crates/fd-storage/tests/audit_chain_collision.rs`, which also asserts
+> each drop is logged at ERROR with the tenant and the `chain_seq` that could not
+> be claimed, so drops are countable rather than merely observable. The fix — a
+> retry on unique violation, or a per-tenant advisory lock — is a design change
+> with its own trade-offs and is deliberately **not** attempted yet.
+
 **Implemented and enforced (covered by the Rust test suite):**
 
 - **Deny-by-default tool policy, per agent.** The gateway evaluates every tool
@@ -283,7 +315,8 @@ in [`docs/compliance/safe-evidence-coverage.md`](docs/compliance/safe-evidence-c
   mismatch is denied.
 - **Airlock RASP at the gateway tool-policy check** (`POST /v1/runs/{id}/check-tool`):
   **all five layers** run here, in `shadow` or `enforce` mode — the anti-RCE
-  pattern matcher, the financial/velocity circuit breaker, and the
+  pattern matcher (**for tools named in `airlock.rce.target_tools` only — see
+  the qualifier below**), the financial/velocity circuit breaker, and the
   data-exfiltration + credential-DLP shield on every call, plus the
   **schema-drift guard** (validates `tool_input` against the tool version's
   registered input schema) when the tool has a registered version and the
@@ -296,6 +329,25 @@ in [`docs/compliance/safe-evidence-coverage.md`](docs/compliance/safe-evidence-c
   drift-checked without a restart. A tool version with no compiled schema is
   fail-open by default; `FERRUMDECK_SCHEMA_DRIFT_FAIL_CLOSED=true` flips that
   case to deny-by-default.
+
+  > **The anti-RCE layer is name-matched, and its default list is shell-shaped.**
+  > `RcePatternMatcher::should_inspect` compares the tool name against
+  > `airlock.rce.target_tools`, whose default is eight literal names —
+  > `write_file`, `create_file`, `create_or_update_file`, `python_repl`, `bash`,
+  > `execute_command`, `run_script`, `shell`. A tool whose name is not on that
+  > list is **never pattern-scanned**. That default matches nothing in a
+  > deployment that names its tools after its own domain, including this one:
+  > the dev seed registers `git_read`, `git_write`, `test_run` and
+  > `github_create_pr`, so on a seeded stack Layer 1 inspects **zero of four**.
+  > The same RCE payload scores `risk_score: 90, violation: rcepattern` sent to
+  > `bash` and `risk_score: 0` sent to `git_write`. **Operators must extend
+  > `target_tools` with their own tool names**; the default is a starting point,
+  > not coverage. Widening it by default is a posture change with real blast
+  > radius (false positives and latency on every call), so it is the operator's
+  > call — but it is no longer a silent one: the gateway reconciles the registry
+  > against `target_tools` at boot, logs a WARN naming both lists when the
+  > intersection is empty, and reports `anti_rce_coverage.status` (`full` /
+  > `partial` / `blind` / `disabled`) on `GET /ready`.
 - **Enforcement on the agentic execution path.** The Python worker's in-loop
   agentic executor authorizes **every** tool call against the control-plane
   `check-tool` endpoint *before* it runs: `allow` → execute, `deny` → refuse,
@@ -340,9 +392,22 @@ in [`docs/compliance/safe-evidence-coverage.md`](docs/compliance/safe-evidence-c
   Approving a suggestion **records** the decision; it never auto-applies a
   policy/allowlist/budget change.
 - **Eval gating — deterministic suites gate PRs; the LLM-backed nightly does
-  not yet.** [`docs/eval-health.md`](docs/eval-health.md) is generated from the
+  not yet, and the regression suite's assertion coverage is 50%.**
+  [`docs/eval-health.md`](docs/eval-health.md) is generated from the
   committed report files on every nightly run and shows, per eval, the last run
   date, pass/fail, score, consecutive-pass streak and **assertion coverage**.
+
+  > **Read the coverage before the score.** On its most recent committed run the
+  > `regression` suite scored **1.00 with assertion coverage of 50%**: half of
+  > its scorer results asserted nothing at all and returned a full score for
+  > having nothing to check, so that 1.00 is an average over the covered half
+  > only, not over twenty tasks. `smoke` sits at 100% coverage. This is stated
+  > plainly on the eval-health page and is repeated here because "eval gating in
+  > CI" — which is also in this repository's GitHub description — reads as a
+  > stronger claim than a half-covered suite supports. The deterministic suites
+  > that gate every PR (`injection_defense`, `asb`, the governed benchmark) are a
+  > different matter: they are seeded, offline, LLM-free and assert on real
+  > engine output.
   An eval that has never passed is labelled **NEVER PASSED** in its own row.
   Read that page before trusting any eval-gating claim here — it is the
   evidence, and it opens by stating in prose what the safe-PR numbers mean.
