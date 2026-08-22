@@ -90,48 +90,68 @@ impl AuditRepo {
     /// computed `record_hash`. The repo derives all three — callers never supply
     /// a hash ([`CreateAuditEvent`] has no hash fields).
     ///
-    /// **Throughput trade-off (documented, not hidden):** the `FOR UPDATE` row
-    /// lock serializes writes against an *existing* tip so the chain has one
-    /// well-defined order. Writes for different tenants still run concurrently.
+    /// **Throughput trade-off (documented, not hidden):** a transaction-scoped
+    /// per-tenant advisory lock serializes chain appends for one tenant so the
+    /// chain has a single well-defined order. Writes for different tenants run
+    /// fully concurrently; one tenant's appends are linearized.
     ///
-    /// # A verifying chain is not a complete chain
+    /// # Completeness
     ///
-    /// `FOR UPDATE` locks the row it finds; it does not prevent a concurrent
-    /// transaction *inserting a new maximum*. Two writers can therefore read the
-    /// same tip, both compute `chain_seq = tip + 1`, and collide on
-    /// `idx_audit_events_chain` — and at genesis there is no row to lock at all,
-    /// so the first two writes for a tenant race unconditionally.
+    /// Until 0.8.12 this was only *nearly* true, and the difference mattered.
+    /// `FOR UPDATE` locks the row it finds but does not stop a concurrent
+    /// transaction inserting a new maximum, so two writers could read the same
+    /// tip, both compute `tip + 1`, and collide on `idx_audit_events_chain`; at
+    /// genesis there was no row to lock at all. Nothing retried the loser and
+    /// the hot-path caller (`Repos::spawn_audit`) is fire-and-forget, so the
+    /// event was **lost** — while the surviving chain still verified, because
+    /// the missing `chain_seq` had never been allocated. Measured: 17 of 24
+    /// concurrent writers collided.
     ///
-    /// **The loser is not retried.** An earlier version of this comment said it
-    /// was; nothing in this repository retries it. `create` returns the unique
-    /// violation to its caller, and the caller on the hot path
-    /// (`Repos::spawn_audit`) is fire-and-forget: it logs and moves on. The
-    /// event is **lost**.
+    /// The advisory lock closes that. `audit_chain_collision.rs` drives the same
+    /// 24-writer race and now asserts **zero** collisions, zero drops, and a
+    /// contiguous `chain_seq` run — so `verify_chain` passing and the log being
+    /// complete are no longer different claims for writers on this path.
     ///
-    /// What survives is a chain that still verifies — every remaining row links
-    /// correctly to its predecessor, `verify_chain` reports no break, and the
-    /// missing record leaves no gap because `chain_seq` was never allocated to
-    /// it. So a passing [`Self::verify_chain`] proves the log was **not
-    /// tampered with**; it does not prove the log is **complete**. Those are
-    /// different claims and only the first one is made anywhere in this
-    /// codebase. The loss is loudest exactly when the system is busiest, which
-    /// is when an incident is most likely to be under way.
-    ///
-    /// The collision is logged at ERROR with the tenant and the `chain_seq` that
-    /// could not be claimed, so drops are countable in whatever aggregates the
-    /// deployment's logs rather than only observable by tailing them. Closing
-    /// the gap for real — a retry loop on unique violation, or a per-tenant
-    /// advisory lock — is a design change with its own trade-offs and is
-    /// deliberately not attempted here. See README "Audit trail" and
-    /// `docs/compliance/safe-evidence-coverage.md`.
+    /// Two honest limits remain. A write that fails for any *other* reason
+    /// (connection loss, disk, a genuine constraint violation) is still dropped
+    /// by the fire-and-forget caller, logged at ERROR with the tenant and index.
+    /// And rows written by something that bypasses this method entirely are
+    /// outside the guarantee.
     #[instrument(skip(self, event), fields(event_id = %event.id))]
     pub async fn create(&self, event: CreateAuditEvent) -> Result<AuditEvent, sqlx::Error> {
         use chrono::SubsecRound;
 
         let mut tx = self.pool.begin().await?;
 
-        // Lock + read this tenant's chain tip. IS NOT DISTINCT FROM makes NULL
+        // Serialize chain appends for this tenant for the life of the
+        // transaction.
+        //
+        // `FOR UPDATE` on the tip row below is NOT sufficient on its own and
+        // never was: it locks the row it finds, and does not stop a concurrent
+        // transaction INSERTING a new maximum. Two writers could read the same
+        // tip, both compute `tip + 1`, and collide on `idx_audit_events_chain`
+        // -- and at genesis there is no row to lock at all, so the first two
+        // writes for a tenant raced unconditionally. Measured before this lock
+        // existed: 17 of 24 concurrent writers collided, and because the caller
+        // on the hot path is fire-and-forget, each loser's audit event was
+        // silently lost.
+        //
+        // A transaction-scoped advisory lock closes it. The key is the tenant
+        // (with the same `__ferrumdeck_global__` sentinel the unique index
+        // uses via COALESCE), so writes for different tenants still run fully
+        // concurrently and only a single tenant's appends are linearized --
+        // exactly the trade-off this function's docs already claimed. The lock
+        // releases automatically at commit or rollback; there is no path that
+        // leaks it.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1)::bigint)")
+            .bind(event.tenant_id.as_deref().unwrap_or(GLOBAL_CHAIN_TENANT))
+            .execute(&mut *tx)
+            .await?;
+
+        // Read this tenant's chain tip. IS NOT DISTINCT FROM makes NULL
         // (global/system) events share one chain rather than N distinct NULLs.
+        // `FOR UPDATE` is kept as a second line of defence for any writer that
+        // somehow reaches this table without taking the lock above.
         let tip: Option<(Option<String>, i64)> = sqlx::query_as(
             r#"
             SELECT record_hash, chain_seq FROM audit_events

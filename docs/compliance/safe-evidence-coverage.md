@@ -42,7 +42,7 @@ evidence for the work and deleting it would leave a table that looks like it was
 | 4 | "Human approval and intervention events" | All four now written and reachable: escalation (`policy.approval_required`, with the deadline), approval, denial and timeout — each with the resolving identity and the wall-clock latency. A timeout is attributed to `system`, which is what distinguishes "somebody decided" from "the clock decided". | `audit_events.action` (`policy.approval_required`, `approval.*`), `.details.latency_ms`, `approval_requests` | MISSING | **CONFORMS** |
 | 5 | "Files and external artifacts created or modified" | The control plane records the *decision* to call a tool, never the tool's effect. `steps.output` holds whatever the tool returned, unstructured and unindexed. No artifact inventory, no before/after, no content hashes. | `steps.output` only | MISSING | **MISSING** |
 | 6 | "Detection, containment and recovery events" | Detection and containment are real: Airlock violations are recorded with risk score, violation type and the blocked payload, and an in-path denial is a first-class event. Recovery has no event type at all. | `audit_events.action='airlock.violation_detected'`, `threats.*`, `audit_events.action='policy.denied'` | PARTIAL | **PARTIAL** |
-| 7 | "A complete incident timeline" | Ordering and tamper-evidence remain strong, and the escalation hole is closed. Two gaps remain: several declared action types are still never written (`run.started`, `step.started`, `step.failed`), and **concurrent writes to one tenant's chain collide** and are dropped — see [Known gaps](#known-gaps-found-while-checking). | `audit_events.occurred_at`, `.chain_seq`, `.prev_hash`, `.record_hash` | PARTIAL | **PARTIAL** |
+| 7 | "A complete incident timeline" | Ordering and tamper-evidence are strong, the escalation hole is closed, and as of 0.8.12 **concurrent writes no longer drop records** (per-tenant advisory lock; 17-of-24 collisions became 0, asserted by `audit_chain_collision.rs`). One gap remains: several declared action types are still never written — no `run.started`, `step.started` or `step.failed` — so the timeline is ordered and complete *for the events that are emitted*, and those do not cover the full run lifecycle. | `audit_events.occurred_at`, `.chain_seq`, `.prev_hash`, `.record_hash` | PARTIAL | **PARTIAL** |
 | 8 | "Reproduction testing and remediation evidence" | Repo-level reproduction is unusually good — every published figure is re-derivable by one command, and eval verdicts are written down with run ids. None of it is linked to a run or an incident. | `evals/reports/`, [`eval-verdicts.md`](../eval-verdicts.md), `make reproduce-readme-figures` | PARTIAL | **PARTIAL** |
 
 SAFE also requires a preliminary control-failure analysis within 30 days and the reporting of near
@@ -154,33 +154,47 @@ R3 gate still has something to demonstrate).
 
 ## Known gaps found while checking
 
-Recorded rather than fixed. Each is real, reproduced, and out of scope for a branch about evidence
-coverage — changing any of them is a posture decision, not a bug fix.
+Two of the three gaps recorded here at 0.8.11 were closed in 0.8.12. They are
+kept, struck through in prose rather than deleted, because a page that only ever
+shows what is currently fine teaches a reader nothing about what to check.
 
-**The anti-RCE layer is name-matched, and it matches nothing on a seeded stack.**
-`RcePatternMatcher::should_inspect` tests the tool name against `RceConfig::target_tools`, whose
-default is eight literal names (`write_file`, `create_file`, `create_or_update_file`, `python_repl`,
-`bash`, `execute_command`, `run_script`, `shell`). The seeded tools are `git_read`, `git_write`,
-`test_run`, `github_create_pr` — none match, so Airlock Layer 1 inspects nothing there. An RCE
-payload sent to `git_write` is authorized with `risk_score: 0`. A deployment that names its shell
-tool `run_cmd` gets no anti-RCE inspection and no warning that it is getting none. Widening the
-default trades false negatives for false positives and latency on every call, which is a decision
-for the maintainer. Declared in `.live-stack-known-failures.yml`.
+**~~The anti-RCE layer is name-matched and matches nothing on a seeded stack.~~
+Fixed in 0.8.12.** Layer 1 and Layer 3 both filtered by tool name against
+default lists of literal guesses — eight shell-shaped names and eight
+HTTP-shaped ones — neither of which matched a domain-named registry. Both
+inspected zero of the four seeded tools. Both defaults are now empty, meaning
+inspect everything; the same payload moved from `risk_score: 0` to
+`risk_score: 90, violation: rcepattern`. Narrowing is still supported and is
+reported per layer at boot and on `GET /ready`. **Airlock still defaults to
+`shadow`**, so a detected violation is recorded and not blocked — detection and
+refusal are different, and the second is `FERRUMDECK_AIRLOCK_MODE=enforce`.
 
-**Concurrent audit writes to one tenant collide and are dropped.** `AuditRepo::create` reads the
-chain tip, computes `chain_seq = tip + 1`, and inserts; two concurrent writes pick the same
-sequence and the loser hits `idx_audit_events_chain`. Observed under an ordinary test run:
-`duplicate key value violates unique constraint "idx_audit_events_chain"`. Because audit writes are
-fire-and-forget (`Repos::spawn_audit`), the loser is logged at WARN and **the event is lost**. The
-hash chain stays valid — it simply never contained the record. This is the sharpest limit on row 7:
-a chain that verifies is not the same as a chain that is complete, and today the log is lossy
-exactly when the system is busiest. A retry on unique-violation, or an advisory lock per tenant,
-would close it.
+**~~Concurrent audit writes to one tenant collide and are dropped.~~ Fixed in
+0.8.12.** A transaction-scoped per-tenant advisory lock makes read-tip-then-insert
+atomic. The 24-writer race that previously lost 17 events now loses none, with a
+contiguous `chain_seq` asserted. Residual: a write failing for a non-collision
+reason is still dropped by the fire-and-forget caller (logged at ERROR with
+tenant and index), and anything bypassing `AuditRepo::create` is outside the
+guarantee.
 
-**A NUL byte in a tool name reaches Postgres.** `POST /v1/runs/{id}/check-tool` with
-`git_read\x00execute_shell` returns 500 (`invalid byte sequence for encoding "UTF8": 0x00`,
-SQLSTATE 22021) rather than a clean deny. A bypass attempt should be refused by validation, not
-surface as an unhandled database error.
+**~~A NUL byte in a tool name reaches Postgres.~~ Fixed in 0.8.12.** `tool_name`
+now rejects the whole C0/C1 control range plus DEL at validation, returning 422
+with the offending code point instead of a 500 from the database driver.
+
+### Still open
+
+**Most declared audit actions are never written.** 24 action constants are
+defined in `fd-storage`; a full run exercises 6. `run.started`, `step.started`
+and `step.failed` in particular have never been emitted, so the timeline in row
+7 covers decisions and completions but not the full lifecycle. This is the
+largest remaining item on this page.
+
+**No artifact inventory (row 5).** The control plane records the decision to
+call a tool, never the tool's effect. Closing it means capturing what a tool
+changed, which is a data-model question, not a logging one.
+
+**No third-party dependency inventory (row 1).** An SBOM would close the
+"third-party dependencies" half of that class.
 
 ## Scope
 

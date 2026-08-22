@@ -14,6 +14,17 @@ import time
 import httpx
 import pytest
 
+# The gateway's base URL, honouring GATEWAY_URL like every other suite.
+#
+# These cases used to hardcode "http://localhost:8080". That is not a cosmetic
+# difference: a hardcoded URL means the test talks to whatever happens to be
+# listening on that port rather than to the stack under test, and it fails --
+# or worse, passes -- for reasons that have nothing to do with the code. It was
+# caught when an unrelated local service held :8080 and five authentication
+# tests "failed" against a healthy gateway on another port.
+GATEWAY_URL = os.getenv("GATEWAY_URL", "http://localhost:8080")
+
+
 # The project the dev seed creates (db/migrations/20241223000002_seed_dev_data.sql).
 # `POST /v1/workflows` requires it; every workflow payload below omitted it and got
 # a 400, so these scenarios never reached the behaviour they were written to test.
@@ -387,7 +398,7 @@ class TestTenantAuthentication:
     def test_invalid_api_key(self) -> None:
         """Test that invalid API keys are rejected."""
         with httpx.Client(
-            base_url="http://localhost:8080",
+            base_url=GATEWAY_URL,
             headers={
                 "Authorization": "Bearer invalid_api_key_12345",
                 "Content-Type": "application/json",
@@ -403,7 +414,7 @@ class TestTenantAuthentication:
     def test_missing_api_key(self) -> None:
         """Test that missing API keys are rejected."""
         with httpx.Client(
-            base_url="http://localhost:8080",
+            base_url=GATEWAY_URL,
             headers={"Content-Type": "application/json"},
             timeout=10.0,
         ) as client:

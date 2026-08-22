@@ -90,11 +90,11 @@
 pub mod behavioral_drift;
 pub mod coherence;
 pub mod config;
+pub mod coverage;
 pub mod credential_dlp;
 pub mod exfiltration;
 pub mod inspector;
 pub mod patterns;
-pub mod rce_coverage;
 pub mod schema_drift;
 pub mod velocity;
 
@@ -107,10 +107,10 @@ pub use config::{
     AirlockConfig, AirlockMode, BehavioralDriftConfig, CoherenceConfig, ExfiltrationConfig,
     RceConfig, SchemaDriftConfig, VelocityConfig,
 };
+pub use coverage::{AirlockCoverage, CoverageStatus, LayerCoverage};
 pub use credential_dlp::{CredentialKind, CredentialMatch};
 pub use inspector::{
     AirlockInspector, AirlockResult, AirlockViolation, InspectionContext, RiskLevel, ViolationType,
 };
-pub use rce_coverage::{RceCoverage, RceCoverageStatus};
 pub use schema_drift::{DriftDelta, DriftKind, SchemaDriftDetails, SchemaDriftGuard};
 pub use velocity::VelocityStats;

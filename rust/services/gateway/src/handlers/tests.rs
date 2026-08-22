@@ -512,7 +512,8 @@ mod registry_tests {
 #[cfg(test)]
 mod health_tests {
     use crate::handlers::health::{
-        ComponentHealth, ComponentStatus, HealthResponse, RceCoverageReport, ReadinessResponse,
+        AirlockCoverageReport, ComponentHealth, ComponentStatus, HealthResponse,
+        LayerCoverageReport, ReadinessResponse,
     };
 
     #[test]
@@ -527,18 +528,27 @@ mod health_tests {
         assert!(json.contains("0.1.0"));
     }
 
-    /// Coverage as it actually is on a seeded stack: four registered tools,
-    /// none of them in the shell-shaped default `target_tools`. Using the real
-    /// shape here rather than an empty placeholder keeps these serialization
-    /// tests honest about what `/ready` returns today.
-    fn blind_coverage() -> RceCoverageReport {
-        RceCoverageReport {
-            status: "blind",
-            summary: "anti-RCE inspection (Airlock Layer 1) will inspect NOTHING".to_string(),
+    /// Coverage as it actually is on a seeded stack since 0.8.12: four
+    /// registered tools, every one inspected, because both name-matched layers
+    /// now default to an empty `target_tools` (= inspect everything). Using the
+    /// real shape keeps these serialization tests honest about what `/ready`
+    /// returns today rather than an invented placeholder.
+    fn full_layer() -> LayerCoverageReport {
+        LayerCoverageReport {
+            status: "full",
+            summary: "covers all 4 registered tools (target_tools empty = inspect everything)"
+                .to_string(),
             registered_tools: 4,
-            inspected: vec![],
-            uninspected: vec!["git_read".into(), "git_write".into()],
-            target_tools: vec!["bash".into(), "shell".into()],
+            inspected: vec!["git_read".into(), "git_write".into()],
+            uninspected: vec![],
+            target_tools: vec![],
+        }
+    }
+
+    fn full_coverage() -> AirlockCoverageReport {
+        AirlockCoverageReport {
+            anti_rce: full_layer(),
+            exfiltration: full_layer(),
         }
     }
 
@@ -559,7 +569,7 @@ mod health_tests {
                     error: None,
                 },
             },
-            anti_rce_coverage: blind_coverage(),
+            airlock_coverage: full_coverage(),
         };
 
         let json = serde_json::to_string(&response).unwrap();
@@ -585,7 +595,7 @@ mod health_tests {
                     error: Some("Connection refused".to_string()),
                 },
             },
-            anti_rce_coverage: blind_coverage(),
+            airlock_coverage: full_coverage(),
         };
 
         assert_eq!(response.status, "not_ready");

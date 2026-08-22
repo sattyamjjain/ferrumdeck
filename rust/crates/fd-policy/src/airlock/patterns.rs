@@ -255,9 +255,24 @@ impl RcePatternMatcher {
         }
     }
 
-    /// Check if this tool should be inspected
+    /// Check if this tool should be inspected.
+    ///
+    /// **An empty `target_tools` means inspect everything**, and that is the
+    /// default as of 0.8.12. It used to default to eight literal shell-shaped
+    /// names (`bash`, `python_repl`, `write_file`, …), which meant a deployment
+    /// naming its tools after its own domain got no anti-RCE inspection at all
+    /// and no indication of it. This repository was its own example: the dev
+    /// seed registers `git_read` / `git_write` / `test_run` /
+    /// `github_create_pr`, so Layer 1 inspected zero of four while the feature
+    /// reported enabled and its tests passed.
+    ///
+    /// Fail-closed is the right default for a security layer: inspect unless
+    /// told otherwise. `target_tools` is still honoured when non-empty, so an
+    /// operator who needs to narrow it (cost, false positives on a specific
+    /// tool) still can — and `AirlockCoverage` reports what that narrowing
+    /// actually covers.
     fn should_inspect(&self, tool_name: &str) -> bool {
-        self.target_tools.iter().any(|t| t == tool_name)
+        self.target_tools.is_empty() || self.target_tools.iter().any(|t| t == tool_name)
     }
 
     /// Extract all text content from JSON for pattern matching
@@ -449,16 +464,43 @@ mod tests {
         assert!(result.is_none());
     }
 
+    /// A tool outside an explicitly narrowed `target_tools` is still skipped.
+    ///
+    /// The narrowing behaviour is the point of the list and is preserved; what
+    /// changed in 0.8.12 is the DEFAULT, which is now empty (= inspect
+    /// everything) rather than eight literal names. This test used to pass by
+    /// relying on that default excluding `read_file`, which meant it was really
+    /// asserting the bug. It now narrows the list explicitly, so it tests the
+    /// filter rather than the default.
     #[test]
-    fn test_non_target_tool_skipped() {
-        let matcher = create_matcher();
-        let input = serde_json::json!({
-            "query": "eval(dangerous_code)"
+    fn a_tool_outside_an_explicitly_narrowed_list_is_skipped() {
+        let matcher = RcePatternMatcher::new(&RceConfig {
+            enabled: true,
+            target_tools: vec!["bash".to_string()],
+            custom_patterns: Vec::new(),
         });
+        let input = serde_json::json!({ "query": "eval(dangerous_code)" });
 
-        // read_file is not in target tools
-        let result = matcher.check("read_file", &input);
-        assert!(result.is_none());
+        assert!(
+            matcher.check("read_file", &input).is_none(),
+            "read_file is outside the narrowed list, so it must not be inspected"
+        );
+        assert!(
+            matcher.check("bash", &input).is_some(),
+            "bash is on the list and the payload is an RCE pattern"
+        );
+    }
+
+    /// With the shipped default, the same payload IS inspected on any tool.
+    #[test]
+    fn the_default_inspects_a_tool_no_literal_list_would_have_named() {
+        let matcher = RcePatternMatcher::new(&RceConfig::default());
+        let input = serde_json::json!({ "query": "eval(dangerous_code)" });
+        assert!(
+            matcher.check("git_write", &input).is_some(),
+            "git_write matches none of the old shell-shaped literals; under the \
+             empty default it must still be inspected"
+        );
     }
 
     #[test]
