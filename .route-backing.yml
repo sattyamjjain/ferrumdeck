@@ -18,7 +18,8 @@
 #
 # `200 {suites: []}` and `200 {total_regressions: 0}` are indistinguishable from
 # "we looked and there are none". 501 says "we never looked", which is the true
-# statement. Both planes already do this -- see the module caveat on
+# statement. (#7 covered the READ path and is closed; the two entries that remain
+# are the WRITE half, tracked in #46.) Both planes already do this -- see the module caveat on
 # `no_store_response()` in rust/services/gateway/src/handlers/evals.rs.
 #
 # ## Suppression posture
@@ -78,14 +79,14 @@ local_backed:
 # it; the checker verifies both, so an entry cannot quietly become a fixture.
 declared_stubs:
   - route: v1/evals/regression-report/route.ts
-    issue: 7
+    issue: 46
     reason: >-
       Proxies the gateway when it is reachable and falls back to 501 when it is
       not. Never a fabricated 200 {total_regressions: 0}, which would read as
       "no regressions found".
 
   - route: v1/evals/runs/route.ts
-    issue: 7
+    issue: 46
     method: POST
     reason: >-
       GET proxies the gateway and serves real committed reports (fixed in

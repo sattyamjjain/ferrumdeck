@@ -72,7 +72,7 @@ key_features:
       run endpoint. The replay buffer is per-process, so a multi-replica gateway
       cannot serve a reconnect that lands on a different replica.
     limitations_anchor: "#project-status--limitations"
-    roadmap_issue: 5
+    roadmap_issue: 47
 
   - id: eval-framework-dashboard
     readme_row: "**Evaluation Framework**:"
@@ -105,9 +105,9 @@ key_features:
       list when the gateway cannot be asked.
       Dispatching a run from the dashboard is still unimplemented: the store is
       read-only committed records, so a run started at request time has nowhere
-      to persist (#7).
+      to persist. #7 covered the read path and is closed; the write half is #46.
     limitations_anchor: "#project-status--limitations"
-    roadmap_issue: 7
+    roadmap_issue: 46
 
   - id: regression-gating
     readme_row: "**Regression Gating**:"
@@ -123,7 +123,7 @@ key_features:
       (needs model calls + a live stack) still runs nightly in
       .github/workflows/evals.yml, not on PRs.
     limitations_anchor: "#project-status--limitations"
-    roadmap_issue: 7
+    roadmap_issue: 46
 
   - id: baseline-comparisons
     readme_row: "**Baseline Comparisons**:"
@@ -137,7 +137,7 @@ key_features:
       spanning seven weeks -- a delta is a claim about two instants and was
       previously shown without either.
     limitations_anchor: "#project-status--limitations"
-    roadmap_issue: 7
+    roadmap_issue: 46
 
   - id: bff-trust-boundary
     readme_row: "**Trust boundary"

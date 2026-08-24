@@ -19,26 +19,30 @@ is a feature.
 
 ## Now
 
-### Push `policy.response.recorded` over SSE (gateway → BFF)
-- **Problem:** the `policy.response.recorded` realtime event **shape is defined**
-  and the dashboard already consumes it, but the gateway does not yet **push** it —
-  so the R1/R2/R3 response level only updates on a polled read, not live. The same
-  is true of the four sibling run-channel events
-  (`run.forecast.updated`, `policy.decision.explained`, `routing.decision.recorded`,
-  `coherence.divergence.detected`): wire shapes exist, no gateway emitter. Until
-  this lands the realtime channel carries **heartbeats only**. The BFF *can*
-  synthesize these events for wire-shape development behind
-  `FERRUMDECK_SSE_MOCK_EVENTS`, but that flag is **OFF by default in every
-  environment** — a fabricated enforcement verdict must never reach an operator's
-  console — so the honest default is: no live governance events until the emitter
-  ships.
-- **Lives in:** the BFF SSE consumer at
-  `nextjs/src/app/api/sse/[channel]/route.ts` (handles `policy.response.recorded`);
-  the gateway run-stream emitter under `rust/services/gateway/src/` needs to emit it.
-- **Done:** the gateway emits `policy.response.recorded` on the run stream when a
-  tool-policy check records a response level, and the dashboard renders the badge
-  update without a poll.
-- **Tracking:** _(good first issue)_ — [#5](https://github.com/sattyamjjain/ferrumdeck/issues/5)
+### Push the four remaining run-channel events over SSE
+- **Shipped in 0.8.13 ([#5](https://github.com/sattyamjjain/ferrumdeck/issues/5), closed):**
+  the transport and the first event. The gateway serves
+  `GET /v1/events/{channel}` and pushes `policy.response.recorded` from **inside**
+  the audit write, after the row commits, so the `record_id` it carries resolves
+  via `GET /v1/audit/{id}`. Reconnect replay honours `Last-Event-ID` and
+  `?last_event_id=`, and a gap that cannot be served emits `stream.gap` naming the
+  range rather than a stream that merely looks quiet.
+- **Problem:** four sibling run-channel events still have a defined wire shape and
+  **no gateway emitter** — `run.forecast.updated`, `policy.decision.explained`,
+  `routing.decision.recorded`, `coherence.divergence.detected` — so the console
+  reads those from the polled run endpoint. The BFF *can* synthesize them for
+  wire-shape development behind `FERRUMDECK_SSE_MOCK_EVENTS`, but that flag is
+  **OFF by default in every environment** — a fabricated enforcement verdict must
+  never reach an operator's console.
+- **Lives in:** the emitters under `rust/services/gateway/src/`; the transport is
+  `crate::events` + `handlers::events`, and the shapes are in
+  `nextjs/src/lib/realtime/channels.ts`.
+- **Done:** each of the four is emitted after the state it reports is durable
+  (the `spawn_audit_and_publish` pattern), and the dashboard updates from the push
+  rather than a poll. Two transport limits are fixed or explicitly accepted: the
+  replay buffer is per-process, so a multi-replica reconnect cannot be served
+  completely, and every SSE connection counts against `RATE_LIMIT_PER_MINUTE`.
+- **Tracking:** [#47](https://github.com/sattyamjjain/ferrumdeck/issues/47)
 
 ---
 
@@ -55,16 +59,24 @@ is a feature.
   responded; they are wired into a live-stack CI job separate from `ci-check`.
 - **Tracking:** [#6](https://github.com/sattyamjjain/ferrumdeck/issues/6)
 
-### Serve evals dashboard data from a gateway backend (unstub `/api/v1/evals/*`)
-- **Problem:** the **evals dashboard data is BFF-stubbed** — `/api/v1/evals/*`
-  returns empty until a gateway eval backend lands, so the full
-  eval → gateway → dashboard round-trip is only demonstrable with a live stack and
-  a non-stub feed.
-- **Lives in:** `nextjs/src/app/api/v1/evals/*` (`runs`, `suites`, `regression-report`);
-  needs a corresponding gateway eval-read backend.
-- **Done:** `/api/v1/evals/*` proxies real eval results from the gateway, and the
-  eval-run dashboard renders a real run end-to-end.
-- **Tracking:** [#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)
+### Dispatch an eval run from the dashboard (the write half of the eval surface)
+- **Shipped in 0.8.13 ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7), closed):**
+  the **read** path. `/api/v1/evals/{suites,suites/{id},runs,regression-report}`
+  serve the gateway's real on-disk reports, every figure carries `measured_at`
+  with its precision and source, and the round-trip was verified against a live
+  stack — 36 runs served, the newest matching its file field for field.
+- **Problem:** the eval store is **read-only committed records**
+  (`evals/reports/*.json`). A run dispatched at request time has nowhere to
+  persist, so `POST /api/v1/evals/runs` returns 501 with no invented id rather
+  than a synthetic 201.
+- **Lives in:** `nextjs/src/app/api/v1/evals/runs/route.ts` (POST),
+  `rust/services/gateway/src/handlers/evals.rs`; needs a durable eval-run store.
+- **Done:** a suite can be dispatched from the dashboard, the run persists to a
+  durable store rather than a committed file, and an in-flight run is
+  distinguishable from a finished one — `mapGatewayRun` currently hardcodes
+  `status: "completed"` because the store only ever holds finished runs, and that
+  assumption has to go at the same time.
+- **Tracking:** [#46](https://github.com/sattyamjjain/ferrumdeck/issues/46)
 
 ### Harden the audit chain-head anchor: robust remote sink + off-host key custody
 - **Shipped in 0.7.16 ([#8](https://github.com/sattyamjjain/ferrumdeck/issues/8), closed):**

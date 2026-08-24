@@ -26,8 +26,8 @@ export async function GET(request: NextRequest) {
             {
                 error: "not_implemented",
                 message:
-                    "The regression report requires the gateway eval-read backend, which is not reachable in this environment (no stack running). No report was returned rather than a fabricated '0 regressions'. Tracked in issue #7.",
-                issue: "https://github.com/sattyamjjain/ferrumdeck/issues/7",
+                    "The regression report requires the gateway eval-read backend, which is not reachable in this environment (no stack running). No report was returned rather than a fabricated '0 regressions'. Tracked in issue #46 (the read path, #7, is closed).",
+                issue: "https://github.com/sattyamjjain/ferrumdeck/issues/46",
             },
             { status: 501 },
         );

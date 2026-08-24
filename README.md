@@ -393,9 +393,10 @@ in [`docs/compliance/safe-evidence-coverage.md`](docs/compliance/safe-evidence-c
   File mtime is deliberately never consulted: on a fresh clone it would report
   the moment of the clone as the moment of the run.
   Dispatching a run from the dashboard remains unimplemented — the store is
-  read-only committed records, so
-  [#7](https://github.com/sattyamjjain/ferrumdeck/issues/7) stays open for the
-  dispatch path alone. (The eval *numbers* themselves are
+  read-only committed records, so a run started at request time has nowhere to
+  persist. [#7](https://github.com/sattyamjjain/ferrumdeck/issues/7) covered the
+  read path and is closed; the write half is
+  [#46](https://github.com/sattyamjjain/ferrumdeck/issues/46). (The eval *numbers* themselves are
   not ungated: the deterministic governance suites + real-engine pins run on
   every push + PR via `ci.yml`'s `eval-regression` job.)
   Approving a suggestion **records** the decision; it never auto-applies a
@@ -479,8 +480,9 @@ in [`docs/compliance/safe-evidence-coverage.md`](docs/compliance/safe-evidence-c
   **The other four run-channel events are still wire shapes with no emitter**
   (`run.forecast.updated`, `policy.decision.explained`,
   `routing.decision.recorded`, `coherence.divergence.detected`); the console
-  reads those from the polled run endpoint, and
-  [#5](https://github.com/sattyamjjain/ferrumdeck/issues/5) stays open for them.
+  reads those from the polled run endpoint
+  ([#47](https://github.com/sattyamjjain/ferrumdeck/issues/47); #5 covered the
+  transport and the first event and is closed).
   Two further limits, both reported to the client rather than hidden: the replay
   buffer is **per process**, so a reconnect that lands on a different replica of
   a multi-replica gateway cannot be served completely, and a cursor older than
@@ -580,7 +582,7 @@ The known gaps above are tracked in the open on the **[roadmap](ROADMAP.md)**, o
 - **Cross-MCP trace correlation (MCP SEP-414)**: When a caller propagates W3C trace context in the tool-call request `_meta` (`traceparent`/`tracestate`/`baggage`), ferrumdeck parents its enforcement decision span on that context — so the decision joins your trace end-to-end (host → client SDK → MCP server → ferrumdeck decision → downstream) and the trace-id lands on the persisted decision record. Malformed `traceparent` is rejected (never propagated); off unless the OTel semconv opt-in is set. **Targets** the 2026-07-28 MCP revision (now the current, ratified spec — verified 2026-08-01) and implements the SEP-414 conventions — *not* a conformance claim (no MCP conformance suite has been run). See [`docs/mcp-trace-conformance.md`](docs/mcp-trace-conformance.md).
 - **Cost Tracking**: Real-time token counting and cost calculation per run
 - **Jaeger UI**: Visual trace exploration and debugging
-- **Realtime run stream (SSE)**: the dashboard subscribes to per-run / per-workspace channels. **⚠ [policy.response.recorded is pushed; the other four are still wire shapes](#project-status--limitations)** — the gateway serves `GET /v1/events/{channel}` and pushes `policy.response.recorded` for real, carrying the decision, the rule that fired, the check latency and the id of the audit record it describes. It is published from **inside** the audit write, after the row commits, so that id resolves. `run.forecast.updated`, `policy.decision.explained`, `routing.decision.recorded` and `coherence.divergence.detected` still have a wire shape and no emitter; the console reads those from the polled run endpoint. A synthetic generator can emit them for wire-shape development behind `FERRUMDECK_SSE_MOCK_EVENTS` — **OFF by default in every environment**, so no fabricated enforcement verdict can ever reach an operator's console. ([#5](https://github.com/sattyamjjain/ferrumdeck/issues/5))
+- **Realtime run stream (SSE)**: the dashboard subscribes to per-run / per-workspace channels. **⚠ [policy.response.recorded is pushed; the other four are still wire shapes](#project-status--limitations)** — the gateway serves `GET /v1/events/{channel}` and pushes `policy.response.recorded` for real, carrying the decision, the rule that fired, the check latency and the id of the audit record it describes. It is published from **inside** the audit write, after the row commits, so that id resolves. `run.forecast.updated`, `policy.decision.explained`, `routing.decision.recorded` and `coherence.divergence.detected` still have a wire shape and no emitter; the console reads those from the polled run endpoint. A synthetic generator can emit them for wire-shape development behind `FERRUMDECK_SSE_MOCK_EVENTS` — **OFF by default in every environment**, so no fabricated enforcement verdict can ever reach an operator's console. ([#47](https://github.com/sattyamjjain/ferrumdeck/issues/47))
 - **Audit Trail**: Append-only logging of every action — enforced by the repo API (no `UPDATE`/`DELETE` path), a DB trigger (`trg_audit_events_append_only`: rejects every `UPDATE`; rejects `DELETE` within the 3-year retention floor), **a per-tenant cryptographic hash-chain** (`prev_hash`/`record_hash`/`chain_seq`; each row's SHA-256 commits to its predecessor, computed in one `FOR UPDATE` transaction) that makes any insertion/deletion/edit within a chain *detectable* by `AuditRepo::verify_chain`, **and signed out-of-band head checkpoints** (`fd-audit`'s `CheckpointSigner`/`FileCheckpointSink`) that catch even a wholesale self-consistent tail rewrite via `verify_against_checkpoints`. **⚠ [tamper-evident up to the last signed checkpoint; not tamper-proof](#project-status--limitations)** — detection, not prevention: records after the last checkpoint keep only the in-chain guarantee, a missing checkpoint degrades to it (and says so), and the anchor is only as strong as an out-of-band sink + off-host key ([#14](https://github.com/sattyamjjain/ferrumdeck/issues/14)). Don't represent it as tamper-*proof* for compliance.
 - **Tool-call firing rate**: Derived OTel signal (`ferrumdeck.metrics.tool_call_firing_rate`) tracking the share of reasoning steps that invoked at least one tool, per run + per agent over a sliding window. Surfaced on the agent overview tab with a configurable low-firing-rate threshold (default 40%) that flags model regressions or broken tool registries before they propagate. See [`docs/runbooks/tool-call-firing-rate.md`](docs/runbooks/tool-call-firing-rate.md).
 - **Debt-vs-tax cost decomposition (§2605.27320)**: Per-call `span_role ∈ {primary, retry, judge, guardrail, escalation, revalidation, monitor}` classification on every LLM/tool call, with two derived rollups per task/run — `agent.cost.token` (primary calls = debt) and `agent.cost.tax` (everything else). Dashboard panel ranks tasks by `tax / (token + tax)` descending so retry / escalation storms are visible at a glance. See [`docs/runbooks/cost-decomposition.md`](docs/runbooks/cost-decomposition.md).

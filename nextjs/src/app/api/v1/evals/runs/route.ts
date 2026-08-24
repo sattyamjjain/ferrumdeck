@@ -43,8 +43,8 @@ export async function GET(request: NextRequest) {
                 {
                     error: "bad_gateway",
                     message:
-                        "The gateway eval-read backend returned a body this dashboard does not recognize as a run list. No runs were returned rather than an empty list. Tracked in issue #7.",
-                    issue: "https://github.com/sattyamjjain/ferrumdeck/issues/7",
+                        "The gateway eval-read backend returned a body this dashboard does not recognize as a run list. No runs were returned rather than an empty list. Tracked in issue #46 (the read path, #7, is closed).",
+                    issue: "https://github.com/sattyamjjain/ferrumdeck/issues/46",
                 },
                 { status: 502 },
             );
@@ -57,8 +57,8 @@ export async function GET(request: NextRequest) {
             {
                 error: "not_implemented",
                 message:
-                    "Listing eval runs requires the gateway eval-read backend, which is not reachable in this environment (no stack running). No runs were returned rather than an empty list. Tracked in issue #7.",
-                issue: "https://github.com/sattyamjjain/ferrumdeck/issues/7",
+                    "Listing eval runs requires the gateway eval-read backend, which is not reachable in this environment (no stack running). No runs were returned rather than an empty list. Tracked in issue #46 (the read path, #7, is closed).",
+                issue: "https://github.com/sattyamjjain/ferrumdeck/issues/46",
             },
             { status: 501 },
         );
@@ -73,8 +73,8 @@ export async function POST() {
         {
             error: "not_implemented",
             message:
-                "Running an eval suite is not implemented yet: the dashboard has no gateway eval-dispatch backend, so no run was started. Tracked in issue #7.",
-            issue: "https://github.com/sattyamjjain/ferrumdeck/issues/7",
+                "Running an eval suite is not implemented yet: the dashboard has no gateway eval-dispatch backend, so no run was started. Tracked in issue #46 (the read path, #7, is closed).",
+            issue: "https://github.com/sattyamjjain/ferrumdeck/issues/46",
         },
         { status: 501 },
     );

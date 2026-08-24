@@ -22,6 +22,30 @@ import { NextRequest } from "next/server";
  */
 const NEXTJS_ROOT = process.cwd();
 const EVALS_DIR = path.join(NEXTJS_ROOT, "src/app/api/v1/evals");
+const DECLARATIONS = path.join(NEXTJS_ROOT, "..", ".route-backing.yml");
+
+/**
+ * The issue number `.route-backing.yml` declares for a stubbed route.
+ *
+ * Parsed with a small regex rather than a YAML dependency: the file's stub
+ * entries are a flat `- route: ...` / `issue: N` pair, and adding js-yaml to the
+ * dashboard's test deps to read two fields is not worth it.
+ */
+function declaredStubIssue(routeRelativeToApi: string): number {
+    const yaml = fs.readFileSync(DECLARATIONS, "utf8");
+    const route = routeRelativeToApi.replace("src/app/api/", "");
+    const escaped = route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = yaml.match(
+        new RegExp(`- route:\\s*${escaped}[\\s\\S]*?issue:\\s*(\\d+)`),
+    );
+    if (!match) {
+        throw new Error(
+            `${route} returns 501 but is not declared in .route-backing.yml. ` +
+                "An untracked stub is a permanent one.",
+        );
+    }
+    return Number(match[1]);
+}
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 
 /**
@@ -119,7 +143,8 @@ describe("eval BFF routes: implemented routes serve real data, the rest never fa
                     expect(Array.isArray(body.suites)).toBe(true);
                     expect((body.suites ?? []).length).toBeGreaterThan(0);
                 } else {
-                    // Not implemented: never a fabricated success; 501 naming #7.
+                    // Not implemented: never a fabricated success, and it must
+                    // cite the issue that tracks finishing it.
                     expect(is2xx(res.status)).toBe(false);
                     expect(res.status).toBe(501);
                     const body = (await res.json()) as {
@@ -127,7 +152,13 @@ describe("eval BFF routes: implemented routes serve real data, the rest never fa
                         issue?: string;
                     };
                     expect(body.error).toBe("not_implemented");
-                    expect(body.issue).toContain("/issues/7");
+                    // The issue number is NOT hardcoded. It used to be `/issues/7`,
+                    // and closing #7 broke this test -- not because a stub started
+                    // fabricating, but because the tracking issue moved. What
+                    // matters is that the route cites the SAME issue
+                    // .route-backing.yml declares for it, so the two cannot drift.
+                    const declared = declaredStubIssue(rel);
+                    expect(body.issue).toContain(`/issues/${declared}`);
                 }
             }
         },

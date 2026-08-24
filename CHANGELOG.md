@@ -70,8 +70,15 @@ carried heartbeats only.
   call is allowed. The new event reports this per decision, so it is now visible
   rather than implicit.
 
+Both #5 and #7 are closed by this release: each had a stated Done criterion that
+is now met. What remained of their wider problem statements was split out rather
+than folded into a closed issue — the four un-emitted run-channel events are
+[#47], and the eval **dispatch** path is [#46].
+
 [#5]: https://github.com/sattyamjjain/ferrumdeck/issues/5
 [#7]: https://github.com/sattyamjjain/ferrumdeck/issues/7
+[#46]: https://github.com/sattyamjjain/ferrumdeck/issues/46
+[#47]: https://github.com/sattyamjjain/ferrumdeck/issues/47
 
 ## [0.8.12] - 2026-08-22
 

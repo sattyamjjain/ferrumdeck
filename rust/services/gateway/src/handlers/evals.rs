@@ -417,8 +417,8 @@ fn no_store_response() -> Response {
         Json(json!({
             "error": {
                 "code": "NO_EVAL_STORE",
-                "message": "No eval-results store is reachable from this gateway: evals/reports was not found (set FD_EVALS_REPORTS_DIR, or run from a tree that has it; the gateway image bakes the committed reports, but eval results are not yet persisted to a durable store). No runs are returned rather than an empty list — an empty list would read as 'no runs exist'. Tracked in issue #7.",
-                "issue": "https://github.com/sattyamjjain/ferrumdeck/issues/7"
+                "message": "No eval-results store is reachable from this gateway: evals/reports was not found (set FD_EVALS_REPORTS_DIR, or run from a tree that has it; the gateway image bakes the committed reports, but eval results are not yet persisted to a durable store). No runs are returned rather than an empty list — an empty list would read as 'no runs exist'. Tracked in issue #46 (the read path, issue #7, is closed).",
+                "issue": "https://github.com/sattyamjjain/ferrumdeck/issues/46"
             }
         })),
     )
