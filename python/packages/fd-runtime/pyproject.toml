@@ -1,6 +1,6 @@
 [project]
 name = "fd-runtime"
-version = "0.8.12"
+version = "0.8.13"
 # Workspace-internal, not a PyPI distribution. This classifier makes an
 # accidental `twine upload` fail (PyPI rejects "Private :: Do Not Upload"), so
 # nobody can assume `pip install fd-runtime` works — install from source (uv sync).
