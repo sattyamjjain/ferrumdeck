@@ -9,10 +9,25 @@
  * - audit:{wsId} - Workspace audit events
  *
  * Features:
- * - Heartbeat every 30 seconds to keep connection alive
+ * - Gateway -> BFF push (issue #5): when the gateway's own SSE surface
+ *   (`GET /v1/events/{channel}`) is reachable, this route PROXIES it, so the
+ *   channel carries real governance events rather than heartbeats only.
+ * - Reconnect replay: `Last-Event-ID` (header) and `?last_event_id=` (query)
+ *   are both forwarded upstream. A fresh `EventSource` sends no header -- the
+ *   browser only resends one when IT reconnects the same object -- so the
+ *   query parameter is the path that matters for application-level reconnect,
+ *   and dropping it would silently lose every event in the gap.
+ * - Heartbeat every 30 seconds when serving locally (the proxied stream carries
+ *   the gateway's own keep-alive).
  * - Synthetic events (wire shapes) only when FERRUMDECK_SSE_MOCK_EVENTS=1/true
- *   (OFF by default in every environment; gateway->BFF push is ROADMAP #5)
+ *   (OFF by default in every environment).
  * - Proper SSE headers for streaming
+ *
+ * When the gateway is unreachable the route still opens a stream, but it emits
+ * a `stream.degraded` event saying so. That is the difference that matters on
+ * an audit surface: a silent connected stream and a connected stream with
+ * nothing behind it look identical, and only one of them means "nothing has
+ * happened".
  */
 
 import { NextRequest } from "next/server";
@@ -276,6 +291,64 @@ function parseChannel(channel: string): { type: string; identifier: string } | n
 
 
 // ============================================================================
+// Gateway upstream (issue #5)
+// ============================================================================
+
+/**
+ * Open the gateway's SSE stream for this channel, forwarding the resume cursor.
+ *
+ * Returns `null` when the gateway cannot be reached or refuses the channel; the
+ * caller then serves a local stream that SAYS it is degraded rather than one
+ * that is quietly empty.
+ */
+async function openGatewayStream(
+  channelName: string,
+  token: string,
+  lastEventId: string | null,
+  signal: AbortSignal,
+): Promise<ReadableStream<Uint8Array> | null> {
+  const url = new URL(
+    `${getGatewayUrl()}/v1/events/${encodeURIComponent(channelName)}`,
+  );
+  if (lastEventId) {
+    // Forwarded as a query parameter as well as a header: a rebuilt
+    // EventSource sends no header, and the EventSource API gives no way to add
+    // one, so this is the only cursor most reconnects carry.
+    url.searchParams.set("last_event_id", lastEventId);
+  }
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: "text/event-stream",
+  };
+  if (lastEventId) headers["Last-Event-ID"] = lastEventId;
+
+  try {
+    const upstream = await fetch(url, { headers, signal });
+    if (!upstream.ok || !upstream.body) {
+      console.warn(
+        JSON.stringify({
+          msg: "sse_upstream_unavailable",
+          channel: channelName,
+          status: upstream.status,
+        }),
+      );
+      return null;
+    }
+    return upstream.body;
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        msg: "sse_upstream_unreachable",
+        channel: channelName,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    return null;
+  }
+}
+
+// ============================================================================
 // Route Handler
 // ============================================================================
 
@@ -348,6 +421,46 @@ export async function GET(
 
   const channelName = decodeURIComponent(channel);
 
+  // --- gateway -> BFF push (issue #5) -------------------------------------
+  // Accept the resume cursor from either place. The browser sends the header
+  // when it reconnects an EventSource itself; the dashboard's subscription
+  // manager rebuilds the EventSource, which sends no header, so it appends the
+  // query parameter instead.
+  const lastEventId =
+    request.headers.get("Last-Event-ID") ??
+    request.nextUrl.searchParams.get("last_event_id");
+
+  const upstream = await openGatewayStream(
+    channelName,
+    token,
+    lastEventId,
+    request.signal,
+  );
+
+  if (upstream) {
+    // Proxy the gateway's stream verbatim. Re-framing it here would mean
+    // re-emitting `id:` lines, and an id this layer invented would break the
+    // client's resume cursor — the gateway's ids are the ones replay is keyed
+    // on, so they pass through untouched.
+    console.log(
+      JSON.stringify({
+        msg: "sse_stream_open",
+        channel: channelName,
+        source: "gateway",
+        resumed_from: lastEventId ?? null,
+      }),
+    );
+    return new Response(upstream, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
+
   // Create a readable stream for SSE
   const encoder = new TextEncoder();
   let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
@@ -372,6 +485,28 @@ export async function GET(
 
       try {
         controller.enqueue(encoder.encode(formatSSEMessage(connectEvent)));
+        // The gateway could not be reached, so this stream carries no
+        // governance events. Say it on the wire. A connected-but-silent stream
+        // and a connected stream with nothing behind it are indistinguishable
+        // to a consumer, and only one of them means "nothing has happened" --
+        // exactly the confusion that made the heartbeats-only channel worse
+        // than useless for an audit surface.
+        controller.enqueue(
+          encoder.encode(
+            formatSSEMessage({
+              id: generateEventId(),
+              type: "stream.degraded",
+              channel: channelName,
+              timestamp: new Date().toISOString(),
+              payload: {
+                reason: "gateway_unreachable",
+                message:
+                  "The gateway's realtime endpoint could not be reached, so this stream carries heartbeats only. Silence here does NOT mean no policy decisions were recorded; read them from the run endpoint instead.",
+                issue: "https://github.com/sattyamjjain/ferrumdeck/issues/5",
+              },
+            }),
+          ),
+        );
       } catch {
         isStreamClosed = true;
         return;

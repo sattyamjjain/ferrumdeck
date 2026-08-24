@@ -77,8 +77,50 @@ pub struct AppState {
     /// API key secret for HMAC hashing (for secure API key verification)
     pub api_key_secret: Arc<Vec<u8>>,
 
+    /// Realtime event bus backing `GET /v1/events/{channel}` (issue #5).
+    ///
+    /// Publish through [`AppState::spawn_audit_and_publish`] rather than
+    /// touching this directly on the decision path: events about a persisted
+    /// record must not be emitted until that record exists.
+    pub events: Arc<crate::events::EventBus>,
+
     /// Repositories (lazy-initialized from db pool)
     repos: Repos,
+}
+
+impl AppState {
+    /// Write an audit record off the request path, and publish a realtime event
+    /// **only once that record is durable** (issue #5).
+    ///
+    /// This is the split the SSE work exists to make. `Repos::spawn_audit` is
+    /// fire-and-forget: the handler returns before the insert commits. Emitting
+    /// the event where the decision is *computed* would hand a consumer a
+    /// `record_id` that reads back as nothing, and an audit consumer cannot
+    /// distinguish "not written yet" from "never written" — so it would have to
+    /// treat every event as unverifiable, which is worse than polling.
+    ///
+    /// `make_event` is called with the row **as inserted**, so an id it puts on
+    /// the wire is an id that already exists. It returns
+    /// `(channel, event_type, payload)`, or `None` to publish nothing.
+    ///
+    /// When the write FAILS, nothing is published. A consumer seeing silence is
+    /// correct — there is no record — and the drop is still logged at ERROR by
+    /// the same path `spawn_audit` uses, so it stays countable.
+    pub fn spawn_audit_and_publish<F>(
+        &self,
+        event: fd_storage::models::CreateAuditEvent,
+        make_event: F,
+    ) where
+        F: FnOnce(&fd_storage::models::AuditEvent) -> Option<(String, String, serde_json::Value)>
+            + Send
+            + 'static,
+    {
+        let audit_repo = self.repos().audit();
+        let bus = self.events.clone();
+        tokio::spawn(crate::events::record_then_publish(
+            audit_repo, bus, event, make_event,
+        ));
+    }
 }
 
 /// Repository container
@@ -405,6 +447,7 @@ impl AppState {
             rate_limiter,
             oauth2_validator,
             api_key_secret: Arc::new(api_key_secret.into_bytes()),
+            events: Arc::new(crate::events::EventBus::new()),
             repos: Repos::new(db),
         })
     }

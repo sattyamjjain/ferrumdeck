@@ -2,7 +2,9 @@
 
 pub mod api_keys;
 pub mod approvals;
+pub mod audit;
 pub mod evals;
+pub mod events;
 pub mod harness_suggestions;
 pub mod health;
 pub mod orchestrator;

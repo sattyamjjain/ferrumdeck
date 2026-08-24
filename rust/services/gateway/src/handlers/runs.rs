@@ -1544,6 +1544,13 @@ pub async fn check_tool_policy(
     use fd_storage::models::{CreateThreat, CreateVelocityEvent};
     use sha2::{Digest, Sha256};
 
+    // How long the enforcement check itself takes, measured from the first line
+    // of the handler to the moment the decision is handed to the audit writer.
+    // In-path enforcement is the product claim, so its cost is a governance
+    // number, not a debug detail: it goes on the realtime event and is what an
+    // operator watches when deciding whether the gate is affordable.
+    let check_started = std::time::Instant::now();
+
     let repos = state.repos();
 
     // MCP SEP-414: when the OTel semconv stability opt-in is enabled, extract W3C
@@ -1850,7 +1857,75 @@ pub async fn check_tool_policy(
     if let Some(tc) = &mcp_trace_parent {
         audit_builder = audit_builder.trace(tc.trace_id.clone(), tc.parent_id.clone());
     }
-    repos.spawn_audit(audit_builder.build());
+    // Emit `policy.response.recorded` on the run's realtime channel, but only
+    // once the decision record is DURABLE (issue #5).
+    //
+    // `spawn_audit` is fire-and-forget -- it spawns the insert and this handler
+    // returns before the row exists. Publishing here, where the decision is
+    // *computed*, would put a `record_id` on the wire that reads back as
+    // nothing, and a consumer cannot tell "not written yet" from "never
+    // written". `spawn_audit_and_publish` calls back with the row as inserted,
+    // so the id it publishes is one that already exists; a failed write
+    // publishes nothing at all, which is the honest signal since there is no
+    // record to read.
+    let event_run_id = run_id.clone();
+    let event_tool = request.tool_name.clone();
+    let event_decision = format!("{combined_kind:?}");
+    let event_raw_decision = format!("{:?}", decision.kind);
+    let event_reason = decision.reason.clone();
+    let event_rule = decision
+        .trace
+        .as_ref()
+        .and_then(|t| t.winning_source.clone());
+    let event_reversibility = reversibility.as_str().to_string();
+    let event_response_level = response_level.as_str().to_string();
+    let event_rung = response_level.rung().to_string();
+    let event_risk = airlock_result.risk_score;
+    let event_shadow = airlock_result.shadow_mode;
+    let event_policy_hash = policy_hash.clone();
+    let check_latency_ms = check_started.elapsed().as_millis() as u64;
+
+    state.spawn_audit_and_publish(audit_builder.build(), move |row| {
+        Some((
+            format!("run:{event_run_id}"),
+            "policy.response.recorded".to_string(),
+            serde_json::json!({
+                "run_id": event_run_id,
+                "tool_name": event_tool,
+                // --- the four fields #5 asks the event to carry -------------
+                // 1. the decision -- EFFECTIVE, after the reversibility ladder
+                //    folds into the allowlist verdict. `raw_decision` is the
+                //    allowlist's own verdict, kept because the two differ
+                //    exactly when a gate escalated and that difference is the
+                //    interesting part.
+                "decision": event_decision,
+                "raw_decision": event_raw_decision,
+                // 2. the rule that fired: the winning verdict's stable source
+                //    from the precedence resolver. `null` means no rule matched
+                //    and deny-by-default is what refused the call -- a real and
+                //    different answer, so it is not papered over with a string.
+                "rule": event_rule,
+                "reason": event_reason,
+                // 3. how long the check took, end to end.
+                "latency_ms": check_latency_ms,
+                // 4. the audit row this event is about. It exists: this closure
+                //    does not run until the insert committed.
+                "record_id": row.id,
+                "chain_seq": row.chain_seq,
+                "recorded_at": row.occurred_at.to_rfc3339(),
+                // Context an operator needs to read the verdict correctly.
+                "reversibility": event_reversibility,
+                "response_level": event_response_level,
+                "response_rung": event_rung,
+                "airlock_risk_score": event_risk,
+                // Without this, a reader cannot tell a call that was BLOCKED
+                // from one that was merely recorded while Airlock ran in shadow.
+                "shadow_mode": event_shadow,
+                "policy_hash": event_policy_hash,
+                "at": row.occurred_at.to_rfc3339(),
+            }),
+        ))
+    });
 
     // Step 6: Determine final allowed status, using the reversibility-folded
     // decision (`combined_kind`) rather than the raw allowlist decision — so a

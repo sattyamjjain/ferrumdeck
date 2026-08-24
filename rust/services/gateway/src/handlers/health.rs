@@ -37,6 +37,16 @@ pub struct ReadinessResponse {
     /// allowed, and a narrowed layer covering nothing is invisible in logs
     /// after boot. So it is a field.
     pub airlock_coverage: AirlockCoverageReport,
+    /// Realtime push (issue #5): how many events this process has published
+    /// since it started.
+    ///
+    /// Reported for the same reason `airlock_coverage` is. The dashboard's SSE
+    /// channel carried heartbeats only for a long time, and a stream that is
+    /// connected but silent looks identical to one that is connected and has
+    /// nothing to say. This number tells an operator which it is without
+    /// reading logs: still `0` after traffic has flowed means the push path is
+    /// not wired, not that nothing happened.
+    pub realtime_events_published: u64,
 }
 
 /// Coverage for every name-matched Airlock layer.
@@ -194,6 +204,7 @@ pub async fn readiness_check(
             anti_rce: LayerCoverageReport::from(&state.airlock_coverage.rce),
             exfiltration: LayerCoverageReport::from(&state.airlock_coverage.exfiltration),
         },
+        realtime_events_published: state.events.latest_seq(),
     };
 
     if all_healthy {

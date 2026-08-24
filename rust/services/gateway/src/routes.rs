@@ -104,6 +104,14 @@ pub fn build_router(state: AppState) -> Router {
                 // The suite *definition* (tasks, scorers, gate) stays in
                 // evals/suites/*.yaml and is read by the BFF -- one source of
                 // truth per fact rather than two parsers that can drift.
+                // Realtime stream (issue #5). `{channel}` is `type:identifier`,
+                // the same channel grammar the BFF already parses. Honours
+                // Last-Event-ID (header) and ?last_event_id= (query) for
+                // reconnect replay -- see handlers::events.
+                .route("/events/{channel}", get(handlers::events::event_stream))
+                // Resolve the `record_id` that policy.response.recorded carries.
+                // Without this the event names a record nobody can fetch.
+                .route("/audit/{event_id}", get(handlers::audit::get_audit_event))
                 .route("/evals/suites", get(handlers::evals::list_eval_suites))
                 .route(
                     "/evals/suites/{suite_id}",

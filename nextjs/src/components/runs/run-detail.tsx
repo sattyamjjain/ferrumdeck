@@ -25,6 +25,7 @@ import { TraceWaterfall } from "./trace-waterfall";
 import { StepDetailPanel } from "./step-detail-panel";
 import { ArtifactsTab } from "./artifacts-tab";
 import { AuditTab } from "./audit-tab";
+import { LivePolicyDecisions } from "./live-policy-decisions";
 import { InputOutputTab } from "./input-output-tab";
 import { LoadingPage } from "@/components/shared/loading-spinner";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -201,6 +202,12 @@ export function RunDetail({ runId }: RunDetailProps) {
   return (
     <div className="space-y-6 animate-fade-in">
       <RunHeader run={run} stepCount={stepCount} />
+
+      {/* Gateway-pushed policy decisions for this run (issue #5). Sits above the
+          tabs rather than inside one: an enforcement verdict arriving mid-run is
+          the thing an operator is watching for, and burying it behind a tab
+          click means it is seen only by someone who already suspected it. */}
+      <LivePolicyDecisions runId={runId} />
 
       {/* Custom Tab Navigation */}
       <div className="relative">

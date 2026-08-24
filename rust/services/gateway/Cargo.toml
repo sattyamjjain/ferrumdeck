@@ -22,6 +22,10 @@ fd-dag = { path = "../../crates/fd-dag", package = "ferrumdeck-dag" }
 
 # Async runtime
 tokio = { workspace = true }
+# SSE: BroadcastStream adapts the realtime bus's broadcast receiver into the
+# Stream axum::response::sse::Sse requires. Already in the lock file via tokio's
+# own dependents, so this adds no new supply-chain surface.
+tokio-stream = { workspace = true }
 
 # Web framework
 axum = { workspace = true }

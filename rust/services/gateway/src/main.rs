@@ -14,6 +14,7 @@ use tower_http::{
 };
 use tracing::{info, warn};
 
+mod events;
 mod handlers;
 mod middleware;
 mod openapi;

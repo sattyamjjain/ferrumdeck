@@ -30,6 +30,24 @@ interface Subscriber {
 }
 
 /** Internal channel state */
+/**
+ * Build the SSE URL for a channel, appending the resume cursor when there is one.
+ *
+ * Exported (and pure) so the reconnect contract can be asserted directly: the
+ * cursor is the only thing standing between an application-level reconnect and
+ * a silently-dropped event, and it is not visible in any rendered output.
+ */
+export function buildChannelUrl(
+  baseUrl: string,
+  channel: string,
+  lastEventId: string | null,
+): string {
+  const base = `${baseUrl}/${encodeURIComponent(channel)}`;
+  return lastEventId
+    ? `${base}?last_event_id=${encodeURIComponent(lastEventId)}`
+    : base;
+}
+
 interface ChannelState {
   eventSource: EventSource | null;
   subscribers: Map<string, Subscriber>;
@@ -38,6 +56,19 @@ interface ChannelState {
   reconnectTimeoutId: ReturnType<typeof setTimeout> | null;
   lastEventTime: number;
   heartbeatTimeoutId: ReturnType<typeof setTimeout> | null;
+  /**
+   * The `id` of the last event delivered on this channel, used as the resume
+   * cursor on reconnect (issue #5).
+   *
+   * A browser resends `Last-Event-ID` only when IT reconnects the same
+   * `EventSource`. This manager reconnects by CLOSING the EventSource and
+   * constructing a new one, which sends no header — and the `EventSource` API
+   * offers no way to add one. So without tracking the cursor here and passing
+   * it as a query parameter, every application-level reconnect silently
+   * restarted from "now" and dropped whatever arrived in the gap. On an audit
+   * stream, a dropped event is worse than polling.
+   */
+  lastEventId: string | null;
 }
 
 /** Configuration options for the subscription manager */
@@ -256,6 +287,7 @@ export class SubscriptionManager {
       reconnectTimeoutId: null,
       lastEventTime: 0,
       heartbeatTimeoutId: null,
+      lastEventId: null,
     };
   }
 
@@ -282,8 +314,14 @@ export class SubscriptionManager {
     // Update status to connecting
     this.updateChannelStatus(channel, channelState, "connecting");
 
-    // Build URL
-    const url = `${this.config.baseUrl}/${encodeURIComponent(channel)}`;
+    // Build URL, carrying the resume cursor when this is a reconnect rather
+    // than a first connection. See ChannelState.lastEventId for why this
+    // cannot be a header.
+    const url = buildChannelUrl(
+      this.config.baseUrl,
+      channel,
+      channelState.lastEventId,
+    );
 
     try {
       const eventSource = new EventSource(url);
@@ -298,6 +336,12 @@ export class SubscriptionManager {
 
       eventSource.onmessage = (event) => {
         channelState.lastEventTime = Date.now();
+        // Advance the resume cursor. `event.lastEventId` is whatever the server
+        // put on the `id:` line — the gateway's monotonic sequence number,
+        // passed through the BFF untouched so it stays the key replay is on.
+        if (event.lastEventId) {
+          channelState.lastEventId = event.lastEventId;
+        }
 
         // Reset stale status if we were stale
         if (channelState.status === "stale") {

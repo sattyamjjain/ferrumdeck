@@ -54,6 +54,7 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 
 # Redis
 redis = { version = "0.27", features = ["tokio-comp", "streams"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Crypto
 sha2 = "0.10"

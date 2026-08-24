@@ -390,6 +390,21 @@ impl AuditRepo {
         ))
     }
 
+    /// Read one audit event by id.
+    ///
+    /// Added for the realtime push (issue #5). `policy.response.recorded`
+    /// carries the `record_id` of the decision row it is about, and that
+    /// promise is only worth anything if a consumer can resolve it — an event
+    /// naming a record nobody can fetch is a claim, not evidence. `None` means
+    /// the id genuinely is not there, which for this store is a real answer.
+    #[instrument(skip(self))]
+    pub async fn get(&self, id: &str) -> Result<Option<AuditEvent>, sqlx::Error> {
+        sqlx::query_as::<_, AuditEvent>("SELECT * FROM audit_events WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+    }
+
     /// List audit events for a run
     #[instrument(skip(self))]
     pub async fn list_by_run(&self, run_id: &str) -> Result<Vec<AuditEvent>, sqlx::Error> {

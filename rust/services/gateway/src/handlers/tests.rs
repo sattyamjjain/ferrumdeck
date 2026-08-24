@@ -555,6 +555,7 @@ mod health_tests {
     #[test]
     fn test_readiness_response_healthy() {
         let response = ReadinessResponse {
+            realtime_events_published: 0,
             status: "ready",
             version: "0.1.0",
             components: ComponentStatus {
@@ -581,6 +582,7 @@ mod health_tests {
     #[test]
     fn test_readiness_response_unhealthy() {
         let response = ReadinessResponse {
+            realtime_events_published: 0,
             status: "not_ready",
             version: "0.1.0",
             components: ComponentStatus {
