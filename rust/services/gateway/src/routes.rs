@@ -100,6 +100,15 @@ pub fn build_router(state: AppState) -> Router {
                     "/evals/regression-report",
                     get(handlers::evals::eval_regression_report),
                 )
+                // Suite history: what each suite has actually scored, and when.
+                // The suite *definition* (tasks, scorers, gate) stays in
+                // evals/suites/*.yaml and is read by the BFF -- one source of
+                // truth per fact rather than two parsers that can drift.
+                .route("/evals/suites", get(handlers::evals::list_eval_suites))
+                .route(
+                    "/evals/suites/{suite_id}",
+                    get(handlers::evals::get_eval_suite),
+                )
                 // Training-signal export (read: projects the run's trace into
                 // a redacted JSONL; POST carries optional score overrides)
                 .route(

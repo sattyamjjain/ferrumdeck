@@ -19,11 +19,37 @@
 
 import type { EvalGateStatus, EvalRun, EvalRunStatus } from "@/types/eval";
 
+/**
+ * When a run was measured, and how much of that is actually known.
+ *
+ * The gateway attaches this to every figure it serves. `precision: "day"` means
+ * the report carried no clock time at all (the offline benchmarks do not), and
+ * the UI must render it as a date rather than padding it to midnight. `source`
+ * says which artifact the value came from so a reader can check it.
+ */
+export interface MeasuredAt {
+    at: string;
+    precision: "second" | "day";
+    source: "report.started_at" | "filename";
+}
+
+function isMeasuredAt(value: unknown): value is MeasuredAt {
+    if (typeof value !== "object" || value === null) return false;
+    const c = value as Record<string, unknown>;
+    return (
+        typeof c.at === "string" &&
+        (c.precision === "second" || c.precision === "day")
+    );
+}
+
 /** One run exactly as `GET /v1/evals/runs` serves it. */
 export interface GatewayEvalRun {
     run_id: string;
     suite: string;
     date?: string | null;
+    measured_at?: MeasuredAt | null;
+    report_run_id?: string | null;
+    dataset_name?: string | null;
     anchor?: string | null;
     total_cases?: number | null;
     primary_metric?: { name: string; rate: number } | null;
@@ -55,6 +81,19 @@ export type MappedEvalRun = EvalRun & {
     assertion_coverage?: number;
     /** The report field `score` came from, e.g. `average_score`. */
     primary_metric_name?: string;
+    /**
+     * When every number on this row was measured, with its precision and its
+     * source. Absent only when neither the report body nor the file name
+     * recorded a time — never inferred from file mtime, which on a fresh clone
+     * would report the moment of the clone as the moment of the run.
+     *
+     * A governance figure rendered without this is asserting it is current.
+     */
+    measured_at?: MeasuredAt;
+    /** The run id the eval harness assigned itself, distinct from `id`. */
+    report_run_id?: string;
+    /** The dataset the run executed against. Two suites over different datasets are not comparable. */
+    dataset_name?: string;
 };
 
 const GATE_STATUSES: readonly string[] = ["passed", "failed", "skipped"];
@@ -93,7 +132,14 @@ function isGatewayEvalRun(value: unknown): value is GatewayEvalRun {
  * completion by default.
  */
 export function mapGatewayRun(raw: GatewayEvalRun): MappedEvalRun {
-    const started = raw.started_at ?? raw.date ?? undefined;
+    const measured = isMeasuredAt(raw.measured_at) ? raw.measured_at : undefined;
+    // `created_at` is the field the table sorts and renders by. Prefer the
+    // gateway's `measured_at` over the older `started_at`/`date` pair: for the
+    // offline benchmarks those are day-precision and for the LLM suites the
+    // filename's second was being discarded, so two runs minutes apart sorted
+    // arbitrarily. Falls back to the old pair so a gateway that predates the
+    // field still renders.
+    const started = raw.started_at ?? measured?.at ?? raw.date ?? undefined;
 
     return {
         id: raw.run_id,
@@ -127,6 +173,9 @@ export function mapGatewayRun(raw: GatewayEvalRun): MappedEvalRun {
         completed_at: raw.completed_at ?? undefined,
         assertion_coverage: num(raw.assertion_coverage),
         primary_metric_name: raw.primary_metric?.name,
+        measured_at: measured,
+        report_run_id: raw.report_run_id ?? undefined,
+        dataset_name: raw.dataset_name ?? undefined,
     };
 }
 

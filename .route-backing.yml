@@ -59,16 +59,24 @@ local_backed:
       loadEvalSuites(). Returns 501 (not an empty 200) when the evals directory
       cannot be located, so "no suites" is never asserted from absence.
 
+  - route: v1/evals/suites/[suiteId]/route.ts
+    backend: filesystem+gateway
+    reason: >-
+      No longer a stub (0.8.13). Joins two sources, each authoritative for the
+      fact it owns: the suite DEFINITION from evals/suites/*.yaml via the same
+      loadEvalSuites() parser the list route uses, and the suite's MEASURED
+      history from the gateway's GET /v1/evals/suites/{id}, which reads
+      evals/reports/*.json and attaches the measurement instant to every figure.
+      Teaching the gateway to parse the suite YAML as well would have put one
+      number in two parsers that can drift -- the failure this repo just removed
+      from the executed-test floor. Absence is never a zero: `history_available:
+      false` distinguishes "the gateway could not be reached" from "this suite
+      has no runs", and a 503 (not an empty 200) is returned when neither source
+      can be read.
+
 # Known-unimplemented routes. Each MUST return 501 and cite the issue tracking
 # it; the checker verifies both, so an entry cannot quietly become a fixture.
 declared_stubs:
-  - route: v1/evals/suites/[suiteId]/route.ts
-    issue: 7
-    reason: >-
-      Reading a single suite needs a gateway eval backend. The list endpoint is
-      served from disk; the detail read is not, and 404 would wrongly imply the
-      suite does not exist.
-
   - route: v1/evals/regression-report/route.ts
     issue: 7
     reason: >-

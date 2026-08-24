@@ -31,7 +31,21 @@ const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
  */
 const IMPLEMENTED: Record<string, readonly string[]> = {
     "src/app/api/v1/evals/suites/route.ts": ["GET"],
+    // Backed as of 0.8.13: joins the on-disk suite definition with the
+    // gateway's measured run history. Its 2xx body is a single suite, not a
+    // list, so the generic list-shaped assertion below does not apply to it and
+    // it gets a dedicated test instead.
+    "src/app/api/v1/evals/suites/[suiteId]/route.ts": ["GET"],
 };
+
+/**
+ * Routes whose 2xx body is a single object rather than `{ suites: [...] }`.
+ * They are still held to "real data, never a fabricated empty success" — just
+ * by the dedicated tests further down, which know their shape.
+ */
+const NON_LIST_BODY = new Set([
+    "src/app/api/v1/evals/suites/[suiteId]/route.ts",
+]);
 
 function findRouteFiles(dir: string): string[] {
     const out: string[] = [];
@@ -88,6 +102,15 @@ describe("eval BFF routes: implemented routes serve real data, the rest never fa
                 const res = await invoke(mod, method);
 
                 if (implementedMethods.includes(method)) {
+                    if (NON_LIST_BODY.has(rel)) {
+                        // Probed with a suiteId that exists in neither source and
+                        // with no gateway running. The one thing that must NEVER
+                        // happen is a 2xx: "we could not look" and "this suite is
+                        // empty" must not render identically.
+                        expect(is2xx(res.status)).toBe(false);
+                        expect([404, 503]).toContain(res.status);
+                        continue;
+                    }
                     // Implemented: may be 2xx, but must carry real (non-empty) data — an
                     // implemented route that 2xx'd an empty payload would be the exact
                     // fabrication this test exists to catch.
@@ -148,5 +171,75 @@ describe("eval BFF routes: implemented routes serve real data, the rest never fa
         expect(regression.scorer_names).toContain("expected_output_match");
         expect(smoke.scorer_names).not.toContain("schema_valid");
         expect(regression.scorer_names).not.toContain("schema_valid");
+    });
+
+    /** Invoke a route with a specific suiteId rather than the generic probe. */
+    async function getSuite(suiteId: string) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const mod = require(
+            path.join(EVALS_DIR, "suites/[suiteId]/route.ts"),
+        ) as Record<string, unknown>;
+        const handler = mod.GET as (
+            req: Request,
+            ctx: { params: Promise<{ suiteId: string }> },
+        ) => Promise<Response>;
+        return handler(
+            new NextRequest(`http://localhost/api/v1/evals/suites/${suiteId}`),
+            { params: Promise.resolve({ suiteId }) },
+        );
+    }
+
+    it("GET /api/v1/evals/suites/{id} serves the real on-disk definition, matching the list route", async () => {
+        // Comparison, not "it returned 200": the detail view must agree with the
+        // list view field for field. Two readers of one YAML that disagree is
+        // the drift this repo keeps finding, so it is asserted rather than
+        // assumed.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const listMod = require(
+            path.join(EVALS_DIR, "suites/route.ts"),
+        ) as Record<string, unknown>;
+        const listBody = (await (await invoke(listMod, "GET")).json()) as {
+            suites: { id: string; task_count: number; scorer_names: string[] }[];
+        };
+        const fromList = listBody.suites.find((s) => s.id === "smoke")!;
+
+        const res = await getSuite("smoke");
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+            suite_id: string;
+            definition: {
+                id: string;
+                task_count: number;
+                scorer_names: string[];
+            } | null;
+            history_available: boolean;
+            runs: unknown[];
+        };
+
+        expect(body.suite_id).toBe("smoke");
+        expect(body.definition).not.toBeNull();
+        expect(body.definition!.task_count).toBe(fromList.task_count);
+        expect(body.definition!.scorer_names).toEqual(fromList.scorer_names);
+    });
+
+    it("distinguishes 'no gateway to ask' from 'this suite has never run'", async () => {
+        // No gateway is running under jest. The measured-history half must say
+        // it could not look — `history_available: false` plus a stated reason —
+        // rather than returning `runs: []`, which on the dashboard reads as "we
+        // checked and this suite has never been run". That confusion is the
+        // whole fabrication class this file guards.
+        const res = await getSuite("smoke");
+        const body = (await res.json()) as {
+            history_available: boolean;
+            history_error?: string;
+            runs: unknown[];
+            latest_measured_at: unknown;
+        };
+        expect(body.history_available).toBe(false);
+        expect(typeof body.history_error).toBe("string");
+        expect(body.history_error).toContain("not a claim");
+        expect(body.runs).toEqual([]);
+        // And no fabricated measurement time to go with the absent numbers.
+        expect(body.latest_measured_at).toBeNull();
     });
 });

@@ -120,3 +120,68 @@ describe("mapGatewayRunsResponse", () => {
         expect(mapped).toEqual({ runs: [], count: 0, source: undefined });
     });
 });
+
+describe("measurement time survives the projection (#7)", () => {
+    // A governance number without its measurement time asserts that it is
+    // current, which nothing here can support. These assert the value the
+    // gateway measured reaches the row the dashboard renders, unchanged.
+
+    it("carries measured_at, its precision and its source through unchanged", () => {
+        const mapped = mapGatewayRun({
+            run_id: "eval_smoke_20260824_030710",
+            suite: "smoke",
+            date: "2026-08-24",
+            measured_at: {
+                at: "2026-08-24T03:07:10.966639+00:00",
+                precision: "second",
+                source: "report.started_at",
+            },
+            report_run_id: "eval_ad440ecd64fd",
+            dataset_name: "safe-pr-agent",
+            primary_metric: { name: "average_score", rate: 1.0 },
+        });
+
+        expect(mapped.measured_at).toEqual({
+            at: "2026-08-24T03:07:10.966639+00:00",
+            precision: "second",
+            source: "report.started_at",
+        });
+        expect(mapped.report_run_id).toBe("eval_ad440ecd64fd");
+        expect(mapped.dataset_name).toBe("safe-pr-agent");
+    });
+
+    it("keeps day precision as a date rather than padding it to midnight", () => {
+        // asb / governed-benchmark reports carry no clock time. Rendering
+        // "2026-08-22T00:00:00" would assert a midnight run that never happened.
+        const mapped = mapGatewayRun({
+            run_id: "asb-20260822",
+            suite: "asb",
+            date: "2026-08-22",
+            measured_at: {
+                at: "2026-08-22",
+                precision: "day",
+                source: "filename",
+            },
+        });
+        expect(mapped.measured_at?.precision).toBe("day");
+        expect(mapped.measured_at?.at).toBe("2026-08-22");
+        expect(mapped.created_at).toBe("2026-08-22");
+    });
+
+    it("drops a malformed measured_at rather than half-rendering it", () => {
+        const mapped = mapGatewayRun({
+            run_id: "asb-20260822",
+            suite: "asb",
+            // `precision: "hour"` is not a value this contract defines.
+            measured_at: { at: "2026-08-22", precision: "hour" } as never,
+        });
+        expect(mapped.measured_at).toBeUndefined();
+    });
+
+    it("leaves measured_at absent when the gateway sends none", () => {
+        // Never inferred from anything client-side. Absent means "not recorded".
+        const mapped = mapGatewayRun({ run_id: "x-20260101", suite: "x" });
+        expect(mapped.measured_at).toBeUndefined();
+    });
+});
+
