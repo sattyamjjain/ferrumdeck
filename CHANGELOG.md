@@ -17,6 +17,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.13] - 2026-08-24
+
+Two read surfaces that existed but could not be trusted end to end: the eval
+endpoints served figures with no measurement time, and the realtime channel
+carried heartbeats only.
+
+### Added
+
+- **Realtime push of `policy.response.recorded`** ([#5]). The gateway had no SSE
+  surface at all; the wire shape existed only behind a synthetic generator.
+  `GET /v1/events/{channel}` now streams governance events, and the decision
+  event is published from **inside** the fire-and-forget audit write, after the
+  row commits — so the `record_id` it carries names a record that already
+  exists. The event carries the decision (effective and raw), the rule that
+  fired, the check latency, the record id, and `shadow_mode`, without which a
+  blocked call and a merely-logged one are indistinguishable.
+- **Reconnect replay.** `Last-Event-ID` and `?last_event_id=` are both honoured;
+  the dashboard rebuilds its `EventSource` on reconnect, which sends no header,
+  so the query parameter is the cursor that matters. A gap that cannot be
+  replayed emits `stream.gap` naming the range rather than looking quiet.
+- **`GET /v1/audit/{event_id}`** and `AuditRepo::get`, so the `record_id` the
+  event promises can actually be resolved.
+- **`GET /v1/evals/suites` and `/v1/evals/suites/{id}`** serving each suite's
+  measured history ([#7]). The BFF's suite-detail route is no longer a 501: it
+  joins the on-disk suite definition with the gateway's measured runs.
+- **A live policy-decision panel** on the run detail page, and
+  `realtime_events_published` on `/ready` so a silent stream can be told from an
+  unwired one.
+
+### Fixed
+
+- **Eval figures carried no measurement time** ([#7]). Every number now ships
+  `measured_at` with its precision and source. The `_HHMMSS` in the LLM suites'
+  filenames was parsed and discarded, so two runs minutes apart both reported
+  the same date; the offline benchmarks carry no timestamp at all and now report
+  day precision rather than a padded midnight. File mtime is deliberately not
+  used — on a fresh clone it would report the checkout as the measurement.
+- **`isRunChannelEvent()` rejected `policy.response.recorded`** despite it being
+  in the union — harmless while the channel was empty, and it would have
+  discarded every real event once the gateway started pushing.
+- Two fields the eval projection was dropping: the harness's own `run_id` and
+  `dataset_name`.
+
+### Known gaps
+
+- The gateway serves no `/v1/audit` **list** route, though the BFF has proxied
+  one for some time; `scripts/check_route_backing.py` counts that route as
+  backed because it contains a real `fetch(`, which is true and not the same as
+  the target existing. Recorded, not fixed here.
+- Airlock still defaults to `shadow`: a detected violation is recorded and the
+  call is allowed. The new event reports this per decision, so it is now visible
+  rather than implicit.
+
+[#5]: https://github.com/sattyamjjain/ferrumdeck/issues/5
+[#7]: https://github.com/sattyamjjain/ferrumdeck/issues/7
+
 ## [0.8.12] - 2026-08-22
 
 Closes the three gaps 0.8.9-0.8.11 documented but deliberately left open, plus

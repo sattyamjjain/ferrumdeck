@@ -296,4 +296,32 @@ make db-migrate    # Run migrations
    [`docs/eval-health.md`](docs/eval-health.md) from the committed report files:
    per eval, the last run date, pass/fail, score and consecutive-pass streak.
    Evals that have never passed are labelled as such rather than omitted.
-5. **Add MCP Tools** - Extend capabilities in `/python/packages/fd-mcp-tools/`
+5. **Read the eval results the gateway serves** - the read path is backed by the
+   committed reports in `evals/reports/`, not a stub:
+
+   ```bash
+   curl -sH "Authorization: Bearer $FD_API_KEY" localhost:8080/v1/evals/suites | jq
+   ```
+
+   Every figure carries `measured_at` with its `precision` and its `source`. A
+   `precision` of `day` is not a rounding: the offline benchmarks record no clock
+   time at all, so the file name's date is the only evidence there is, and padding
+   it to midnight would assert a run that never happened. If no report store is
+   reachable these endpoints return **501**, never an empty `200` — "we never
+   looked" and "we looked and found none" are different answers.
+
+6. **Watch enforcement decisions live** - the gateway pushes each recorded policy
+   decision on the run's channel:
+
+   ```bash
+   curl -N -H "Authorization: Bearer $FD_API_KEY" \
+     "localhost:8080/v1/events/run:<run_id>"
+   ```
+
+   Each `policy.response.recorded` names the audit record it describes, and that
+   record already exists when the event arrives — resolve it with
+   `GET /v1/audit/<record_id>`. Reconnect with `?last_event_id=<id>` to replay
+   what you missed; if the gap is older than the buffer you get a `stream.gap`
+   event saying so rather than a stream that merely looks quiet.
+
+7. **Add MCP Tools** - Extend capabilities in `/python/packages/fd-mcp-tools/`

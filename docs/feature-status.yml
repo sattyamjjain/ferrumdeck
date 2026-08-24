@@ -47,23 +47,37 @@ key_features:
 
   - id: realtime-sse
     readme_row: "**Realtime run stream (SSE)**"
-    marker: "[wire shape defined; gateway→BFF push deferred"
-    status: "no gateway→BFF push; BFF synthetic generator is opt-in and OFF by default"
+    marker: "[policy.response.recorded is pushed; the other four are still wire shapes"
+    status: "gateway→BFF push live for policy.response.recorded only; the other four run-channel events have a wire shape and no emitter"
     evidence: >-
-      nextjs/src/app/api/sse/[channel]/route.ts delegates to
-      nextjs/src/lib/realtime/mock-events.ts, which creates no timer unless
-      FERRUMDECK_SSE_MOCK_EVENTS is "1"/"true". The five run-channel governance
-      events (run.forecast.updated, policy.decision.explained,
-      policy.response.recorded, routing.decision.recorded,
-      coherence.divergence.detected) have a defined wire shape and no gateway
-      emitter; the console reads them from the polled run endpoint.
+      The gateway serves GET /v1/events/{channel}
+      (rust/services/gateway/src/handlers/events.rs) and publishes
+      policy.response.recorded from check_tool_policy -- specifically from
+      inside the fire-and-forget audit write, after the row commits, so the
+      record_id it carries resolves via GET /v1/audit/{event_id}. Verified on a
+      live stack: a denied call produced decision "Deny", rule null (nothing
+      matched; deny-by-default refused it), latency_ms 20, and a record_id that
+      read back as policy.denied at chain_seq 870.
+      nextjs/src/app/api/sse/[channel]/route.ts proxies that stream and emits
+      stream.degraded when the gateway is unreachable. Reconnect honours
+      Last-Event-ID and ?last_event_id=; a gap outside the bounded in-process
+      replay buffer emits stream.gap naming the range rather than looking quiet.
+      Covered by tests/security/test_realtime_decisions.py (6, live-stack) and 4
+      DB-backed Rust tests asserting the row is readable when the event arrives,
+      that a denial publishes exactly once, and that a failed write publishes
+      nothing.
+      STILL UNPUSHED: run.forecast.updated, policy.decision.explained,
+      routing.decision.recorded and coherence.divergence.detected have a defined
+      wire shape and no gateway emitter; the console reads those from the polled
+      run endpoint. The replay buffer is per-process, so a multi-replica gateway
+      cannot serve a reconnect that lands on a different replica.
     limitations_anchor: "#project-status--limitations"
     roadmap_issue: 5
 
   - id: eval-framework-dashboard
     readme_row: "**Evaluation Framework**:"
-    marker: "[read path live, dispatch + live verification open"
-    status: "eval read path serves real gateway data; dispatch unimplemented and the round-trip unverified on a live stack"
+    marker: "[read path live and verified; dispatch open"
+    status: "eval read path serves real gateway data, verified on a live stack; dispatch unimplemented"
     evidence: >-
       GET /api/v1/evals/suites serves the real on-disk suite definitions
       (evals/suites/*.yaml, with real task counts from the datasets) via
@@ -74,11 +88,24 @@ key_features:
       is reachable and never an empty 200. Two defects fixed together: the
       gateway parsed only the <suite>-<YYYYMMDD> naming, silently dropping every
       eval_<suite>_<ts>.json safe-PR report, and the BFF proxied gateway field
-      names verbatim so the runs table rendered blanks. Covered by unit tests
-      that read the real committed reports through the handler's own code path,
-      but NOT yet exercised against a live gateway. Dispatching a run from the
-      dashboard is still unimplemented: the store is read-only committed
-      records, so a run started at request time has nowhere to persist (#7).
+      names verbatim so the runs table rendered blanks.
+      VERIFIED ON A LIVE STACK (0.8.13): GET /v1/evals/runs served 36 runs from
+      evals/reports, and the newest matched its file field for field --
+      eval_smoke_20260824_030710 with started_at 2026-08-24T03:07:10.966639+00:00,
+      average_score 1.0, assertion_coverage 1.0, harness run_id eval_ad440ecd64fd.
+      Every figure now carries measured_at { at, precision, source }: precision
+      "second" from the report body for the LLM suites, "day" from the file name
+      for asb/governed-benchmark, which record no timestamp. mtime is never used
+      -- on a fresh clone it would report the checkout as the measurement.
+      /v1/evals/suites and /v1/evals/suites/{id} serve per-suite measured
+      history; 404 there means the store was read and holds no run for that
+      suite, which is distinct from 501 NO_EVAL_STORE meaning no store was
+      reachable. The BFF suite-detail route joins that with the on-disk
+      definition and reports history_available:false rather than an empty runs
+      list when the gateway cannot be asked.
+      Dispatching a run from the dashboard is still unimplemented: the store is
+      read-only committed records, so a run started at request time has nowhere
+      to persist (#7).
     limitations_anchor: "#project-status--limitations"
     roadmap_issue: 7
 
@@ -100,12 +127,15 @@ key_features:
 
   - id: baseline-comparisons
     readme_row: "**Baseline Comparisons**:"
-    marker: "[read path live, dispatch + live verification open"
-    status: "baseline view reads real eval data; unverified end to end"
+    marker: "[read path live and verified; dispatch open"
+    status: "baseline view reads real eval data, verified end to end; dispatch open"
     evidence: >-
-      Same path as eval-framework-dashboard: /api/v1/evals/* now serves the
-      gateway's real on-disk reports rather than a stub, but the round-trip has
-      not been confirmed against a live stack.
+      Same path as eval-framework-dashboard: /api/v1/evals/* serves the
+      gateway's real on-disk reports, and the round-trip was confirmed against a
+      live stack in 0.8.13. Each regression entry now carries from_measured_at
+      and to_measured_at, so a reader can tell an overnight regression from one
+      spanning seven weeks -- a delta is a claim about two instants and was
+      previously shown without either.
     limitations_anchor: "#project-status--limitations"
     roadmap_issue: 7
 

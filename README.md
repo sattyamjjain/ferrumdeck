@@ -65,7 +65,7 @@ Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_
 
 The enforcement engine is published — you can depend on it, not just clone it. One dependency via the umbrella crate:
 
-> **Current version: `v0.8.12`.** <!-- x-current-version: 0.8.12 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
+> **Current version: `v0.8.13`.** <!-- x-current-version: 0.8.13 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
 
 ```bash
 cargo add ferrumdeck
@@ -384,14 +384,18 @@ in [`docs/compliance/safe-evidence-coverage.md`](docs/compliance/safe-evidence-c
   parsed only the offline-benchmark file-naming convention, so **every safe-PR
   smoke and regression report was silently dropped before it reached the
   dashboard**, and the BFF proxied the gateway's field names verbatim, so even
-  the runs that did arrive rendered as blank cells. **Not yet verified against a
-  live stack** (Docker was unavailable when this landed): the projection is
-  covered by unit tests that read the real committed reports through the same
-  code path the handler uses, but the live HTTP round-trip is unconfirmed.
+  the runs that did arrive rendered as blank cells. **The live round-trip is now
+  verified** (0.8.13): against a running gateway, `GET /v1/evals/runs` served 36
+  runs from `evals/reports` and the newest matched its file field for field.
+  Every figure carries `measured_at` with its precision and its source —
+  second-precision from the report body for the LLM suites, day-precision from
+  the file name for the offline benchmarks, which record no timestamp at all.
+  File mtime is deliberately never consulted: on a fresh clone it would report
+  the moment of the clone as the moment of the run.
   Dispatching a run from the dashboard remains unimplemented — the store is
   read-only committed records, so
   [#7](https://github.com/sattyamjjain/ferrumdeck/issues/7) stays open for the
-  live verification and the dispatch path. (The eval *numbers* themselves are
+  dispatch path alone. (The eval *numbers* themselves are
   not ungated: the deterministic governance suites + real-engine pins run on
   every push + PR via `ci.yml`'s `eval-regression` job.)
   Approving a suggestion **records** the decision; it never auto-applies a
@@ -465,14 +469,34 @@ in [`docs/compliance/safe-evidence-coverage.md`](docs/compliance/safe-evidence-c
 - **Multi-tenant SaaS hardening.** Tenant isolation is enforced, but there is no
   dashboard auth/session layer, no SSO/RBAC, and no API-key self-service — treat
   the dashboard + gateway as a **trusted-operator** deployment for now.
-- **Realtime run stream (SSE).** Until the gateway→BFF push lands
-  ([#5](https://github.com/sattyamjjain/ferrumdeck/issues/5)) the dashboard's
-  realtime channel carries **heartbeats only** — governance events are read from
-  the polled run endpoint, not pushed. The BFF *can* emit synthetic events for
-  wire-shape development behind `FERRUMDECK_SSE_MOCK_EVENTS`, but that flag is
-  **OFF by default in every environment**, so a fabricated enforcement verdict (a
+- **Realtime run stream (SSE) — one event of five is pushed.** The gateway now
+  has an SSE surface (`GET /v1/events/{channel}`) and pushes
+  `policy.response.recorded` for real, carrying the effective decision, the rule
+  that fired, the check latency and the id of the audit record. It is published
+  from **inside** the fire-and-forget audit write, after the row commits — so a
+  consumer that reads the `record_id` back finds it, which is the only thing that
+  makes an event evidence rather than a claim. Confirmed on a live stack.
+  **The other four run-channel events are still wire shapes with no emitter**
+  (`run.forecast.updated`, `policy.decision.explained`,
+  `routing.decision.recorded`, `coherence.divergence.detected`); the console
+  reads those from the polled run endpoint, and
+  [#5](https://github.com/sattyamjjain/ferrumdeck/issues/5) stays open for them.
+  Two further limits, both reported to the client rather than hidden: the replay
+  buffer is **per process**, so a reconnect that lands on a different replica of
+  a multi-replica gateway cannot be served completely, and a cursor older than
+  that buffer produces a `stream.gap` event naming the range instead of a stream
+  that merely looks quiet. The BFF *can* emit synthetic events for wire-shape
+  development behind `FERRUMDECK_SSE_MOCK_EVENTS`, but that flag is **OFF by
+  default in every environment**, so a fabricated enforcement verdict (a
   synthetic R3 gate, a made-up policy decision) can never reach an operator's
   console.
+- **The gateway serves no `/v1/audit` list route.** `GET /v1/audit/{event_id}`
+  was added in 0.8.13 so the `record_id` on a pushed decision event resolves, but
+  the dashboard's BFF has proxied `GET /v1/audit?<query>` for some time and that
+  target has never existed, so the proxy forwards to a 404.
+  `scripts/check_route_backing.py` counts the BFF route as backed because it
+  contains a real `fetch(` — true, and not the same as the target existing.
+  Recorded rather than fixed in passing.
 
 **Testing caveat.** The unit/lint suites (`cargo test --workspace`, clippy,
 `ruff`, jest) pass and gate CI. The `tests/security`, `tests/chaos`, and
@@ -556,7 +580,7 @@ The known gaps above are tracked in the open on the **[roadmap](ROADMAP.md)**, o
 - **Cross-MCP trace correlation (MCP SEP-414)**: When a caller propagates W3C trace context in the tool-call request `_meta` (`traceparent`/`tracestate`/`baggage`), ferrumdeck parents its enforcement decision span on that context — so the decision joins your trace end-to-end (host → client SDK → MCP server → ferrumdeck decision → downstream) and the trace-id lands on the persisted decision record. Malformed `traceparent` is rejected (never propagated); off unless the OTel semconv opt-in is set. **Targets** the 2026-07-28 MCP revision (now the current, ratified spec — verified 2026-08-01) and implements the SEP-414 conventions — *not* a conformance claim (no MCP conformance suite has been run). See [`docs/mcp-trace-conformance.md`](docs/mcp-trace-conformance.md).
 - **Cost Tracking**: Real-time token counting and cost calculation per run
 - **Jaeger UI**: Visual trace exploration and debugging
-- **Realtime run stream (SSE)**: the dashboard subscribes to per-run / per-workspace channels for `run.forecast.updated`, `policy.decision.explained`, `policy.response.recorded`, `routing.decision.recorded`, and `coherence.divergence.detected`. **⚠ [wire shape defined; gateway→BFF push deferred](#project-status--limitations)** — the gateway does not yet push these to the BFF, so the channel carries **heartbeats only** and the console reads the values from the polled run endpoint. A synthetic generator can emit them for wire-shape development behind `FERRUMDECK_SSE_MOCK_EVENTS` — **OFF by default in every environment**, so no fabricated enforcement verdict can ever reach an operator's console. ([#5](https://github.com/sattyamjjain/ferrumdeck/issues/5))
+- **Realtime run stream (SSE)**: the dashboard subscribes to per-run / per-workspace channels. **⚠ [policy.response.recorded is pushed; the other four are still wire shapes](#project-status--limitations)** — the gateway serves `GET /v1/events/{channel}` and pushes `policy.response.recorded` for real, carrying the decision, the rule that fired, the check latency and the id of the audit record it describes. It is published from **inside** the audit write, after the row commits, so that id resolves. `run.forecast.updated`, `policy.decision.explained`, `routing.decision.recorded` and `coherence.divergence.detected` still have a wire shape and no emitter; the console reads those from the polled run endpoint. A synthetic generator can emit them for wire-shape development behind `FERRUMDECK_SSE_MOCK_EVENTS` — **OFF by default in every environment**, so no fabricated enforcement verdict can ever reach an operator's console. ([#5](https://github.com/sattyamjjain/ferrumdeck/issues/5))
 - **Audit Trail**: Append-only logging of every action — enforced by the repo API (no `UPDATE`/`DELETE` path), a DB trigger (`trg_audit_events_append_only`: rejects every `UPDATE`; rejects `DELETE` within the 3-year retention floor), **a per-tenant cryptographic hash-chain** (`prev_hash`/`record_hash`/`chain_seq`; each row's SHA-256 commits to its predecessor, computed in one `FOR UPDATE` transaction) that makes any insertion/deletion/edit within a chain *detectable* by `AuditRepo::verify_chain`, **and signed out-of-band head checkpoints** (`fd-audit`'s `CheckpointSigner`/`FileCheckpointSink`) that catch even a wholesale self-consistent tail rewrite via `verify_against_checkpoints`. **⚠ [tamper-evident up to the last signed checkpoint; not tamper-proof](#project-status--limitations)** — detection, not prevention: records after the last checkpoint keep only the in-chain guarantee, a missing checkpoint degrades to it (and says so), and the anchor is only as strong as an out-of-band sink + off-host key ([#14](https://github.com/sattyamjjain/ferrumdeck/issues/14)). Don't represent it as tamper-*proof* for compliance.
 - **Tool-call firing rate**: Derived OTel signal (`ferrumdeck.metrics.tool_call_firing_rate`) tracking the share of reasoning steps that invoked at least one tool, per run + per agent over a sliding window. Surfaced on the agent overview tab with a configurable low-firing-rate threshold (default 40%) that flags model regressions or broken tool registries before they propagate. See [`docs/runbooks/tool-call-firing-rate.md`](docs/runbooks/tool-call-firing-rate.md).
 - **Debt-vs-tax cost decomposition (§2605.27320)**: Per-call `span_role ∈ {primary, retry, judge, guardrail, escalation, revalidation, monitor}` classification on every LLM/tool call, with two derived rollups per task/run — `agent.cost.token` (primary calls = debt) and `agent.cost.tax` (everything else). Dashboard panel ranks tasks by `tax / (token + tax)` descending so retry / escalation storms are visible at a glance. See [`docs/runbooks/cost-decomposition.md`](docs/runbooks/cost-decomposition.md).
@@ -568,9 +592,9 @@ The known gaps above are tracked in the open on the **[roadmap](ROADMAP.md)**, o
 - **Deterministic IDs**: ULID-based identifiers for time-ordered, collision-resistant tracking
 
 ### Quality
-- **Evaluation Framework**: Deterministic offline test suites for agent workflows (the `fd-evals` framework runs the reproducible benchmarks above). **⚠ [read path live, dispatch + live verification open](#project-status--limitations)** — `GET /api/v1/evals/{suites,runs,regression-report}` all serve the gateway's real on-disk data now, mapped onto the dashboard run contract, or an explicit 501 when no report store is reachable. Running a suite from the dashboard is still unimplemented, and the read path has not been exercised against a live stack ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
+- **Evaluation Framework**: Deterministic offline test suites for agent workflows (the `fd-evals` framework runs the reproducible benchmarks above). **⚠ [read path live and verified; dispatch open](#project-status--limitations)** — `GET /api/v1/evals/{suites,suites/{id},runs,regression-report}` all serve the gateway's real on-disk data, mapped onto the dashboard run contract, or an explicit 501 when no report store is reachable. Every figure carries `measured_at` with its precision and source, so no number is shown without saying when it was measured. Verified against a live stack. Running a suite from the dashboard is still unimplemented ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
 - **Regression Gating**: the eval suite reports quality regressions between versions. **⚠ [PR gate covers the 3 deterministic suites; LLM-judged suite stays nightly](#project-status--limitations)** — `ci.yml`'s `eval-regression` job runs the injection-defense / ASB / governed-vs-ungoverned suites + the real `fd_policy` engine pins on every push + PR (no services, no secrets), so a golden-fixture or engine-pin regression blocks a merge. The LLM-judged smoke/regression suite still runs nightly in `evals.yml`, not on PRs ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
-- **Baseline Comparisons**: Track performance across versions. **⚠ [read path live, dispatch + live verification open](#project-status--limitations)** — the baseline view reads the same `/api/v1/evals/*` data, which is now real but unverified end to end ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
+- **Baseline Comparisons**: Track performance across versions. **⚠ [read path live and verified; dispatch open](#project-status--limitations)** — the baseline view reads the same `/api/v1/evals/*` data, which is real and now verified end to end; each regression names the measurement time of both endpoints it compares ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7)).
 - **Per-harness eval dimension (Harness-Bench)**: fd-evals reports at the `(model × harness_config)` level — same model under different harness configs can produce different scores. Each run records its `tools_available`, `permission_tier`, `state_recovery`, and `tracing` config alongside the existing baseline, the dashboard groups results by `(model × harness)` with a side-by-side Recharts bar chart, and `DeltaReport` exposes a per-dimension diff (added/removed tools, tier change, recovery change). See [`docs/runbooks/harness-config.md`](docs/runbooks/harness-config.md).
 - **Training-signal export (trace→signal, HarnessX)**: closes the eval loop the other way — projects a run's trace into a JSONL of `(state, action, observation, outcome_score)` tuples for downstream training/eval. Built **server-side** at `POST /v1/runs/{id}/training-signal`, where every `state`/`observation` is run through the **existing audit redaction path** (`fd_audit::redaction`) so PII/secrets are stripped before they ever leave the control plane; `outcome_score` is trace-intrinsic (step status) with an optional eval-supplied `run_score` override. The dashboard exposes a per-suite/per-run "Download training signal" action.
 

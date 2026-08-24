@@ -14,10 +14,32 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "check_route_backing.py"
 APP_API = REPO / "nextjs" / "src" / "app" / "api"
+DECLARATIONS = REPO / ".route-backing.yml"
+
+
+def a_declared_stub() -> str:
+    """Any route currently declared as a stub, read from the declaration file.
+
+    Deliberately not hardcoded. This test used to name
+    `v1/evals/suites/[suiteId]/route.ts` directly, and when that route was
+    implemented in 0.8.13 the test failed -- not because the gate broke, but
+    because the fixture it built no longer described a stub. Closing a stub must
+    not break the guard that stops stubs from rotting; deriving the target keeps
+    the two independent.
+    """
+    doc = yaml.safe_load(DECLARATIONS.read_text()) or {}
+    stubs = doc.get("declared_stubs") or []
+    if not stubs:
+        pytest.skip(
+            "no declared stubs remain, so 'a stub became a fixture' is not a "
+            "reachable state -- which is the good outcome, not a broken test"
+        )
+    return stubs[0]["route"]
 
 STUB_TS = """import { NextResponse } from "next/server";
 export async function GET() {
@@ -73,7 +95,12 @@ def test_a_route_with_no_backend_fails(tree: Path) -> None:
 
 def test_a_declared_stub_that_became_a_fixture_fails(tree: Path) -> None:
     """An entry must not survive the route quietly starting to invent data."""
-    (tree / "v1" / "evals" / "suites" / "[suiteId]" / "route.ts").write_text(FIXTURE_TS)
+    route = a_declared_stub()
+    target = tree / route
+    assert target.exists(), (
+        f"{route} is declared in {DECLARATIONS.name} but does not exist on disk"
+    )
+    target.write_text(FIXTURE_TS)
     result = run(tree)
     assert result.returncode == 1
     assert "no longer returns 501" in result.stderr
