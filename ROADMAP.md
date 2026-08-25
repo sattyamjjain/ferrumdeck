@@ -19,64 +19,29 @@ is a feature.
 
 ## Now
 
-### Push the four remaining run-channel events over SSE
-- **Shipped in 0.8.13 ([#5](https://github.com/sattyamjjain/ferrumdeck/issues/5), closed):**
-  the transport and the first event. The gateway serves
-  `GET /v1/events/{channel}` and pushes `policy.response.recorded` from **inside**
-  the audit write, after the row commits, so the `record_id` it carries resolves
-  via `GET /v1/audit/{id}`. Reconnect replay honours `Last-Event-ID` and
-  `?last_event_id=`, and a gap that cannot be served emits `stream.gap` naming the
-  range rather than a stream that merely looks quiet.
-- **Problem:** four sibling run-channel events still have a defined wire shape and
-  **no gateway emitter** — `run.forecast.updated`, `policy.decision.explained`,
-  `routing.decision.recorded`, `coherence.divergence.detected` — so the console
-  reads those from the polled run endpoint. The BFF *can* synthesize them for
-  wire-shape development behind `FERRUMDECK_SSE_MOCK_EVENTS`, but that flag is
-  **OFF by default in every environment** — a fabricated enforcement verdict must
-  never reach an operator's console.
-- **Lives in:** the emitters under `rust/services/gateway/src/`; the transport is
-  `crate::events` + `handlers::events`, and the shapes are in
-  `nextjs/src/lib/realtime/channels.ts`.
-- **Done:** each of the four is emitted after the state it reports is durable
-  (the `spawn_audit_and_publish` pattern), and the dashboard updates from the push
-  rather than a poll. Two transport limits are fixed or explicitly accepted: the
-  replay buffer is per-process, so a multi-replica reconnect cannot be served
-  completely, and every SSE connection counts against `RATE_LIMIT_PER_MINUTE`.
-- **Tracking:** [#47](https://github.com/sattyamjjain/ferrumdeck/issues/47)
-
----
-
-## Next
-
-### Harden `tests/security`, `tests/chaos`, `tests/e2e` to assert behaviour, not just liveness
-- **Problem:** these suites require a live stack (`make dev-up`) and currently
-  **assert liveness more than behaviour** — they must not be read as proof that a
-  given attack is blocked. For a project whose pitch is safe agent execution, this
-  is the most important credibility gap.
-- **Lives in:** `tests/security/`, `tests/chaos/`, `tests/e2e/`.
-- **Done:** each attack case asserts the *outcome* (e.g. the exfil/RCE/IDOR attempt
-  returns `allowed=false` and the tool never runs), not merely that the endpoint
-  responded; they are wired into a live-stack CI job separate from `ci-check`.
-- **Tracking:** [#6](https://github.com/sattyamjjain/ferrumdeck/issues/6)
-
-### Dispatch an eval run from the dashboard (the write half of the eval surface)
-- **Shipped in 0.8.13 ([#7](https://github.com/sattyamjjain/ferrumdeck/issues/7), closed):**
-  the **read** path. `/api/v1/evals/{suites,suites/{id},runs,regression-report}`
-  serve the gateway's real on-disk reports, every figure carries `measured_at`
-  with its precision and source, and the round-trip was verified against a live
-  stack — 36 runs served, the newest matching its file field for field.
-- **Problem:** the eval store is **read-only committed records**
-  (`evals/reports/*.json`). A run dispatched at request time has nowhere to
-  persist, so `POST /api/v1/evals/runs` returns 501 with no invented id rather
-  than a synthetic 201.
-- **Lives in:** `nextjs/src/app/api/v1/evals/runs/route.ts` (POST),
-  `rust/services/gateway/src/handlers/evals.rs`; needs a durable eval-run store.
-- **Done:** a suite can be dispatched from the dashboard, the run persists to a
-  durable store rather than a committed file, and an in-flight run is
-  distinguishable from a finished one — `mapGatewayRun` currently hardcodes
-  `status: "completed"` because the store only ever holds finished runs, and that
-  assumption has to go at the same time.
-- **Tracking:** [#46](https://github.com/sattyamjjain/ferrumdeck/issues/46)
+### Durable cross-replica SSE replay, and an executor for dispatched eval runs
+- **Shipped in 0.8.14 ([#47](https://github.com/sattyamjjain/ferrumdeck/issues/47),
+  closed):** all five run-channel events push, each published only after the
+  record it describes has committed. `policy.decision.explained` needed the
+  `DecisionTrace` persisted first — it was computed, returned over HTTP and
+  discarded, so nothing it described could be read back.
+- **Shipped in 0.8.14 ([#46](https://github.com/sattyamjjain/ferrumdeck/issues/46),
+  closed):** the eval store is a Postgres table, with `evals/reports/*.json` as
+  its import source. A suite can be dispatched and the run persists; an in-flight
+  run is distinguishable from a finished one.
+- **Problem:** two limits were accepted rather than fixed, and one gap remains.
+  The SSE replay buffer is **per process**, so a reconnect landing on another
+  replica cannot be served (it reports a `stream.gap`). And **no executor
+  consumes the eval queue**, so a dispatched run stays `pending` — durable and
+  queryable, but never run.
+- **Lives in:** `rust/services/gateway/src/events.rs` (the in-process bus);
+  `python/packages/fd-evals` (the runner that would consume
+  `fd:queue:stream:evals:pending`).
+- **Done:** replay survives a reconnect to a different replica, with a stated
+  retention window and memory ceiling; and a dispatched suite actually executes,
+  moving `pending -> running -> completed` with its result upserted onto the same
+  row.
+- **Tracking:** _(not yet filed — raise one when either is picked up)_
 
 ### Harden the audit chain-head anchor: robust remote sink + off-host key custody
 - **Shipped in 0.7.16 ([#8](https://github.com/sattyamjjain/ferrumdeck/issues/8), closed):**

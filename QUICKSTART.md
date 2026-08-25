@@ -318,10 +318,29 @@ make db-migrate    # Run migrations
      "localhost:8080/v1/events/run:<run_id>"
    ```
 
-   Each `policy.response.recorded` names the audit record it describes, and that
-   record already exists when the event arrives — resolve it with
-   `GET /v1/audit/<record_id>`. Reconnect with `?last_event_id=<id>` to replay
-   what you missed; if the gap is older than the buffer you get a `stream.gap`
-   event saying so rather than a stream that merely looks quiet.
+   Five governance events arrive on that channel: `policy.response.recorded`,
+   `policy.decision.explained`, `routing.decision.recorded`,
+   `coherence.divergence.detected` and `run.forecast.updated`. Each names the
+   record it describes, and that record **already exists** when the event
+   arrives — resolve it with `GET /v1/audit/<record_id>` (or, for the forecast,
+   match `forecast_at` against `GET /v1/runs/<run_id>`). Reconnect with
+   `?last_event_id=<id>` to replay what you missed; if the gap is older than the
+   buffer you get a `stream.gap` event saying so rather than a stream that merely
+   looks quiet.
 
-7. **Add MCP Tools** - Extend capabilities in `/python/packages/fd-mcp-tools/`
+7. **Dispatch an eval suite** - the run persists to a durable store:
+
+   ```bash
+   curl -sX POST -H "Authorization: Bearer $FD_API_KEY" \
+     -H "Content-Type: application/json" -d '{"suite_id":"smoke"}' \
+     localhost:8080/v1/evals/runs | jq
+   ```
+
+   You get **202 Accepted**, not 201, and the run shows as `pending` with
+   `unclaimed: true`. That is not a bug: FerrumDeck ships **no eval executor**,
+   so nothing consumes the queue and the run will not start. It is durable and
+   queryable, and it does not pretend to be running. Committed reports are
+   ingested into the same store at gateway startup — `POST /v1/evals/ingest`
+   re-runs that by hand.
+
+8. **Add MCP Tools** - Extend capabilities in `/python/packages/fd-mcp-tools/`
