@@ -17,6 +17,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.14] - 2026-08-25
+
+### Added
+
+- The gateway emits `run.forecast.updated`, `policy.decision.explained`,
+  `routing.decision.recorded` and `coherence.divergence.detected` over SSE, each
+  published only after its backing record commits ([#47]).
+- An eval run can be dispatched from the dashboard and persists to a durable
+  store. An in-flight run is now distinguishable from a finished one. The routes
+  that gained a backing store are updated in `.route-backing.yml` in the same
+  change ([#46]).
+- `scripts/bump_version.py` bumps all eleven version-bearing manifests together
+  and re-runs the consistency check. 0.8.13 moved two of them and `08d0bb48` had
+  to repair the rest by hand.
+
+### Changed
+
+- `.route-backing.yml` gains a `degraded_fallback` category: a route that reaches
+  a backend and returns 501 only when that backend is unreachable. Previously
+  indistinguishable from "we never built this", so a backed route had to be
+  declared a stub. `declared_stubs` is now empty.
+- The eval read endpoints serve the `eval_runs` store rather than reading
+  `evals/reports/*.json` directly; the files are the store's import source.
+
+### Fixed
+
+- The `DecisionTrace` was computed, returned over HTTP and then discarded. It is
+  now persisted on the decision record — which is what made
+  `policy.decision.explained` emittable at all, and is the answer to "why was
+  this denied" that the audit trail is supposed to hold.
+- `mapGatewayRun` hardcoded `status: "completed"`. It reads the real status now
+  and falls back to `pending`, never `completed`.
+- `isRunChannelEvent()` rejected four variants that are in its own union.
+- The dashboard's breach-axis allowlist was written from the Rust enum rather
+  than the TypeScript union: it listed two values that do not exist and omitted
+  `wall_time`, which the gateway emits, silently downgrading a wall-time breach
+  to a generic "budget".
+- Accessibility, in the live decisions panel: "Pause feed" did not pause the
+  routing list (WCAG 2.2.2); neither scrollable list was keyboard-reachable
+  (2.1.1); routing entries had no path to speech; and three governance
+  escalations — a projected budget breach, the R3 rung, a coherence divergence —
+  changed with no announcement.
+
+### Known gaps
+
+- **No eval executor.** Nothing consumes the dispatch queue, so a dispatched run
+  stays `pending`. The gateway answers 202 (never 201), reports `unclaimed`, and
+  does not claim the run started.
+- `run.forecast.updated` is **not** emitted for eval runs: they have no forecast
+  state and no executor to progress them, so there is no durable record to
+  publish after.
+- The SSE replay buffer is per-process and SSE connections count against the rate
+  limit. Both accepted deliberately, with reasoning recorded on [#47].
+
+[#46]: https://github.com/sattyamjjain/ferrumdeck/issues/46
+[#47]: https://github.com/sattyamjjain/ferrumdeck/issues/47
+
 ## [0.8.13] - 2026-08-24
 
 Two read surfaces that existed but could not be trusted end to end: the eval
