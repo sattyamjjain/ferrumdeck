@@ -159,6 +159,133 @@ export interface PolicyResponseRecordedEvent extends BaseSSEEvent {
 }
 
 /**
+ * Predictive budget forecast for a run, recomputed after each step (#47).
+ *
+ * PUSHED FOR REAL as of 0.8.14. Unlike its three siblings this record does not
+ * live in `audit_events` — it is written to the run row by an awaited
+ * `update_forecast`, so it carries `forecast_at` rather than a `record_id`.
+ * That field is the one to match against `GET /v1/runs/{id}` to confirm you are
+ * looking at the same snapshot the gateway published.
+ *
+ * No event is emitted when the write fails, so silence means "the forecast was
+ * not updated", never "the forecast is unchanged".
+ */
+export interface RunForecastUpdatedEvent extends BaseSSEEvent {
+  type: "run.forecast.updated";
+  payload: {
+    run_id: string;
+    projected_cost_cents: number;
+    ewma_cost_cents: number;
+    ewma_step_cost_cents?: number;
+    budget_breach_projected: boolean;
+    /** Which cap is projected to breach, or null when none is. */
+    breach_kind: string | null;
+    /** When this snapshot was written to the run row. */
+    forecast_at: string;
+    at: string;
+  };
+}
+
+/**
+ * Why a tool-call decision came out the way it did (#47).
+ *
+ * The companion to `policy.response.recorded`: same committed audit row, viewed
+ * as the precedence trace rather than the verdict. Both are published from the
+ * same write, so they cannot disagree and neither can outrun the record.
+ *
+ * The trace had to be **persisted** for this event to exist at all. It was
+ * previously computed, returned over HTTP, and discarded — which left the event
+ * unemittable under the rule the whole SSE surface runs on, since a consumer
+ * could not read back what it described.
+ */
+export interface PolicyDecisionExplainedEvent extends BaseSSEEvent {
+  type: "policy.decision.explained";
+  payload: {
+    run_id: string;
+    tool_name: string;
+    decision_id: string;
+    /** The audit row, resolvable via GET /v1/audit/{record_id}. */
+    record_id: string;
+    /**
+     * `deny` | `requires_approval` | `budget_cap` | `allow`, or **null** when
+     * the policy plane saw zero matches — in which case deny-by-default is what
+     * refused the call. Null is an answer here, not a missing field.
+     */
+    winning_kind: string | null;
+    winning_source: string | null;
+    /** Every verdict that lost precedence, and why. */
+    overrides: {
+      kind: string;
+      source: string;
+      overridden_by: string;
+      reason: string;
+    }[];
+    /** How many verdicts matched in total, winner included. */
+    matched_count: number;
+    /** The precedence ordering, frozen at decision time. */
+    precedence: string;
+    at: string;
+  };
+}
+
+/**
+ * The binding of a subtask to a concrete agent, role and model (#47).
+ * Anchor: AgensFlow (arXiv:2605.27466).
+ *
+ * `content_hash` rides along so a consumer can run the same drift check
+ * `RoutingDecision::verify_hash` does, without re-reading the row.
+ */
+export interface RoutingDecisionRecordedEvent extends BaseSSEEvent {
+  type: "routing.decision.recorded";
+  payload: {
+    run_id: string;
+    decision_id: string;
+    record_id: string;
+    chain_seq: number | null;
+    subtask_id: string;
+    candidates: { role: string; agent_id?: string | null; model: string; score?: number }[];
+    chosen: { role: string; agent_id?: string | null; model: string };
+    reason: { code: string; detail: string };
+    content_hash: string;
+    anchor: string;
+    at: string;
+  };
+}
+
+/**
+ * A stated blocking fact followed by a contradicting closure action (#47).
+ * Anchor: Strained Coherence (arXiv:2606.07889).
+ *
+ * Read `gated` and `mode` together. In `shadow` — the default — the rung is
+ * recorded and the run continues, so `gated: false` here does NOT mean the
+ * divergence was benign; it means nothing stopped it. Conflating detection with
+ * prevention is the specific misreading this pair exists to prevent.
+ */
+export interface CoherenceDivergenceDetectedEvent extends BaseSSEEvent {
+  type: "coherence.divergence.detected";
+  payload: {
+    run_id: string;
+    record_id: string;
+    chain_seq: number | null;
+    category: string | null;
+    confidence: number | null;
+    stated_fact: string | null;
+    contradicting_action: string | null;
+    /** allow_and_log (R1) | allow_under_budget (R2) | require_approval (R3) */
+    response_level: string | null;
+    response_rung: string | null;
+    /** `shadow` | `enforce`. */
+    mode: string | null;
+    /** True ONLY when enforce mode actually halted the run. */
+    gated: boolean | null;
+    shadow_mode: boolean | null;
+    risk_score: number | null;
+    anchor: string | null;
+    at: string;
+  };
+}
+
+/**
  * The stream telling you it is not complete.
  *
  * Emitted when a reconnect cursor falls outside the gateway's replay buffer,
@@ -184,6 +311,10 @@ export type RunChannelEvent =
   | StepStatusChangedEvent
   | StepCompletedEvent
   | PolicyResponseRecordedEvent
+  | RunForecastUpdatedEvent
+  | PolicyDecisionExplainedEvent
+  | RoutingDecisionRecordedEvent
+  | CoherenceDivergenceDetectedEvent
   | StreamGapEvent;
 
 // Approvals channel events (approvals:{wsId})
@@ -362,8 +493,40 @@ export function isRunChannelEvent(event: SSEEvent): event is RunChannelEvent {
     // while the channel carried heartbeats only; it would have silently thrown
     // away the real ones the moment the gateway started pushing.
     event.type === "policy.response.recorded" ||
+    event.type === "run.forecast.updated" ||
+    event.type === "policy.decision.explained" ||
+    event.type === "routing.decision.recorded" ||
+    event.type === "coherence.divergence.detected" ||
     isStreamGapEvent(event)
   );
+}
+
+/** Budget forecast snapshot, pushed after the run row was updated. */
+export function isRunForecastUpdatedEvent(
+  event: SSEEvent,
+): event is RunForecastUpdatedEvent {
+  return event.type === "run.forecast.updated";
+}
+
+/** Precedence trace for a tool-call decision. */
+export function isPolicyDecisionExplainedEvent(
+  event: SSEEvent,
+): event is PolicyDecisionExplainedEvent {
+  return event.type === "policy.decision.explained";
+}
+
+/** Subtask -> agent/model binding. */
+export function isRoutingDecisionRecordedEvent(
+  event: SSEEvent,
+): event is RoutingDecisionRecordedEvent {
+  return event.type === "routing.decision.recorded";
+}
+
+/** Stated-fact vs contradicting-action divergence on the run trajectory. */
+export function isCoherenceDivergenceDetectedEvent(
+  event: SSEEvent,
+): event is CoherenceDivergenceDetectedEvent {
+  return event.type === "coherence.divergence.detected";
 }
 
 /** A gap/degradation notice rather than a governance event. */

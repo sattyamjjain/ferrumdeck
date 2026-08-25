@@ -99,9 +99,11 @@ impl AppState {
     /// distinguish "not written yet" from "never written" — so it would have to
     /// treat every event as unverifiable, which is worse than polling.
     ///
-    /// `make_event` is called with the row **as inserted**, so an id it puts on
-    /// the wire is an id that already exists. It returns
-    /// `(channel, event_type, payload)`, or `None` to publish nothing.
+    /// `make_events` is called with the row **as inserted**, so an id it puts on
+    /// the wire is an id that already exists. It returns zero or more
+    /// `(channel, event_type, payload)` triples — several, when one record
+    /// warrants more than one view of itself, and an empty vec to publish
+    /// nothing.
     ///
     /// When the write FAILS, nothing is published. A consumer seeing silence is
     /// correct — there is no record — and the drop is still logged at ERROR by
@@ -109,17 +111,36 @@ impl AppState {
     pub fn spawn_audit_and_publish<F>(
         &self,
         event: fd_storage::models::CreateAuditEvent,
-        make_event: F,
+        make_events: F,
     ) where
-        F: FnOnce(&fd_storage::models::AuditEvent) -> Option<(String, String, serde_json::Value)>
+        F: FnOnce(&fd_storage::models::AuditEvent) -> Vec<crate::events::PendingEvent>
             + Send
             + 'static,
     {
         let audit_repo = self.repos().audit();
         let bus = self.events.clone();
         tokio::spawn(crate::events::record_then_publish(
-            audit_repo, bus, event, make_event,
+            audit_repo,
+            bus,
+            event,
+            make_events,
         ));
+    }
+
+    /// Publish a realtime event about a record this caller has **already
+    /// awaited to a successful write**.
+    ///
+    /// The sibling of [`Self::spawn_audit_and_publish`], for the state that does
+    /// not live in `audit_events`. The run forecast is written with an awaited
+    /// `RunsRepo::update_forecast`, so by the time that returns `Ok` the row is
+    /// durable and a consumer reading `GET /v1/runs/{id}` will see it.
+    ///
+    /// The ordering rule is identical and just as load-bearing: call this on the
+    /// `Ok` arm only. On `Err` publish nothing — silence is the correct signal
+    /// when there is no record, and an event describing a write that failed is
+    /// the one thing an audit stream must never emit.
+    pub fn publish_committed(&self, channel: &str, event_type: &str, payload: serde_json::Value) {
+        self.events.publish(channel, event_type, payload);
     }
 }
 

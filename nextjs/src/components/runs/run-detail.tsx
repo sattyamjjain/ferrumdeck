@@ -26,6 +26,8 @@ import { StepDetailPanel } from "./step-detail-panel";
 import { ArtifactsTab } from "./artifacts-tab";
 import { AuditTab } from "./audit-tab";
 import { LivePolicyDecisions } from "./live-policy-decisions";
+import { useRunChannel } from "@/hooks/use-run-channel";
+import { LiveRegion } from "@/components/accessibility/live-region";
 import { InputOutputTab } from "./input-output-tab";
 import { LoadingPage } from "@/components/shared/loading-spinner";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -148,6 +150,17 @@ export function RunDetail({ runId }: RunDetailProps) {
   } = useRun(runId);
   const { data: steps, isLoading: stepsLoading } = useSteps(runId);
 
+  // Apply what the gateway pushes to the cached run (#47). The forecast and
+  // coherence events carry every field their views need, so those update on
+  // push instead of waiting out the poll interval. `useRun` still polls: the
+  // other fields -- status, cost, tokens, step progress -- have no push behind
+  // them, and the poll is also what recovers state a `stream.gap` swallowed.
+  // The subscription manager multiplexes by channel, so this shares one
+  // EventSource with the live decisions panel rather than opening a second.
+  // Must sit above the loading/error early returns: a hook called after one
+  // changes hook order between renders.
+  const { announcement: runAnnouncement } = useRunChannel(runId);
+
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("trace");
   const [isTabTransitioning, setIsTabTransitioning] = useState(false);
@@ -197,10 +210,20 @@ export function RunDetail({ runId }: RunDetailProps) {
     );
   }
 
+
   const stepCount = steps?.length || 0;
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Governance escalations announced from the push (#47).
+          Rendered UNCONDITIONALLY: the badges these describe -- the projected
+          budget breach, the R3 rung, the coherence card -- do not exist in the
+          DOM until their flag flips, so each is created rather than updated and
+          its appearance is otherwise completely silent. A region created in the
+          same commit as its content may not announce at all, which is why this
+          is mounted up front and only its message changes. */}
+      <LiveRegion message={runAnnouncement} politeness="polite" />
+
       <RunHeader run={run} stepCount={stepCount} />
 
       {/* Gateway-pushed policy decisions for this run (issue #5). Sits above the

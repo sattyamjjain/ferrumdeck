@@ -616,7 +616,50 @@ impl WorkflowOrchestrator {
         .details(decision.to_audit_details())
         .build();
 
-        self.repos().spawn_audit(event);
+        // Published from inside the audit write, after the row commits (#47).
+        // The routing record is the binding of a subtask to a concrete agent and
+        // model -- the thing a reader asks "who ran this, and why that one" of --
+        // so an event naming a `record_id` that does not yet resolve would be
+        // worse than no event at all.
+        //
+        // `content_hash` rides along because `RoutingDecision::verify_hash`
+        // exists to detect drift between a replayed decision and the stored one;
+        // a live consumer should be able to make the same check without
+        // re-reading the row.
+        let event_run = run_id.to_string();
+        let event_decision_id = decision_id.clone();
+        let event_subtask = step.id.clone();
+        let event_chosen =
+            serde_json::to_value(&decision.chosen).unwrap_or(serde_json::Value::Null);
+        let event_candidates =
+            serde_json::to_value(&decision.candidates).unwrap_or(serde_json::Value::Null);
+        let event_reason_code = decision.reason.code.as_str().to_string();
+        let event_reason_detail = decision.reason.detail.clone();
+        let event_hash = decision.content_hash.clone();
+        let event_anchor = decision.anchor.clone();
+
+        self.state.spawn_audit_and_publish(event, move |row| {
+            vec![(
+                format!("run:{event_run}"),
+                "routing.decision.recorded".to_string(),
+                serde_json::json!({
+                    "run_id": event_run,
+                    "decision_id": event_decision_id,
+                    "record_id": row.id,
+                    "chain_seq": row.chain_seq,
+                    "subtask_id": event_subtask,
+                    "candidates": event_candidates,
+                    "chosen": event_chosen,
+                    "reason": {
+                        "code": event_reason_code,
+                        "detail": event_reason_detail,
+                    },
+                    "content_hash": event_hash,
+                    "anchor": event_anchor,
+                    "at": row.occurred_at.to_rfc3339(),
+                }),
+            )]
+        });
     }
 
     /// Enqueue ready steps
