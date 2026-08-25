@@ -183,14 +183,19 @@ impl EventBus {
 /// the whole point of the function; it needs to be reachable by a test.
 ///
 /// [`crate::state::AppState::spawn_audit_and_publish`] is the thin wrapper the
-/// handlers call.
+/// handlers call. `make_events` may return several events about the one record,
+/// or an empty vec to publish nothing.
+/// One realtime event to publish about a committed record:
+/// `(channel, event_type, payload)`.
+pub type PendingEvent = (String, String, Value);
+
 pub async fn record_then_publish<F>(
     audit_repo: fd_storage::AuditRepo,
     bus: Arc<EventBus>,
     event: fd_storage::models::CreateAuditEvent,
-    make_event: F,
+    make_events: F,
 ) where
-    F: FnOnce(&fd_storage::models::AuditEvent) -> Option<(String, String, Value)>,
+    F: FnOnce(&fd_storage::models::AuditEvent) -> Vec<PendingEvent>,
 {
     let tenant_id = event
         .tenant_id
@@ -201,7 +206,12 @@ pub async fn record_then_publish<F>(
 
     match audit_repo.create(event).await {
         Ok(row) => {
-            if let Some((channel, event_type, payload)) = make_event(&row) {
+            // One record can warrant more than one event. A tool-call decision
+            // is both `policy.response.recorded` (what was decided) and
+            // `policy.decision.explained` (why, via the precedence trace) --
+            // two views of one committed row, so both become durable at the
+            // same instant and neither can outrun it.
+            for (channel, event_type, payload) in make_events(&row) {
                 bus.publish(&channel, &event_type, payload);
             }
         }
@@ -354,7 +364,7 @@ mod tests {
         let mut rx = bus.subscribe();
 
         record_then_publish(repo.clone(), bus.clone(), denial_event("readable"), |row| {
-            Some((
+            vec![(
                 "run:probe".to_string(),
                 "policy.response.recorded".to_string(),
                 json!({
@@ -363,7 +373,7 @@ mod tests {
                     "latency_ms": 1,
                     "record_id": row.id,
                 }),
-            ))
+            )]
         })
         .await;
 
@@ -405,11 +415,11 @@ mod tests {
         let mut rx = bus.subscribe();
 
         record_then_publish(repo, bus.clone(), denial_event("exactly-once"), |row| {
-            Some((
+            vec![(
                 "run:probe".to_string(),
                 "policy.response.recorded".to_string(),
                 json!({ "record_id": row.id }),
-            ))
+            )]
         })
         .await;
 
@@ -438,11 +448,11 @@ mod tests {
         bad.tenant_id = Some("ten_this_tenant_does_not_exist".to_string());
 
         record_then_publish(repo, bus.clone(), bad, |row| {
-            Some((
+            vec![(
                 "run:probe".to_string(),
                 "policy.response.recorded".to_string(),
                 json!({ "record_id": row.id }),
-            ))
+            )]
         })
         .await;
 
@@ -467,22 +477,22 @@ mod tests {
 
         // Event 1 arrives while a consumer is connected.
         record_then_publish(repo.clone(), bus.clone(), denial_event("before"), |row| {
-            Some((
+            vec![(
                 "run:probe".to_string(),
                 "policy.response.recorded".to_string(),
                 json!({ "record_id": row.id }),
-            ))
+            )]
         })
         .await;
         let last_seen = bus.latest_seq();
 
         // ... the consumer drops. Event 2 is published to nobody.
         record_then_publish(repo.clone(), bus.clone(), denial_event("during"), |row| {
-            Some((
+            vec![(
                 "run:probe".to_string(),
                 "policy.response.recorded".to_string(),
                 json!({ "record_id": row.id }),
-            ))
+            )]
         })
         .await;
 
@@ -497,6 +507,347 @@ mod tests {
         assert!(
             repo.get(id).await.expect("query").is_some(),
             "a replayed event must name a durable record too"
+        );
+    }
+    // -----------------------------------------------------------------------
+    // Issue #47: the same ordering invariant, for each of the four events.
+    //
+    // Every test below fails if the event is observable before its backing
+    // record is durable. They assert an OUTCOME -- the row is readable at the
+    // instant the event arrives -- rather than that an event turned up, which
+    // is issue #6's complaint about the live-stack suites and not a pile worth
+    // adding to.
+    // -----------------------------------------------------------------------
+
+    /// Drive `record_then_publish` with a real audit row and assert the event
+    /// names a record that is readable **now**: no sleep, no retry. A retry loop
+    /// here would hide the exact bug these tests exist to catch.
+    async fn assert_event_names_a_readable_record(
+        action: &str,
+        event_type: &str,
+        details: serde_json::Value,
+    ) {
+        let pool = fd_storage::pool::create_pool(&database_url(), 8, 2)
+            .await
+            .expect("connect to the dev database (make dev-up)");
+        let repo = fd_storage::AuditRepo::new(pool.clone());
+        let bus = Arc::new(EventBus::new());
+        let mut rx = bus.subscribe();
+
+        let event = AuditEventBuilder::new(action, resource::RUN)
+            .actor(actor::SYSTEM, None)
+            .tenant(SEEDED_TENANT.to_string())
+            .details(details)
+            .build();
+
+        let ty = event_type.to_string();
+        record_then_publish(repo.clone(), bus.clone(), event, move |row| {
+            vec![(
+                "run:probe".to_string(),
+                ty,
+                json!({ "record_id": row.id, "chain_seq": row.chain_seq }),
+            )]
+        })
+        .await;
+
+        let published = rx
+            .try_recv()
+            .unwrap_or_else(|e| panic!("{event_type} was not published: {e:?}"));
+        assert_eq!(published.event_type, event_type);
+
+        let record_id = published.payload["record_id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{event_type} must name the record it describes"));
+
+        let row = repo
+            .get(record_id)
+            .await
+            .expect("query the audit row")
+            .unwrap_or_else(|| {
+                panic!(
+                    "{event_type} named record {record_id}, which is not readable. \
+                     The publish happened before the write was durable."
+                )
+            });
+        assert_eq!(row.action, action);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires DATABASE_URL"]
+    async fn coherence_divergence_is_not_observable_before_its_record() {
+        assert_event_names_a_readable_record(
+            "airlock.violation_detected",
+            "coherence.divergence.detected",
+            json!({
+                "violation_type": "coherence_divergence",
+                "response_rung": "R3",
+                "mode": "shadow",
+                "gated": false,
+            }),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires DATABASE_URL"]
+    async fn routing_decision_is_not_observable_before_its_record() {
+        assert_event_names_a_readable_record(
+            action::ROUTING_DECIDED,
+            "routing.decision.recorded",
+            json!({ "subtask_id": "stp_probe", "content_hash": "0".repeat(64) }),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires DATABASE_URL"]
+    async fn policy_decision_explained_is_not_observable_before_its_record() {
+        assert_event_names_a_readable_record(
+            action::POLICY_DENIED,
+            "policy.decision.explained",
+            json!({
+                "tool_name": "probe",
+                // The field whose ABSENCE previously made this event
+                // unemittable: the trace was computed, returned over HTTP, and
+                // discarded, so nothing the event described could be read back.
+                "decision_trace": {
+                    "matched": [],
+                    "precedence": "deny > requires_approval > budget_cap > allow",
+                },
+            }),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires DATABASE_URL"]
+    async fn the_decision_trace_survives_the_round_trip_to_the_row() {
+        // `policy.decision.explained` is only evidence if the trace is IN the
+        // committed row. This reads it back off the row rather than trusting
+        // that it was passed in.
+        let pool = fd_storage::pool::create_pool(&database_url(), 4, 1)
+            .await
+            .expect("connect to the dev database (make dev-up)");
+        let repo = fd_storage::AuditRepo::new(pool);
+
+        let row = repo
+            .create(
+                AuditEventBuilder::new(action::POLICY_DENIED, resource::RUN)
+                    .actor(actor::SYSTEM, None)
+                    .tenant(SEEDED_TENANT.to_string())
+                    .details(json!({
+                        "decision_trace": {
+                            "winning_kind": "deny",
+                            "winning_source": "allowlist:denied",
+                            "overrides": [{
+                                "verdict": { "kind": "allow", "source": "allowlist:allowed" },
+                                "overridden_by": "deny",
+                                "reason": "deny outranks allow",
+                            }],
+                            "precedence": "deny > requires_approval > budget_cap > allow",
+                        }
+                    }))
+                    .build(),
+            )
+            .await
+            .expect("write the decision record");
+
+        let stored = repo
+            .get(&row.id)
+            .await
+            .expect("read back")
+            .expect("present");
+        let trace = &stored.details["decision_trace"];
+        assert_eq!(trace["winning_source"], "allowlist:denied");
+        assert_eq!(
+            trace["overrides"][0]["verdict"]["source"], "allowlist:allowed",
+            "the losing verdicts must survive too; reconstructing a decision from \
+             the log needs them, and `reason` alone does not carry them"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires DATABASE_URL"]
+    async fn a_failed_write_publishes_none_of_the_four() {
+        // The rule that makes the whole surface trustworthy, asserted for a
+        // multi-event callback: if the record never commits, NOTHING goes out --
+        // not the first event, not a partial batch.
+        let pool = fd_storage::pool::create_pool(&database_url(), 4, 1)
+            .await
+            .expect("connect to the dev database (make dev-up)");
+        let repo = fd_storage::AuditRepo::new(pool);
+        let bus = Arc::new(EventBus::new());
+        let mut rx = bus.subscribe();
+
+        let mut bad = AuditEventBuilder::new(action::POLICY_DENIED, resource::RUN)
+            .actor(actor::SYSTEM, None)
+            .tenant(SEEDED_TENANT.to_string())
+            .details(json!({}))
+            .build();
+        bad.tenant_id = Some("ten_this_tenant_does_not_exist".to_string());
+
+        record_then_publish(repo, bus.clone(), bad, |row| {
+            vec![
+                (
+                    "run:probe".to_string(),
+                    "policy.response.recorded".to_string(),
+                    json!({ "record_id": row.id }),
+                ),
+                (
+                    "run:probe".to_string(),
+                    "policy.decision.explained".to_string(),
+                    json!({ "record_id": row.id }),
+                ),
+            ]
+        })
+        .await;
+
+        assert!(
+            rx.try_recv().is_err(),
+            "no event may be published for a record that was never written"
+        );
+        assert_eq!(bus.latest_seq(), 0);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires DATABASE_URL"]
+    async fn one_record_can_publish_two_events_and_both_name_it() {
+        // A tool-call decision is both `policy.response.recorded` (what) and
+        // `policy.decision.explained` (why). Both must name the SAME committed
+        // row, or the console would show a verdict and an explanation that are
+        // not about the same decision.
+        let pool = fd_storage::pool::create_pool(&database_url(), 8, 2)
+            .await
+            .expect("connect to the dev database (make dev-up)");
+        let repo = fd_storage::AuditRepo::new(pool);
+        let bus = Arc::new(EventBus::new());
+        let mut rx = bus.subscribe();
+
+        record_then_publish(
+            repo.clone(),
+            bus.clone(),
+            AuditEventBuilder::new(action::POLICY_DENIED, resource::RUN)
+                .actor(actor::SYSTEM, None)
+                .tenant(SEEDED_TENANT.to_string())
+                .details(json!({ "decision_trace": { "winning_kind": "deny" } }))
+                .build(),
+            |row| {
+                vec![
+                    (
+                        "run:probe".to_string(),
+                        "policy.response.recorded".to_string(),
+                        json!({ "record_id": row.id }),
+                    ),
+                    (
+                        "run:probe".to_string(),
+                        "policy.decision.explained".to_string(),
+                        json!({ "record_id": row.id }),
+                    ),
+                ]
+            },
+        )
+        .await;
+
+        let first = rx.try_recv().expect("the verdict event");
+        let second = rx.try_recv().expect("the explanation event");
+        assert_eq!(first.event_type, "policy.response.recorded");
+        assert_eq!(second.event_type, "policy.decision.explained");
+        assert_eq!(
+            first.payload["record_id"], second.payload["record_id"],
+            "both events must describe the same committed decision"
+        );
+
+        let id = first.payload["record_id"].as_str().unwrap();
+        assert!(
+            repo.get(id).await.expect("query").is_some(),
+            "and that record must be readable when they arrive"
+        );
+    }
+
+    /// The seeded dev agent version and project (db/migrations/20241223000002).
+    const SEEDED_PROJECT: &str = "prj_01JFVX0000000000000000001";
+    const SEEDED_AGENT_VERSION: &str = "agv_01JFVX0000000000000000001";
+
+    #[tokio::test]
+    #[ignore = "requires DATABASE_URL"]
+    async fn the_forecast_event_is_not_observable_before_the_run_row_carries_it() {
+        // `run.forecast.updated` is the odd one of the four: its record is the
+        // RUN ROW, not an audit event, so there is no `record_id` to resolve.
+        // The ordering rule is identical though, and the field that stands in
+        // for the record id is `forecast_at` -- a consumer matches it against
+        // `GET /v1/runs/{id}` to confirm they hold the same snapshot.
+        //
+        // This drives the exact sequence the handler does: await the write, then
+        // publish. It fails if the row does not already carry the published
+        // snapshot when the event arrives.
+        let pool = fd_storage::pool::create_pool(&database_url(), 8, 2)
+            .await
+            .expect("connect to the dev database (make dev-up)");
+        let runs = fd_storage::RunsRepo::new(pool.clone());
+        let bus = Arc::new(EventBus::new());
+        let mut rx = bus.subscribe();
+
+        let run = runs
+            .create(fd_storage::models::CreateRun {
+                id: format!("run_{}", ulid::Ulid::new()),
+                project_id: SEEDED_PROJECT.to_string(),
+                agent_version_id: SEEDED_AGENT_VERSION.to_string(),
+                input: json!({ "task": "forecast-ordering-probe" }),
+                config: json!({}),
+                trace_id: None,
+                span_id: None,
+            })
+            .await
+            .expect("create a run against the seeded agent version");
+
+        let forecast_at = chrono::Utc::now();
+        let snapshot = fd_storage::RunForecastSnapshot {
+            projected_cost_cents: 4242,
+            ewma_cost_cents: 100,
+            ewma_step_cost_cents: 10,
+            budget_breach_projected: true,
+            breach_kind: Some("cost_cents".to_string()),
+            forecast_at,
+        };
+
+        // --- the sequence under test -------------------------------------
+        runs.update_forecast(&run.id, &snapshot)
+            .await
+            .expect("persist the forecast snapshot");
+        bus.publish(
+            &format!("run:{}", run.id),
+            "run.forecast.updated",
+            json!({
+                "run_id": run.id,
+                "projected_cost_cents": snapshot.projected_cost_cents,
+                "budget_breach_projected": snapshot.budget_breach_projected,
+                "forecast_at": snapshot.forecast_at.to_rfc3339(),
+            }),
+        );
+
+        let event = rx.try_recv().expect("the forecast event was published");
+        assert_eq!(event.event_type, "run.forecast.updated");
+
+        // Read the row back NOW. If the publish had preceded the write, this is
+        // either the previous snapshot or nothing -- and a consumer would have
+        // no way to tell a stale forecast from a current one.
+        let stored = runs
+            .get(&run.id)
+            .await
+            .expect("query the run")
+            .expect("the run exists");
+        assert_eq!(
+            stored.projected_cost_cents,
+            Some(4242),
+            "the run row must already carry the forecast the event announced"
+        );
+        assert!(
+            stored.forecast_at.is_some(),
+            "forecast_at is the field a consumer matches the event against"
+        );
+        assert_eq!(
+            event.payload["projected_cost_cents"], 4242,
+            "the event and the row must report the same number"
         );
     }
 }

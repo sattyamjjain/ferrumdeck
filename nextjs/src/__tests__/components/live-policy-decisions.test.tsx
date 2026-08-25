@@ -7,7 +7,7 @@
  *   * collapsing a shadow-mode Deny and a shadow-mode Allow into one label,
  *     which are opposite facts about whether the call was stopped.
  */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LivePolicyDecisions } from "@/components/runs/live-policy-decisions";
 import type { SSEEvent } from "@/lib/realtime/channels";
 
@@ -53,7 +53,7 @@ describe("empty state never claims there were no decisions", () => {
         render(<LivePolicyDecisions runId="run_1" />);
         // The distinction the whole panel exists to preserve.
         expect(
-            screen.getByText(/No decisions pushed on this channel yet/i),
+            screen.getByText(/No policy verdicts pushed on this channel yet/i),
         ).toBeInTheDocument();
         expect(screen.queryByText(/^No policy decisions$/i)).toBeNull();
     });
@@ -62,7 +62,7 @@ describe("empty state never claims there were no decisions", () => {
         mockStatus = "disconnected";
         render(<LivePolicyDecisions runId="run_1" />);
         expect(
-            screen.getByText(/This is not a claim that no policy decisions were recorded/i),
+            screen.getByText(/This is not a claim that none were recorded/i),
         ).toBeInTheDocument();
     });
 });
@@ -189,3 +189,233 @@ describe("structure", () => {
         expect(list.getAttribute("aria-label")).not.toMatch(/run_01/);
     });
 });
+
+describe("the precedence trace is joined to its decision by record_id (#47)", () => {
+    const explained = (recordId: string, overrides: unknown[], matched = 1): SSEEvent =>
+        ({
+            id: `e-${recordId}`,
+            type: "policy.decision.explained",
+            channel: "run:run_1",
+            timestamp: "2026-08-25T00:00:00Z",
+            payload: {
+                run_id: "run_1",
+                tool_name: "git_write",
+                decision_id: recordId,
+                record_id: recordId,
+                winning_kind: "deny",
+                winning_source: "allowlist:denied",
+                overrides,
+                matched_count: matched,
+                precedence: "deny > requires_approval > budget_cap > allow",
+                at: "2026-08-25T00:00:00Z",
+            },
+        }) as unknown as SSEEvent;
+
+    it("attaches the explanation when it arrives AFTER the verdict", async () => {
+        render(<LivePolicyDecisions runId="run_1" />);
+        emit!(decision({ decision: "Deny", record_id: "aud_1" }, "1"));
+        emit!(
+            explained("aud_1", [
+                { kind: "allow", source: "allowlist:allowed", overridden_by: "deny", reason: "r" },
+            ], 2),
+        );
+        expect(await screen.findByText(/Overrode allow \(allowlist:allowed\)/)).toBeInTheDocument();
+    });
+
+    it("attaches the explanation when it arrives BEFORE the verdict", async () => {
+        // Two events from one committed row; arrival order is not guaranteed.
+        // Pairing on order rather than record_id would silently drop this one.
+        render(<LivePolicyDecisions runId="run_1" />);
+        emit!(
+            explained("aud_2", [
+                { kind: "allow", source: "allowlist:allowed", overridden_by: "deny", reason: "r" },
+            ], 2),
+        );
+        emit!(decision({ decision: "Deny", record_id: "aud_2" }, "2"));
+        expect(await screen.findByText(/Overrode allow \(allowlist:allowed\)/)).toBeInTheDocument();
+    });
+
+    it("never attaches an explanation to a different decision", async () => {
+        render(<LivePolicyDecisions runId="run_1" />);
+        emit!(decision({ decision: "Deny", record_id: "aud_a" }, "1"));
+        emit!(decision({ decision: "Allow", record_id: "aud_b" }, "2"));
+        emit!(explained("aud_b", [], 1));
+        // Exactly one explanation rendered, and it belongs to aud_b.
+        const traces = await screen.findAllByText(/Sole matching verdict/);
+        expect(traces).toHaveLength(1);
+    });
+
+    it("says deny-by-default applied when nothing matched", async () => {
+        // matched_count 0 is a real answer, not a missing value.
+        render(<LivePolicyDecisions runId="run_1" />);
+        emit!(decision({ decision: "Deny", record_id: "aud_c" }, "1"));
+        emit!(explained("aud_c", [], 0));
+        expect(
+            await screen.findByText(/No rule matched; deny-by-default applied/),
+        ).toBeInTheDocument();
+    });
+});
+
+describe("routing decisions render live (#47)", () => {
+    const routing = (subtask: string, id = "r1"): SSEEvent =>
+        ({
+            id,
+            type: "routing.decision.recorded",
+            channel: "run:run_1",
+            timestamp: "2026-08-25T00:00:00Z",
+            payload: {
+                run_id: "run_1",
+                decision_id: `rtg_${subtask}`,
+                record_id: `aud_${subtask}`,
+                chain_seq: 1,
+                subtask_id: subtask,
+                candidates: [
+                    { role: "planner", agent_id: "agt_a", model: "claude-opus-5", score: 0.9 },
+                    { role: "planner", agent_id: "agt_b", model: "gpt-4o", score: 0.7 },
+                ],
+                chosen: { role: "planner", agent_id: "agt_a", model: "claude-opus-5" },
+                reason: { code: "policy_match", detail: "d" },
+                content_hash: "0".repeat(64),
+                anchor: "arXiv:2605.27466",
+                at: "2026-08-25T00:00:00Z",
+            },
+        }) as unknown as SSEEvent;
+
+    it("shows the chosen binding and why", async () => {
+        render(<LivePolicyDecisions runId="run_1" />);
+        emit!(routing("stp_1"));
+        expect(await screen.findByText("stp_1")).toBeInTheDocument();
+        expect(screen.getByText(/planner \/ claude-opus-5/)).toBeInTheDocument();
+        expect(screen.getByText("policy_match")).toBeInTheDocument();
+        expect(screen.getByText(/2 candidates/)).toBeInTheDocument();
+    });
+
+    it("scopes the empty state to verdicts rather than hiding it", async () => {
+        // Routing present, zero verdicts. Two ways to get this wrong: say "no
+        // decisions pushed" (false -- a routing decision IS a decision pushed
+        // here), or say nothing at all (an unexplained empty list, which is the
+        // same defect wearing silence).
+        //
+        // Asserted POSITIVELY on purpose. The previous version of this test
+        // checked that the OLD sentence was absent, which would have gone green
+        // the moment the wording changed while measuring nothing -- the vacuous
+        // pass this repo keeps finding.
+        render(<LivePolicyDecisions runId="run_1" />);
+        emit!(routing("stp_1"));
+        await screen.findByText("stp_1");
+        expect(
+            screen.getByText(/No policy verdicts pushed on this channel yet/),
+        ).toBeInTheDocument();
+    });
+});
+
+describe("accessibility guarantees that must not silently regress", () => {
+    const routingEvt = (subtask: string, id = "r1"): SSEEvent =>
+        ({
+            id,
+            type: "routing.decision.recorded",
+            channel: "run:run_1",
+            timestamp: "2026-08-25T00:00:00Z",
+            payload: {
+                run_id: "run_1",
+                decision_id: `rtg_${subtask}`,
+                record_id: `aud_${subtask}`,
+                subtask_id: subtask,
+                candidates: [{ role: "planner", model: "m" }],
+                chosen: { role: "planner", model: "m" },
+                reason: { code: "policy_match", detail: "d" },
+                content_hash: "0".repeat(64),
+                anchor: "a",
+                at: "2026-08-25T00:00:00Z",
+            },
+        }) as unknown as SSEEvent;
+
+    it("both scrollable lists are reachable by keyboard (WCAG 2.1.1)", async () => {
+        // Each list clips with overflow-y-auto and has no focusable descendant,
+        // so without a tab stop a keyboard-only user cannot scroll to the
+        // entries below the fold. Chromium has implicit focusable scrollers;
+        // Firefox and Safari do not.
+        render(<LivePolicyDecisions runId="run_1" />);
+        emit!(decision({ decision: "Deny", record_id: "aud_1" }, "1"));
+        emit!(routingEvt("stp_1"));
+        await screen.findByText("stp_1");
+
+        for (const name of [/Policy decisions, newest first/, /Routing decisions, newest first/]) {
+            const list = screen.getByRole("list", { name });
+            expect(list).toHaveAttribute("tabindex", "0");
+        }
+    });
+
+    it("does not promote the routing list to a landmark", () => {
+        // A named <section> is role="region". A secondary list inside a card is
+        // not a navigable destination, and it is conditionally mounted, so it
+        // would materialise mid-read for a landmark user.
+        render(<LivePolicyDecisions runId="run_1" />);
+        emit!(routingEvt("stp_1"));
+        expect(screen.queryByRole("region")).toBeNull();
+    });
+
+    it("pausing the feed pauses the ROUTING list too (WCAG 2.2.2)", async () => {
+        // The control is labelled "Pause feed" and sits in the panel header, so
+        // it claims the whole panel. A control that misreports what it stopped
+        // is worse than no control: the reader believes the panel is stable.
+        render(<LivePolicyDecisions runId="run_1" />);
+        fireEvent.click(screen.getByRole("button", { name: /Pause feed/i }));
+
+        emit!(routingEvt("stp_while_paused"));
+        await waitFor(() =>
+            expect(
+                screen.getByRole("button", { name: /1 buffered/i }),
+            ).toBeInTheDocument(),
+        );
+        // Buffered, not rendered...
+        expect(screen.queryByText("stp_while_paused")).toBeNull();
+
+        // ...and not lost: resuming flushes it.
+        fireEvent.click(screen.getByRole("button", { name: /Resume feed/i }));
+        expect(await screen.findByText("stp_while_paused")).toBeInTheDocument();
+    });
+
+    it("distinguishes a pending precedence trace from an absent one", async () => {
+        // Both previously rendered as nothing. A sighted reader sees the trace
+        // pop in later; a screen-reader user would never learn it arrived.
+        render(<LivePolicyDecisions runId="run_1" />);
+        emit!(decision({ decision: "Deny", record_id: "aud_x" }, "1"));
+        expect(
+            await screen.findByText(/Precedence trace not received yet/),
+        ).toBeInTheDocument();
+    });
+
+    it("never reports a routing decision as having zero candidates", async () => {
+        // The gateway serialises `chosen`/`candidates` with
+        // unwrap_or(Value::Null), so absence is reachable. "0 candidates" would
+        // assert that none were considered, which is a different and false fact.
+        render(<LivePolicyDecisions runId="run_1" />);
+        emit!({
+            id: "r9",
+            type: "routing.decision.recorded",
+            channel: "run:run_1",
+            timestamp: "2026-08-25T00:00:00Z",
+            payload: {
+                run_id: "run_1",
+                decision_id: "rtg_x",
+                record_id: "aud_x",
+                subtask_id: "stp_null",
+                candidates: null,
+                chosen: null,
+                reason: null,
+                content_hash: "0".repeat(64),
+                anchor: "a",
+                at: "2026-08-25T00:00:00Z",
+            },
+        } as unknown as SSEEvent);
+
+        await screen.findByText("stp_null");
+        expect(screen.getByText(/candidates not recorded/)).toBeInTheDocument();
+        expect(screen.queryByText(/0 candidates/)).toBeNull();
+        // And no " / " binding built out of two undefineds.
+        expect(screen.getAllByText(/not recorded/).length).toBeGreaterThanOrEqual(2);
+    });
+});
+
+

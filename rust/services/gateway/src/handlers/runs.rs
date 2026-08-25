@@ -356,14 +356,13 @@ fn coherence_audit_event(
         .build()
 }
 
-/// Emit the `coherence.divergence.detected` SSE event shape for the dashboard
-/// run stream. The gateway has no direct SSE push path yet — like every other
-/// run-channel event (`run.forecast.updated`, `routing.decision.recorded`),
-/// the gateway→BFF push is **deferred**; the BFF locks the wire shape via its
-/// mock generator and the console picks the persisted rung up on the next poll.
-/// This records the exact payload as a structured `event = "coherence.divergence.detected"`
-/// trace so the shape is defined + observable server-side.
-fn emit_coherence_sse(run_id: &str, span: &CoherenceSpan, level: ResponseLevel, gated: bool) {
+/// Log the `coherence.divergence.detected` divergence server-side.
+///
+/// Kept alongside the realtime push, not replaced by it. The structured log is
+/// what an operator greps after the fact; the SSE event is what a console sees
+/// live. They answer different questions and a divergence should survive the
+/// loss of either.
+fn log_coherence_divergence(run_id: &str, span: &CoherenceSpan, level: ResponseLevel, gated: bool) {
     info!(
         event = "coherence.divergence.detected",
         run_id = run_id,
@@ -375,6 +374,42 @@ fn emit_coherence_sse(run_id: &str, span: &CoherenceSpan, level: ResponseLevel, 
         anchor = span.anchor.as_str(),
         "coherence divergence detected"
     );
+}
+
+/// Build the `coherence.divergence.detected` realtime payload from the
+/// committed `airlock.violation_detected` row (issue #47).
+///
+/// Takes the row so `record_id` names something that already exists: this is
+/// only ever called from inside `spawn_audit_and_publish`, after the insert has
+/// committed. The divergence fields are read back out of the row's own
+/// `details` rather than re-derived from the span, so the event and the record
+/// cannot describe different things.
+fn coherence_event_payload(
+    run_id: &str,
+    row: &fd_storage::models::AuditEvent,
+) -> serde_json::Value {
+    let d = &row.details;
+    let coherence = d.get("coherence");
+    serde_json::json!({
+        "run_id": run_id,
+        "record_id": row.id,
+        "chain_seq": row.chain_seq,
+        "category": coherence.and_then(|c| c.get("category")),
+        "confidence": coherence.and_then(|c| c.get("confidence")),
+        "stated_fact": coherence.and_then(|c| c.get("stated_fact")),
+        "contradicting_action": coherence.and_then(|c| c.get("contradicting_action")),
+        "response_level": d.get("response_level"),
+        "response_rung": d.get("response_rung"),
+        "mode": d.get("mode"),
+        // `gated` is true ONLY when enforce mode actually halted the run. In
+        // shadow mode the rung is recorded and the run continues, and a reader
+        // who cannot tell those apart cannot tell detection from prevention.
+        "gated": d.get("gated"),
+        "shadow_mode": d.get("shadow_mode"),
+        "risk_score": d.get("risk_score"),
+        "anchor": coherence.and_then(|c| c.get("anchor")),
+        "at": row.occurred_at.to_rfc3339(),
+    })
 }
 
 /// Convert a [`ForecastSnapshot`] into the storage-shape snapshot that the
@@ -1020,17 +1055,28 @@ pub async fn submit_step_result(
             coherence_level = Some(level);
             let gate = state.coherence_enforce && level == ResponseLevel::RequireApproval;
             coherence_gated |= gate;
-            repos.spawn_audit(coherence_audit_event(
-                &run_id,
-                &run.project_id,
-                &span,
-                level,
-                state.coherence_enforce,
-                gate,
-            ));
-            // Lock in the SSE wire shape (gateway→BFF push deferred, same as
-            // run.forecast.updated / routing.decision.recorded).
-            emit_coherence_sse(&run_id, &span, level, gate);
+            // Published from INSIDE the audit write, after the row commits, so
+            // `record_id` on the wire resolves via GET /v1/audit/{id}. A
+            // divergence event that outran its record would be unverifiable.
+            let coherence_run = run_id.clone();
+            state.spawn_audit_and_publish(
+                coherence_audit_event(
+                    &run_id,
+                    &run.project_id,
+                    &span,
+                    level,
+                    state.coherence_enforce,
+                    gate,
+                ),
+                move |row| {
+                    vec![(
+                        format!("run:{coherence_run}"),
+                        "coherence.divergence.detected".to_string(),
+                        coherence_event_payload(&coherence_run, row),
+                    )]
+                },
+            );
+            log_coherence_divergence(&run_id, &span, level, gate);
         }
     }
     if coherence_fired {
@@ -1106,20 +1152,51 @@ pub async fn submit_step_result(
         .map(breach_kind_label)
         .map(str::to_owned);
     let storage_forecast = forecast_to_storage(forecast.clone(), breach_label.clone(), Utc::now());
-    if let Err(err) = repos
+    match repos
         .runs()
         .update_forecast(&run_id, &storage_forecast)
         .await
     {
-        warn!(run_id = %run_id, error = %err, "Failed to persist run forecast snapshot");
-    } else if forecast.budget_breach_projected {
-        info!(
-            run_id = %run_id,
-            projected_cost_cents = forecast.projected_cost_cents,
-            ewma_cost_cents = forecast.ewma_cost_cents,
-            breach_kind = breach_label.as_deref().unwrap_or("unknown"),
-            "Run projected to breach budget"
-        );
+        Err(err) => {
+            // No event. The forecast this would describe was not written, so a
+            // consumer that read `GET /v1/runs/{id}` back would see the PREVIOUS
+            // snapshot and have no way to know it was stale. Silence is the
+            // correct signal; the failure is still logged.
+            warn!(run_id = %run_id, error = %err, "Failed to persist run forecast snapshot");
+        }
+        Ok(()) => {
+            // Durable now: `update_forecast` is awaited, not fire-and-forget, so
+            // the run row carries this snapshot before the event goes out. Unlike
+            // the other three run-channel events this record lives on the `runs`
+            // row rather than in `audit_events`, so it carries `forecast_at`
+            // instead of a `record_id` -- that is the field a reader matches
+            // against `GET /v1/runs/{id}` to confirm they have the same snapshot.
+            state.publish_committed(
+                &format!("run:{run_id}"),
+                "run.forecast.updated",
+                serde_json::json!({
+                    "run_id": run_id,
+                    "projected_cost_cents": forecast.projected_cost_cents,
+                    "ewma_cost_cents": forecast.ewma_cost_cents,
+                    "ewma_step_cost_cents": forecast.ewma_step_cost_cents,
+                    "budget_breach_projected": forecast.budget_breach_projected,
+                    "breach_kind": breach_label,
+                    // The instant this snapshot was written, and the key a
+                    // consumer uses to tell it apart from the one before it.
+                    "forecast_at": storage_forecast.forecast_at.to_rfc3339(),
+                    "at": storage_forecast.forecast_at.to_rfc3339(),
+                }),
+            );
+            if forecast.budget_breach_projected {
+                info!(
+                    run_id = %run_id,
+                    projected_cost_cents = forecast.projected_cost_cents,
+                    ewma_cost_cents = forecast.ewma_cost_cents,
+                    breach_kind = breach_label.as_deref().unwrap_or("unknown"),
+                    "Run projected to breach budget"
+                );
+            }
+        }
     }
 
     let budget_decision = state
@@ -1242,15 +1319,25 @@ pub async fn submit_step_result(
             coherence_level = Some(level);
             let gate = state.coherence_enforce && level == ResponseLevel::RequireApproval;
             coherence_gated |= gate;
-            repos.spawn_audit(coherence_audit_event(
-                &run_id,
-                &run.project_id,
-                &span,
-                level,
-                state.coherence_enforce,
-                gate,
-            ));
-            emit_coherence_sse(&run_id, &span, level, gate);
+            let coherence_run = run_id.clone();
+            state.spawn_audit_and_publish(
+                coherence_audit_event(
+                    &run_id,
+                    &run.project_id,
+                    &span,
+                    level,
+                    state.coherence_enforce,
+                    gate,
+                ),
+                move |row| {
+                    vec![(
+                        format!("run:{coherence_run}"),
+                        "coherence.divergence.detected".to_string(),
+                        coherence_event_payload(&coherence_run, row),
+                    )]
+                },
+            );
+            log_coherence_divergence(&run_id, &span, level, gate);
         }
         // Final flag: fired this invocation OR already persisted by an earlier
         // step submission. Coherent completed runs record `Some(false)` so the
@@ -1830,6 +1917,26 @@ pub async fn check_tool_policy(
         "airlock_blocked": !airlock_result.allowed,
         "permissions": permission_snapshot,
     });
+
+    // Persist the precedence trace on the decision record.
+    //
+    // It was computed and returned over HTTP as `decision_trace`, then thrown
+    // away. That made the `policy.decision.explained` realtime event
+    // unemittable under this codebase's own rule -- an event whose state is not
+    // durable cannot be read back, so a consumer cannot tell "not written yet"
+    // from "never written" and has to treat it as unverifiable.
+    //
+    // It is also the answer to "why was this denied", which the audit trail is
+    // supposed to hold: `reason` records the winning verdict's sentence, but
+    // not what else matched or what precedence overrode. Reconstructing a
+    // decision from the log needs the losers too.
+    if let Some(trace) = &decision.trace {
+        if let Ok(trace_json) = serde_json::to_value(trace) {
+            if let Some(obj) = audit_details.as_object_mut() {
+                obj.insert("decision_trace".to_string(), trace_json);
+            }
+        }
+    }
     // MCP SEP-414: record the extracted W3C trace linkage on the persisted
     // decision record so an audit query can join this policy decision to its
     // distributed trace. The trace-id + parent span-id also go on the dedicated
@@ -1885,9 +1992,14 @@ pub async fn check_tool_policy(
     let event_policy_hash = policy_hash.clone();
     let check_latency_ms = check_started.elapsed().as_millis() as u64;
 
+    let event_trace = decision.trace.clone();
+
     state.spawn_audit_and_publish(audit_builder.build(), move |row| {
-        Some((
-            format!("run:{event_run_id}"),
+        let channel = format!("run:{event_run_id}");
+        let mut out = Vec::with_capacity(2);
+
+        out.push((
+            channel.clone(),
             "policy.response.recorded".to_string(),
             serde_json::json!({
                 "run_id": event_run_id,
@@ -1924,7 +2036,39 @@ pub async fn check_tool_policy(
                 "policy_hash": event_policy_hash,
                 "at": row.occurred_at.to_rfc3339(),
             }),
-        ))
+        ));
+
+        // `policy.decision.explained` -- the same committed row, viewed as
+        // "why". Emitted only when a trace exists AND it was persisted above,
+        // so every field below can be read back from
+        // `GET /v1/audit/{record_id}`.`winning_kind: null` is meaningful: the
+        // policy plane saw zero matches and deny-by-default is what refused the
+        // call, which is a different fact from "no rule was recorded".
+        if let Some(trace) = event_trace {
+            out.push((
+                channel,
+                "policy.decision.explained".to_string(),
+                serde_json::json!({
+                    "run_id": event_run_id,
+                    "tool_name": event_tool,
+                    "decision_id": row.id,
+                    "record_id": row.id,
+                    "winning_kind": trace.winning_kind.map(|k| k.as_str()),
+                    "winning_source": trace.winning_source,
+                    "overrides": trace.overrides.iter().map(|o| serde_json::json!({
+                        "kind": o.verdict.kind.as_str(),
+                        "source": o.verdict.source,
+                        "overridden_by": o.overridden_by.as_str(),
+                        "reason": o.reason,
+                    })).collect::<Vec<_>>(),
+                    "matched_count": trace.matched.len(),
+                    "precedence": trace.precedence,
+                    "at": row.occurred_at.to_rfc3339(),
+                }),
+            ));
+        }
+
+        out
     });
 
     // Step 6: Determine final allowed status, using the reversibility-folded
