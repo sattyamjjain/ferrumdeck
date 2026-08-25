@@ -46,6 +46,24 @@ function declaredStubIssue(routeRelativeToApi: string): number {
     }
     return Number(match[1]);
 }
+
+/**
+ * Routes declared as `degraded_fallback`: they DO reach the gateway, and return
+ * 501 only when it is unreachable or its store was never populated.
+ *
+ * Under jest there is no gateway, so they take that fallback — which is the
+ * correct behaviour, not a stub. What must still hold is the thing this file
+ * exists for: never a fabricated 2xx, and never an invented id.
+ */
+function degradedRoutes(): Set<string> {
+    const yaml = fs.readFileSync(DECLARATIONS, "utf8");
+    const section = yaml.split("degraded_fallback:")[1]?.split("\ndeclared_stubs:")[0] ?? "";
+    return new Set(
+        [...section.matchAll(/- route:\s*(\S+)/g)].map(
+            (m) => `src/app/api/${m[1]}`,
+        ),
+    );
+}
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 
 /**
@@ -103,6 +121,7 @@ async function invoke(mod: Record<string, unknown>, method: string) {
 }
 
 const routeFiles = findRouteFiles(EVALS_DIR);
+const DEGRADED = degradedRoutes();
 
 describe("eval BFF routes: implemented routes serve real data, the rest never fabricate 2xx (#7)", () => {
     it("discovers the eval route surface (fails if the dir is empty/moved)", () => {
@@ -142,6 +161,21 @@ describe("eval BFF routes: implemented routes serve real data, the rest never fa
                     const body = (await res.json()) as { suites?: unknown[] };
                     expect(Array.isArray(body.suites)).toBe(true);
                     expect((body.suites ?? []).length).toBeGreaterThan(0);
+                } else if (DEGRADED.has(rel)) {
+                    // Backed, but the gateway is unreachable under jest. The
+                    // invariant is unchanged: never a fabricated 2xx, and no
+                    // invented id. The issue link is not required here -- this
+                    // is not an unbuilt feature, it is a backend that is down.
+                    expect(is2xx(res.status)).toBe(false);
+                    expect([501, 400]).toContain(res.status);
+                    const body = (await res.json()) as {
+                        eval_run_id?: string;
+                        run_id?: string;
+                        id?: string;
+                    };
+                    expect(body.eval_run_id).toBeUndefined();
+                    expect(body.run_id).toBeUndefined();
+                    expect(body.id).toBeUndefined();
                 } else {
                     // Not implemented: never a fabricated success, and it must
                     // cite the issue that tracks finishing it.

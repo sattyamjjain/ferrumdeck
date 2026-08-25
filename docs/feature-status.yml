@@ -47,8 +47,8 @@ key_features:
 
   - id: realtime-sse
     readme_row: "**Realtime run stream (SSE)**"
-    marker: "[policy.response.recorded is pushed; the other four are still wire shapes"
-    status: "gateway→BFF push live for policy.response.recorded only; the other four run-channel events have a wire shape and no emitter"
+    marker: "[all five run-channel events push; the replay buffer is per-process"
+    status: "gateway→BFF push live for all five run-channel events, each published only after its backing record commits; replay is per-process"
     evidence: >-
       The gateway serves GET /v1/events/{channel}
       (rust/services/gateway/src/handlers/events.rs) and publishes
@@ -66,18 +66,34 @@ key_features:
       DB-backed Rust tests asserting the row is readable when the event arrives,
       that a denial publishes exactly once, and that a failed write publishes
       nothing.
-      STILL UNPUSHED: run.forecast.updated, policy.decision.explained,
-      routing.decision.recorded and coherence.divergence.detected have a defined
-      wire shape and no gateway emitter; the console reads those from the polled
-      run endpoint. The replay buffer is per-process, so a multi-replica gateway
-      cannot serve a reconnect that lands on a different replica.
+      As of 0.8.14 the other four push too (#47): run.forecast.updated after an
+      awaited update_forecast returns Ok (its record is the run row, so it
+      carries forecast_at rather than a record_id), and
+      policy.decision.explained / routing.decision.recorded /
+      coherence.divergence.detected from inside their audit writes.
+      policy.decision.explained required PERSISTING the DecisionTrace first --
+      it was computed, returned over HTTP and discarded, so nothing it described
+      could be read back.
+      The console applies forecast and coherence to the cached run via
+      useRunChannel; useRun still polls because status, cost, tokens and step
+      progress have no push behind them, and the poll is what recovers state a
+      stream.gap swallowed.
+      LIMITS, both accepted with reasoning recorded on #47: the replay buffer is
+      per-process, so a reconnect landing on another replica of a multi-replica
+      gateway cannot be served completely (it emits stream.gap rather than
+      looking quiet); and every SSE connection counts against
+      RATE_LIMIT_PER_MINUTE -- one token per connect, not per event, with a
+      correct Retry-After on the 429.
+      NOT verified live: coherence.divergence.detected needs a multi-step
+      trajectory and routing.decision.recorded needs a workflow run the dev seed
+      cannot satisfy. Both have DB-backed ordering tests.
     limitations_anchor: "#project-status--limitations"
     roadmap_issue: 47
 
   - id: eval-framework-dashboard
     readme_row: "**Evaluation Framework**:"
-    marker: "[read path live and verified; dispatch open"
-    status: "eval read path serves real gateway data, verified on a live stack; dispatch unimplemented"
+    marker: "[read + dispatch live; no eval executor consumes the queue"
+    status: "eval read and dispatch both backed by a durable store; no executor runs a dispatched suite, so it stays pending"
     evidence: >-
       GET /api/v1/evals/suites serves the real on-disk suite definitions
       (evals/suites/*.yaml, with real task counts from the datasets) via
@@ -103,9 +119,22 @@ key_features:
       reachable. The BFF suite-detail route joins that with the on-disk
       definition and reports history_available:false rather than an empty runs
       list when the gateway cannot be asked.
-      Dispatching a run from the dashboard is still unimplemented: the store is
-      read-only committed records, so a run started at request time has nowhere
-      to persist. #7 covered the read path and is closed; the write half is #46.
+      0.8.14 (#46) moved the store into Postgres (`eval_runs`), with
+      evals/reports/*.json as its IMPORT SOURCE rather than a parallel query
+      surface -- one queryable place for committed reports and dispatched runs,
+      keyed by the report file stem so ingest is idempotent.
+      POST /v1/evals/runs persists a run and enqueues it, answering 202 Accepted.
+      NOT 201, and this is the honest part: no eval executor consumes the queue,
+      so a dispatched run stays `pending` with queued_at set and started_at null,
+      and reports `unclaimed: true`. It is durable and queryable; it is not
+      running, and nothing claims it is.
+      mapGatewayRun no longer hardcodes status "completed" -- it reads the real
+      value and falls back to `pending`, never `completed`, because an
+      unrecognized status must not be reported as finished.
+      An empty store still returns 501 rather than an empty 200: eval_ingests
+      records that an ingest happened, which is what keeps "we looked and found
+      none" distinct from "we never looked" now that the store is a database the
+      gateway cannot start without.
     limitations_anchor: "#project-status--limitations"
     roadmap_issue: 46
 
@@ -127,8 +156,8 @@ key_features:
 
   - id: baseline-comparisons
     readme_row: "**Baseline Comparisons**:"
-    marker: "[read path live and verified; dispatch open"
-    status: "baseline view reads real eval data, verified end to end; dispatch open"
+    marker: "[read + dispatch live; no eval executor consumes the queue"
+    status: "baseline view reads the eval store; dispatch persists but no executor runs it"
     evidence: >-
       Same path as eval-framework-dashboard: /api/v1/evals/* serves the
       gateway's real on-disk reports, and the round-trip was confirmed against a

@@ -6,6 +6,7 @@
 pub mod agents;
 pub mod api_keys;
 pub mod audit;
+pub mod evals;
 pub mod policies;
 pub mod quotas;
 pub mod runs;
@@ -17,6 +18,7 @@ pub mod workflows;
 pub use agents::*;
 pub use api_keys::*;
 pub use audit::*;
+pub use evals::*;
 pub use policies::*;
 pub use quotas::*;
 pub use runs::*;

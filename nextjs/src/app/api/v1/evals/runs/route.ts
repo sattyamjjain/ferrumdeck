@@ -65,17 +65,58 @@ export async function GET(request: NextRequest) {
     }
 }
 
-// POST: running an eval suite needs a gateway eval-DISPATCH backend, which is not
-// wired (issue #7 is the read path). Return 501 with no invented id — the same
-// fabrication class the earlier synthetic-201 stub fix closed.
-export async function POST() {
-    return NextResponse.json(
-        {
-            error: "not_implemented",
-            message:
-                "Running an eval suite is not implemented yet: the dashboard has no gateway eval-dispatch backend, so no run was started. Tracked in issue #46 (the read path, #7, is closed).",
-            issue: "https://github.com/sattyamjjain/ferrumdeck/issues/46",
-        },
-        { status: 501 },
-    );
+// POST: dispatch an eval suite (#46). Backed now — the gateway persists the run
+// to the `eval_runs` store and enqueues it.
+//
+// The gateway answers **202 Accepted**, not 201, and this route passes that
+// through unchanged. The distinction is the whole point: the run is durable and
+// queryable, and it has NOT started. No eval executor consumes the queue yet, so
+// it stays `pending` with `queued_at` set and `started_at` null.
+//
+// That is not the fabrication this route used to commit. The old stub minted a
+// synthetic `eval_stub_<ts>` id and returned 201 for a run with no backend at
+// all — an affirmative confirmation of work that could never happen. This run
+// exists, appears in the list, and reports `unclaimed: true`; it never claims to
+// have completed.
+export async function POST(request: NextRequest) {
+    let body: unknown;
+    try {
+        body = await request.json();
+    } catch {
+        return NextResponse.json(
+            { error: "bad_request", message: "A JSON body with `suite_id` is required." },
+            { status: 400 },
+        );
+    }
+
+    const suiteId = (body as { suite_id?: unknown })?.suite_id;
+    if (typeof suiteId !== "string" || !suiteId.trim()) {
+        return NextResponse.json(
+            { error: "bad_request", message: "`suite_id` is required." },
+            { status: 400 },
+        );
+    }
+
+    try {
+        const response = await fetch(`${getGatewayUrl()}/v1/evals/runs`, {
+            method: "POST",
+            headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+            body: JSON.stringify({ suite_id: suiteId }),
+        });
+        const data = await response.json();
+        // Passed through verbatim, status included. Rewriting a 202 to a 201
+        // here would re-introduce exactly the claim this route stopped making.
+        return NextResponse.json(data, { status: response.status });
+    } catch (error) {
+        console.error("Eval dispatch: gateway unreachable:", error);
+        return NextResponse.json(
+            {
+                error: "not_implemented",
+                message:
+                    "Dispatching an eval run requires the gateway, which is not reachable in this environment. No run was started and no run id was invented. Tracked in issue #46.",
+                issue: "https://github.com/sattyamjjain/ferrumdeck/issues/46",
+            },
+            { status: 501 },
+        );
+    }
 }

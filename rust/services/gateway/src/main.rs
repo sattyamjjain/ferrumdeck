@@ -41,6 +41,32 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState::new().await?;
     info!("Connected to database and Redis");
 
+    // Import the committed eval reports into the eval store (#46).
+    //
+    // The files are the store's IMPORT SOURCE, not a second query surface, so
+    // this runs at startup rather than the read path re-reading the directory.
+    // Idempotent: each row is keyed by the report's file stem.
+    //
+    // A failure here is NOT fatal, and it does not fabricate either. When no
+    // reports directory is reachable, no ingest is recorded, and the read
+    // endpoints answer 501 "never populated" rather than an empty 200 that would
+    // read as "no eval runs exist". That is the same distinction the file-backed
+    // store drew, preserved through the change of store.
+    match handlers::evals::ingest_committed_reports(&state.repos().evals()).await {
+        Ok(o) => info!(
+            source_dir = %o.source_dir,
+            files_seen = o.files_seen,
+            upserted = o.upserted,
+            skipped = o.skipped,
+            "Ingested committed eval reports"
+        ),
+        Err(e) => tracing::warn!(
+            error = %e,
+            "No committed eval reports were ingested; the eval read endpoints will \
+             report 501 (store never populated) until POST /v1/evals/ingest succeeds"
+        ),
+    }
+
     // Configure CORS
     // SECURITY: In production, ALLOWED_ORIGINS should be set to specific domains
     let cors_layer = build_cors_layer();

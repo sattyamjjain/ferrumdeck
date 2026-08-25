@@ -109,15 +109,24 @@ export default function SuiteDetailPage({ params }: SuiteDetailPageProps) {
                 suite_id: suiteId,
                 compare_to_baseline: true,
             });
-            toast.success("Evaluation started", {
-                description: `Eval run ${result.eval_run_id} has been queued.`,
+            // "Queued", never "started" (#46). The gateway persists the run and
+            // enqueues it, and answers 202 Accepted — no executor consumes that
+            // queue yet, so the run sits at `pending`. A toast saying "started"
+            // would be the same claim the old synthetic-201 stub made, just
+            // moved one layer up.
+            toast.success("Evaluation queued", {
+                description:
+                    `Eval run ${result.eval_run_id} is queued and will show as ` +
+                    "pending. No executor is consuming the eval queue yet, so it " +
+                    "will not begin running (issue #46).",
             });
         } catch (error) {
             if (error instanceof APIError && error.isNotImplemented) {
-                // The BFF returns 501 here — no run was started. Don't imply otherwise.
-                toast.error("Running eval suites isn't available yet", {
+                // 501 now means the GATEWAY is unreachable, not that the feature
+                // is unbuilt. No run was started and no id was invented.
+                toast.error("Couldn't reach the gateway", {
                     description:
-                        "The dashboard has no gateway eval backend to dispatch to, so nothing was started (issue #7).",
+                        "The eval dispatch backend is not reachable from this dashboard, so nothing was queued and no run id was created.",
                 });
             } else {
                 toast.error("Failed to start evaluation", {
