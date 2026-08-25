@@ -64,6 +64,15 @@ export interface GatewayEvalRun {
     started_at?: string | null;
     completed_at?: string | null;
     gate_status?: string | null;
+    /** Real lifecycle state, present since the eval store landed (#46). */
+    status?: string | null;
+    /** `committed_report` | `dispatched`. */
+    source?: string | null;
+    /** True when a dispatched run has not been claimed by any executor. */
+    unclaimed?: boolean | null;
+    queued_at?: string | null;
+    requested_by?: string | null;
+    error?: string | null;
 }
 
 /**
@@ -94,9 +103,46 @@ export type MappedEvalRun = EvalRun & {
     report_run_id?: string;
     /** The dataset the run executed against. Two suites over different datasets are not comparable. */
     dataset_name?: string;
+    /**
+     * Whether anyone vouched for this run. `committed_report` passed CI and
+     * lives in git; `dispatched` is whatever someone clicked. `status` says
+     * whether a run finished; this says whether it is reviewed evidence.
+     */
+    run_source?: "committed_report" | "dispatched";
+    /**
+     * A dispatched run no executor has claimed. The gateway ships no eval
+     * executor, so this stays true — which is a fact about the deployment, not
+     * about the run, and the console should say so rather than showing a
+     * spinner that implies progress.
+     */
+    unclaimed?: boolean;
+    queued_at?: string;
 };
 
 const GATE_STATUSES: readonly string[] = ["passed", "failed", "skipped"];
+
+const RUN_STATUSES: readonly EvalRunStatus[] = [
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+];
+
+/**
+ * The run's real lifecycle state.
+ *
+ * Falls back to `"pending"` rather than `"completed"` for anything unrecognized
+ * or absent. A gateway that predates the store sends no status, and a future one
+ * may send a state this build has no label for; reporting either as finished
+ * would assert an outcome nobody established. `pending` is the honest floor —
+ * it claims only that the run exists.
+ */
+function runStatus(raw: string | null | undefined): EvalRunStatus {
+    return typeof raw === "string" && (RUN_STATUSES as readonly string[]).includes(raw)
+        ? (raw as EvalRunStatus)
+        : "pending";
+}
 
 function gateStatus(
     raw: string | null | undefined,
@@ -124,12 +170,16 @@ function isGatewayEvalRun(value: unknown): value is GatewayEvalRun {
 /**
  * Project one gateway run onto the dashboard contract.
  *
- * `status` is `"completed"` for every run here, and that is a statement about
- * the store rather than a guess: these endpoints serve finished, committed
- * report files. There is no dispatch path yet, so a run that is still executing
- * has nowhere to appear from. If a durable store with in-flight runs lands, this
- * has to read a real status field instead — do not let it keep asserting
- * completion by default.
+ * `status` used to be hardcoded to `"completed"` here. That was a true statement
+ * about the old store — read-only committed report files, with no dispatch path,
+ * so a run that was still executing had nowhere to appear from — and it stopped
+ * being true the moment one landed (#46). A status field that has only ever held
+ * one value is not a status field.
+ *
+ * It now reads the gateway's real value and falls back to `"pending"`, not
+ * `"completed"`: an unrecognized status must never be reported as finished.
+ * "We don't know" and "it's done" are the two answers that must not be
+ * confused, and only one of them is safe to guess.
  */
 export function mapGatewayRun(raw: GatewayEvalRun): MappedEvalRun {
     const measured = isMeasuredAt(raw.measured_at) ? raw.measured_at : undefined;
@@ -150,7 +200,7 @@ export function mapGatewayRun(raw: GatewayEvalRun): MappedEvalRun {
         // Reports do not record the agent version. Left empty rather than
         // invented; the table renders a dash.
         agent_version: "",
-        status: "completed" satisfies EvalRunStatus,
+        status: runStatus(raw.status),
         gate_status: gateStatus(raw.gate_status),
         score: num(raw.primary_metric?.rate) ?? 0,
         // No report records the threshold its gate used, so there is nothing
@@ -176,6 +226,12 @@ export function mapGatewayRun(raw: GatewayEvalRun): MappedEvalRun {
         measured_at: measured,
         report_run_id: raw.report_run_id ?? undefined,
         dataset_name: raw.dataset_name ?? undefined,
+        run_source:
+            raw.source === "committed_report" || raw.source === "dispatched"
+                ? raw.source
+                : undefined,
+        unclaimed: raw.unclaimed === true,
+        queued_at: raw.queued_at ?? undefined,
     };
 }
 

@@ -5,6 +5,7 @@
 pub mod agents;
 pub mod api_keys;
 pub mod audit;
+pub mod evals;
 pub mod policies;
 pub mod projects;
 pub mod quotas;
@@ -17,6 +18,7 @@ pub mod workflows;
 pub use agents::AgentsRepo;
 pub use api_keys::ApiKeysRepo;
 pub use audit::AuditRepo;
+pub use evals::{is_unclaimed, EvalsRepo};
 pub use policies::{PoliciesRepo, ReconstructedPermissions};
 pub use projects::ProjectsRepo;
 pub use runs::{RunForecastSnapshot, RunsRepo};

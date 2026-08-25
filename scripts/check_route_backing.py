@@ -22,6 +22,21 @@ Both planes already follow it; this writes it down so it cannot erode:
 looked and found none". 501 says "we never looked", which is the true
 statement, and it carries the issue where that is being fixed.
 
+## The three honest categories
+
+    local_backed      reaches a real backend that is not the gateway
+    degraded_fallback reaches the gateway AND returns 501 only when the gateway
+                      is unreachable or its store was never populated
+    declared_stubs    returns 501 because the feature does not exist
+
+`degraded_fallback` was added with the eval store (#46). Before it, "we never
+built this" and "the backend is down right now" were the same 501 to this
+checker, so a genuinely-backed route had to be declared a stub -- a false
+statement in the other direction, and exactly the drift this file exists to
+prevent. The checker enforces the difference: a degraded_fallback entry must
+have a real backend call AND a 501 path, or it is one of the other two things
+wearing a better name.
+
 ## What fails the build
 
 1. A route reaches no backend and is not declared in `.route-backing.yml`.
@@ -103,13 +118,14 @@ def bff_routes(app_api: Path) -> dict[str, Path]:
     return {str(p.relative_to(app_api)): p for p in sorted(app_api.rglob("route.ts"))}
 
 
-def load_declarations(path: Path) -> tuple[dict[str, dict], dict[str, dict]]:
+def load_declarations(path: Path) -> tuple[dict[str, dict], dict[str, dict], dict[str, dict]]:
     if not path.exists():
-        return {}, {}
+        return {}, {}, {}
     data: dict[str, Any] = yaml.safe_load(path.read_text()) or {}
     local = {e["route"]: e for e in (data.get("local_backed") or [])}
     stubs = {e["route"]: e for e in (data.get("declared_stubs") or [])}
-    return local, stubs
+    degraded = {e["route"]: e for e in (data.get("degraded_fallback") or [])}
+    return local, stubs, degraded
 
 
 def main() -> int:
@@ -127,24 +143,50 @@ def main() -> int:
         print(f"No BFF route directory at {args.app_api}", file=sys.stderr)
         return 1
 
-    local, stubs = load_declarations(args.declarations)
+    local, stubs, degraded = load_declarations(args.declarations)
     routes = bff_routes(args.app_api)
     if not routes:
         print(f"No routes found under {args.app_api}", file=sys.stderr)
         return 1
 
     problems: list[str] = []
-    counts = {"proxied": 0, "local": 0, "stub": 0}
+    counts = {"proxied": 0, "local": 0, "stub": 0, "degraded": 0}
     seen_local: set[str] = set()
     seen_stub: set[str] = set()
+    seen_degraded: set[str] = set()
 
     width = max(len(r) for r in routes)
     for rid, path in routes.items():
         traits = classify(path.read_text())
         declared_stub = rid in stubs
         declared_local = rid in local
+        declared_degraded = rid in degraded
 
-        if declared_stub:
+        if declared_degraded:
+            # A route that DOES reach a backend and returns 501 only when that
+            # backend is unreachable or unpopulated.
+            #
+            # Added when the eval store landed (#46). Before it, "we never built
+            # this" and "the backend is down right now" were the same 501 to this
+            # checker, so a genuinely-backed route had to be declared a stub --
+            # which is a false statement in the other direction, and the kind of
+            # drift this file exists to prevent.
+            seen_degraded.add(rid)
+            if not (traits & {"backend_call", "loader"}):
+                problems.append(
+                    f"{rid} is declared a degraded_fallback but reaches no backend. "
+                    f"That is a stub wearing a better name: move it to "
+                    f"declared_stubs, or wire it."
+                )
+            elif not (traits & {"not_implemented", "status_501"}):
+                problems.append(
+                    f"{rid} is declared a degraded_fallback but has no 501 path left. "
+                    f"If it can no longer degrade, delete the entry -- an exemption "
+                    f"nothing needs is how this file rots into an allowlist."
+                )
+            counts["degraded"] += 1
+            status = "DEGRADED"
+        elif declared_stub:
             seen_stub.add(rid)
             # (2) a declared stub must still BE a stub, not a fixture.
             if not (traits & {"not_implemented", "status_501"}):
@@ -213,10 +255,16 @@ def main() -> int:
             f"{args.declarations} declares local-backed route {rid!r}, which no "
             f"longer exists. Remove the entry."
         )
+    for rid in sorted(set(degraded) - seen_degraded):
+        problems.append(
+            f"{args.declarations} declares degraded-fallback route {rid!r}, which "
+            f"no longer exists. Remove the entry."
+        )
 
     print(
         f"\n{len(routes)} BFF routes: {counts['proxied']} proxied, "
-        f"{counts['local']} locally backed, {counts['stub']} declared stubs. "
+        f"{counts['local']} locally backed, {counts['degraded']} backed with an "
+        f"honest degraded fallback, {counts['stub']} declared stubs. "
         f"{len(gw)} gateway 501 site(s), all issue-linked."
     )
 

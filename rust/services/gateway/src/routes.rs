@@ -95,7 +95,12 @@ pub fn build_router(state: AppState) -> Router {
                 // Eval-read (issue #7): serve real on-disk eval reports, or an
                 // honest 501 NO_EVAL_STORE when no reports dir is reachable — see
                 // handlers::evals for the deployment caveat that keeps #7 open.
-                .route("/evals/runs", get(handlers::evals::list_eval_runs))
+                // Reads the eval STORE, not the reports directory (#46). The
+                // files are the store's import source; serving both would be
+                // two homes for one number.
+                .route("/evals/runs", get(handlers::evals::list_eval_runs_stored))
+                .route("/evals/runs", post(handlers::evals::dispatch_eval_run))
+                .route("/evals/ingest", post(handlers::evals::ingest_eval_reports))
                 .route(
                     "/evals/regression-report",
                     get(handlers::evals::eval_regression_report),

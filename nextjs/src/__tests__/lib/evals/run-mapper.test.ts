@@ -29,6 +29,12 @@ const LLM_RUN: GatewayEvalRun = {
     started_at: "2026-08-16T03:45:22Z",
     completed_at: "2026-08-16T03:47:56Z",
     gate_status: "passed",
+    // Added when the eval store landed (#46): the gateway sends a real status
+    // now. Without it this fixture maps to "pending", which is the correct
+    // fallback for a statusless response and is asserted separately below —
+    // this fixture represents a stored, finished run.
+    status: "completed",
+    source: "committed_report",
 };
 
 describe("mapGatewayRun", () => {
@@ -184,4 +190,75 @@ describe("measurement time survives the projection (#7)", () => {
         expect(mapped.measured_at).toBeUndefined();
     });
 });
+
+describe("status is read, not assumed (#46)", () => {
+    // It was hardcoded to "completed" — true of the old file-backed store, which
+    // only ever held finished runs, and false the moment a dispatch path landed.
+    // A status field that has only ever held one value is not a status field.
+
+    it.each([
+        ["pending", "pending"],
+        ["running", "running"],
+        ["completed", "completed"],
+        ["failed", "failed"],
+        ["cancelled", "cancelled"],
+    ])("passes %s through unchanged", (sent, expected) => {
+        const mapped = mapGatewayRun({ run_id: "r", suite: "s", status: sent });
+        expect(mapped.status).toBe(expected);
+    });
+
+    it("falls back to pending, NOT completed, when the status is absent", () => {
+        // A gateway predating the store sends none. Reporting that as finished
+        // would assert an outcome nobody established; "pending" claims only that
+        // the run exists.
+        const mapped = mapGatewayRun({ run_id: "r", suite: "s" });
+        expect(mapped.status).toBe("pending");
+    });
+
+    it("falls back to pending for a status this build does not recognise", () => {
+        const mapped = mapGatewayRun({
+            run_id: "r",
+            suite: "s",
+            status: "quantum_superposition",
+        });
+        expect(mapped.status).toBe("pending");
+        expect(mapped.status).not.toBe("completed");
+    });
+
+    it("carries the provenance and the unclaimed flag", () => {
+        // `status` says whether a run finished; `run_source` says whether anyone
+        // vouched for it. A committed report passed CI; a dispatched run is
+        // whatever someone clicked.
+        const dispatched = mapGatewayRun({
+            run_id: "evr_1",
+            suite: "smoke",
+            status: "pending",
+            source: "dispatched",
+            unclaimed: true,
+            queued_at: "2026-08-25T14:00:00Z",
+        });
+        expect(dispatched.run_source).toBe("dispatched");
+        expect(dispatched.unclaimed).toBe(true);
+        expect(dispatched.queued_at).toBe("2026-08-25T14:00:00Z");
+
+        const ingested = mapGatewayRun({
+            run_id: "eval_smoke_1",
+            suite: "smoke",
+            status: "completed",
+            source: "committed_report",
+        });
+        expect(ingested.run_source).toBe("committed_report");
+        expect(ingested.unclaimed).toBe(false);
+    });
+
+    it("drops a source value it does not recognise rather than casting it", () => {
+        const mapped = mapGatewayRun({
+            run_id: "r",
+            suite: "s",
+            source: "smuggled_in",
+        });
+        expect(mapped.run_source).toBeUndefined();
+    });
+});
+
 
