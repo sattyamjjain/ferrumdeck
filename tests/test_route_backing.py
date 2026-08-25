@@ -108,7 +108,8 @@ def test_a_declared_stub_that_became_a_fixture_fails(tree: Path) -> None:
 
 def test_a_stub_without_an_issue_reference_fails(tree: Path) -> None:
     """An untracked stub is a permanent one."""
-    (tree / "v1" / "evals" / "regression-report" / "route.ts").write_text(
+    route = a_declared_stub()
+    (tree / route).write_text(
         FIXTURE_TS.replace(
             "{ items: [], total: 0 }, { status: 200 }",
             '{ error: "not_implemented" }, { status: 501 }',
@@ -117,6 +118,64 @@ def test_a_stub_without_an_issue_reference_fails(tree: Path) -> None:
     result = run(tree)
     assert result.returncode == 1
     assert "cites no issue" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# degraded_fallback: reaches a backend AND degrades to 501 when it is down.
+#
+# Added with the eval store (#46). Before it, "we never built this" and "the
+# gateway is down right now" were the same 501 to the checker, so a genuinely
+# backed route had to be declared a stub -- a false statement in the other
+# direction. These pin the difference the category exists to express.
+# ---------------------------------------------------------------------------
+
+
+def a_degraded_route() -> str:
+    """A route currently declared as a degraded fallback."""
+    doc = yaml.safe_load(DECLARATIONS.read_text()) or {}
+    entries = doc.get("degraded_fallback") or []
+    if not entries:
+        pytest.skip("no degraded_fallback routes are declared")
+    return entries[0]["route"]
+
+
+def test_a_degraded_fallback_that_lost_its_backend_fails(tree: Path) -> None:
+    """A stub wearing a better name must not pass as backed.
+
+    The whole risk of adding this category is that it becomes a laundering
+    route: declare a stub as `degraded_fallback` and the 501 stops being
+    counted. So the checker requires a real backend call, and this proves it.
+    """
+    route = a_degraded_route()
+    (tree / route).write_text(STUB_TS)  # 501 + issue, but no fetch(
+    result = run(tree)
+    assert result.returncode == 1
+    assert "reaches no backend" in result.stderr
+
+
+def test_a_degraded_fallback_that_lost_its_501_fails(tree: Path) -> None:
+    """An exemption nothing needs is how this file rots into an allowlist."""
+    route = a_degraded_route()
+    (tree / route).write_text(
+        """import { NextResponse } from "next/server";
+export async function GET() {
+  const r = await fetch("http://gateway/v1/thing");
+  return NextResponse.json(await r.json());
+}
+"""
+    )
+    result = run(tree)
+    assert result.returncode == 1
+    assert "no 501 path left" in result.stderr
+
+
+def test_a_stale_degraded_declaration_fails(tree: Path) -> None:
+    """A declaration for a route that no longer exists must be removed."""
+    route = a_degraded_route()
+    (tree / route).unlink()
+    result = run(tree)
+    assert result.returncode == 1
+    assert "no longer exists" in result.stderr
 
 
 def test_an_undeclared_stub_fails(tree: Path) -> None:

@@ -25,6 +25,7 @@
 use std::path::{Path, PathBuf};
 
 use axum::{
+    extract::{Extension, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
@@ -33,6 +34,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use super::ApiError;
+use crate::state::AppState;
 
 /// Env override for the eval reports directory (else resolved relative to cwd).
 const REPORTS_DIR_ENV: &str = "FD_EVALS_REPORTS_DIR";
@@ -409,52 +411,6 @@ fn load_from_resolved() -> Result<(PathBuf, Vec<EvalRunSummary>), EvalReadError>
     Ok((dir, runs))
 }
 
-/// The honest "no eval store here" response (see the module caveat). Named 501,
-/// carrying #7 — never an empty 200.
-fn no_store_response() -> Response {
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(json!({
-            "error": {
-                "code": "NO_EVAL_STORE",
-                "message": "No eval-results store is reachable from this gateway: evals/reports was not found (set FD_EVALS_REPORTS_DIR, or run from a tree that has it; the gateway image bakes the committed reports, but eval results are not yet persisted to a durable store). No runs are returned rather than an empty list — an empty list would read as 'no runs exist'. Tracked in issue #46 (the read path, issue #7, is closed).",
-                "issue": "https://github.com/sattyamjjain/ferrumdeck/issues/46"
-            }
-        })),
-    )
-        .into_response()
-}
-
-fn read_error_response(e: EvalReadError) -> Response {
-    match e {
-        EvalReadError::NoStore => no_store_response(),
-        EvalReadError::Io(msg) => {
-            tracing::error!(error = %msg, "reading eval reports");
-            ApiError::internal("failed to read eval reports").into_response()
-        }
-    }
-}
-
-/// `GET /v1/evals/runs` — list eval runs, one per on-disk report, newest first.
-pub async fn list_eval_runs() -> Response {
-    match tokio::task::spawn_blocking(load_from_resolved).await {
-        Ok(Ok((dir, runs))) => {
-            let count = runs.len();
-            Json(json!({
-                "runs": runs,
-                "count": count,
-                "source": dir.display().to_string(),
-            }))
-            .into_response()
-        }
-        Ok(Err(e)) => read_error_response(e),
-        Err(e) => {
-            tracing::error!(error = %e, "eval reports task join failed");
-            ApiError::internal("failed to read eval reports").into_response()
-        }
-    }
-}
-
 /// One suite's regression between its two most recent runs on a shared metric.
 #[derive(Serialize, Debug, PartialEq)]
 pub struct Regression {
@@ -539,24 +495,26 @@ fn build_regression_report(runs: Vec<EvalRunSummary>) -> RegressionReport {
 /// `GET /v1/evals/regression-report` — regressions across each suite's two most
 /// recent runs. Suites with insufficient history are named, never silently
 /// counted as passing.
-pub async fn eval_regression_report() -> Response {
-    match tokio::task::spawn_blocking(load_from_resolved).await {
-        Ok(Ok((dir, runs))) => {
+pub async fn eval_regression_report(State(state): State<AppState>) -> Response {
+    let repo = state.repos().evals();
+    match repo.latest_ingest().await {
+        Ok(None) => return never_ingested_response(),
+        Ok(Some(_)) => {}
+        Err(e) => return store_error(e),
+    }
+    match stored_summaries(&repo).await {
+        Ok(runs) => {
             let report = build_regression_report(runs);
             Json(json!({
                 "regressions": report.regressions,
                 "regression_count": report.regressions.len(),
                 "compared_suites": report.compared,
                 "insufficient_history": report.insufficient_history,
-                "source": dir.display().to_string(),
+                "source": "eval_runs",
             }))
             .into_response()
         }
-        Ok(Err(e)) => read_error_response(e),
-        Err(e) => {
-            tracing::error!(error = %e, "eval reports task join failed");
-            ApiError::internal("failed to read eval reports").into_response()
-        }
+        Err(e) => store_error(e),
     }
 }
 
@@ -622,23 +580,25 @@ fn build_suite_histories(runs: Vec<EvalRunSummary>) -> Vec<EvalSuiteHistory> {
 
 /// `GET /v1/evals/suites` — every suite the report store has runs for, with the
 /// newest measured figure and when it was measured.
-pub async fn list_eval_suites() -> Response {
-    match tokio::task::spawn_blocking(load_from_resolved).await {
-        Ok(Ok((dir, runs))) => {
+pub async fn list_eval_suites(State(state): State<AppState>) -> Response {
+    let repo = state.repos().evals();
+    match repo.latest_ingest().await {
+        Ok(None) => return never_ingested_response(),
+        Ok(Some(_)) => {}
+        Err(e) => return store_error(e),
+    }
+    match stored_summaries(&repo).await {
+        Ok(runs) => {
             let suites = build_suite_histories(runs);
             let count = suites.len();
             Json(json!({
                 "suites": suites,
                 "count": count,
-                "source": dir.display().to_string(),
+                "source": "eval_runs",
             }))
             .into_response()
         }
-        Ok(Err(e)) => read_error_response(e),
-        Err(e) => {
-            tracing::error!(error = %e, "eval reports task join failed");
-            ApiError::internal("failed to read eval reports").into_response()
-        }
+        Err(e) => store_error(e),
     }
 }
 
@@ -649,17 +609,24 @@ pub async fn list_eval_suites() -> Response {
 /// which means no store was reachable at all — the distinction this whole
 /// surface exists to preserve.
 pub async fn get_eval_suite(
+    State(state): State<AppState>,
     axum::extract::Path(suite_id): axum::extract::Path<String>,
 ) -> Response {
-    match tokio::task::spawn_blocking(load_from_resolved).await {
-        Ok(Ok((dir, runs))) => {
+    let repo = state.repos().evals();
+    match repo.latest_ingest().await {
+        Ok(None) => return never_ingested_response(),
+        Ok(Some(_)) => {}
+        Err(e) => return store_error(e),
+    }
+    match stored_summaries(&repo).await {
+        Ok(runs) => {
             let found = build_suite_histories(runs)
                 .into_iter()
                 .find(|h| h.suite == suite_id);
             match found {
                 Some(history) => Json(json!({
                     "suite": history,
-                    "source": dir.display().to_string(),
+                    "source": "eval_runs",
                 }))
                 .into_response(),
                 None => (
@@ -668,9 +635,9 @@ pub async fn get_eval_suite(
                         "error": {
                             "code": "SUITE_NOT_FOUND",
                             "message": format!(
-                                "The eval report store was read and holds no run for suite '{suite_id}'. \
-                                 This is not the same as no store being reachable, which returns 501 \
-                                 NO_EVAL_STORE."
+                                "The eval store was read and holds no run for suite '{suite_id}'. \
+                                 This is not the same as the store never having been populated, \
+                                 which returns 501 NO_EVAL_STORE."
                             ),
                         }
                     })),
@@ -678,12 +645,475 @@ pub async fn get_eval_suite(
                     .into_response(),
             }
         }
-        Ok(Err(e)) => read_error_response(e),
-        Err(e) => {
-            tracing::error!(error = %e, "eval reports task join failed");
-            ApiError::internal("failed to read eval reports").into_response()
+        Err(e) => store_error(e),
+    }
+}
+
+// ===========================================================================
+// Ingest + dispatch (issue #46)
+//
+// The read path above projects `evals/reports/*.json` straight off disk. That
+// served #7 and made the WRITE path impossible: a run dispatched at request
+// time had nowhere to persist.
+//
+// The store is now a Postgres table, and the files are its IMPORT SOURCE rather
+// than a parallel query surface. The projection above is reused verbatim for
+// ingest, so a run means the same thing whichever way it arrived — teaching the
+// database a second parser would be the "two homes for one number" this
+// codebase has already paid for twice.
+// ===========================================================================
+
+use fd_storage::models::{EvalRunSource, EvalRunStatus, UpsertEvalRun};
+
+/// Project one on-disk summary into a row to upsert.
+fn summary_to_upsert(r: EvalRunSummary) -> UpsertEvalRun {
+    // `measured_at` is parsed back to a timestamp for the DB. Day-precision
+    // values carry no clock time, so they are anchored at midnight UTC in the
+    // COLUMN while `measured_at_precision` records that the time of day is not
+    // known. The precision travels with the value precisely so the column's
+    // midnight is never read as a measurement.
+    let (at, precision, source) = match &r.measured_at {
+        Some(m) => {
+            let parsed = chrono::DateTime::parse_from_rfc3339(&m.at)
+                .map(|d| d.with_timezone(&chrono::Utc))
+                .ok()
+                .or_else(|| {
+                    chrono::NaiveDate::parse_from_str(&m.at, "%Y-%m-%d")
+                        .ok()
+                        .and_then(|d| d.and_hms_opt(0, 0, 0))
+                        .map(|dt| dt.and_utc())
+                })
+                .or_else(|| {
+                    chrono::NaiveDateTime::parse_from_str(&m.at, "%Y-%m-%dT%H:%M:%S")
+                        .ok()
+                        .map(|dt| dt.and_utc())
+                });
+            (
+                parsed,
+                Some(m.precision.to_string()),
+                Some(m.source.to_string()),
+            )
+        }
+        None => (None, None, None),
+    };
+
+    let (metric_name, metric_rate) = match &r.primary_metric {
+        Some(m) => (Some(m.name.clone()), Some(m.rate)),
+        None => (None, None),
+    };
+
+    UpsertEvalRun {
+        id: r.run_id,
+        suite: r.suite,
+        source: Some(EvalRunSource::CommittedReport),
+        // A committed report is a finished run by definition: the file only
+        // exists because the run produced it.
+        status: Some(EvalRunStatus::Completed),
+        dataset_name: r.dataset_name,
+        harness_run_id: r.report_run_id,
+        measured_at: at,
+        measured_at_precision: precision,
+        measured_at_source: source,
+        primary_metric_name: metric_name,
+        primary_metric_rate: metric_rate,
+        assertion_coverage: r.assertion_coverage,
+        total_cases: r.total_cases.map(|v| v as i64),
+        total_tasks: r.metrics.total_tasks.map(|v| v as i64),
+        passed_tasks: r.metrics.passed_tasks.map(|v| v as i64),
+        failed_tasks: r.metrics.failed_tasks.map(|v| v as i64),
+        error_tasks: r.metrics.error_tasks.map(|v| v as i64),
+        total_cost_cents: r.metrics.total_cost_cents,
+        total_tokens: r.metrics.total_tokens.map(|v| v as i64),
+        total_duration_ms: r.metrics.total_duration_ms.map(|v| v as i64),
+        anchor: r.anchor,
+        report: None,
+        requested_by: None,
+        queued_at: None,
+    }
+}
+
+/// Outcome of an ingest, for logging and for the recorded marker.
+pub struct IngestOutcome {
+    pub source_dir: String,
+    pub files_seen: usize,
+    pub upserted: usize,
+    pub skipped: usize,
+}
+
+/// Import every committed report into the eval store.
+///
+/// Idempotent: the row id is the report's file stem, so re-running updates
+/// rather than duplicating. Called at gateway startup and by
+/// `POST /v1/evals/ingest`.
+///
+/// `files_skipped` is counted and recorded rather than silently dropped. A
+/// report that stopped being ingested — a renamed file, malformed JSON — is
+/// otherwise indistinguishable from one that was never written, and the previous
+/// on-disk reader skipped both without a word.
+pub async fn ingest_committed_reports(
+    repo: &fd_storage::EvalsRepo,
+) -> Result<IngestOutcome, String> {
+    let (dir, runs) = tokio::task::spawn_blocking(load_from_resolved)
+        .await
+        .map_err(|e| format!("ingest task join failed: {e}"))?
+        .map_err(|e| match e {
+            EvalReadError::NoStore => "no evals/reports directory is reachable".to_string(),
+            EvalReadError::Io(msg) => msg,
+        })?;
+
+    let dir_display = dir.display().to_string();
+    let files_seen = std::fs::read_dir(&dir)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
+                .count()
+        })
+        .unwrap_or(runs.len());
+
+    let mut upserted = 0usize;
+    for run in runs {
+        let id = run.run_id.clone();
+        match repo.upsert(summary_to_upsert(run)).await {
+            Ok(_) => upserted += 1,
+            Err(e) => {
+                // Counted as skipped, not silently swallowed: a report that
+                // failed to land must not look like one that was never there.
+                tracing::error!(eval_run_id = %id, error = %e, "failed to ingest eval report");
+            }
         }
     }
+
+    let skipped = files_seen.saturating_sub(upserted);
+    if let Err(e) = repo
+        .record_ingest(
+            &dir_display,
+            files_seen as i32,
+            upserted as i32,
+            skipped as i32,
+        )
+        .await
+    {
+        // Without the marker, an empty store cannot be told from an unpopulated
+        // one, so this failure has to be loud.
+        tracing::error!(
+            error = %e,
+            "eval ingest ran but the marker could not be recorded; the read endpoints \
+             will report 501 (never looked) rather than an empty 200"
+        );
+    }
+
+    Ok(IngestOutcome {
+        source_dir: dir_display,
+        files_seen,
+        upserted,
+        skipped,
+    })
+}
+
+/// Project a stored row onto the wire shape the dashboard already reads.
+///
+/// Deliberately the SAME field names the file-backed projection served, so this
+/// is a change of store rather than a change of contract. `status` and `source`
+/// are additive.
+fn stored_to_json(r: &fd_storage::models::EvalRun) -> Value {
+    let measured_at = r.measured_at.map(|at| {
+        let precision = r.measured_at_precision.as_deref().unwrap_or("second");
+        json!({
+            // Day-precision values are re-rendered as a DATE, not as the
+            // midnight the column stores. Serving `...T00:00:00Z` would assert a
+            // measurement time the report never recorded.
+            "at": if precision == "day" {
+                at.format("%Y-%m-%d").to_string()
+            } else {
+                at.to_rfc3339()
+            },
+            "precision": precision,
+            "source": r.measured_at_source.as_deref().unwrap_or("filename"),
+        })
+    });
+
+    json!({
+        "run_id": r.id,
+        "suite": r.suite,
+        "status": r.status.as_str(),
+        "source": r.source.as_str(),
+        "date": r.measured_at.map(|at| at.format("%Y-%m-%d").to_string()),
+        "measured_at": measured_at,
+        "report_run_id": r.harness_run_id,
+        "dataset_name": r.dataset_name,
+        "anchor": r.anchor,
+        "total_cases": r.total_cases,
+        "primary_metric": r.primary_metric_name.as_ref().map(|name| json!({
+            "name": name,
+            "rate": r.primary_metric_rate,
+        })),
+        "assertion_coverage": r.assertion_coverage,
+        "total_tasks": r.total_tasks,
+        "passed_tasks": r.passed_tasks,
+        "failed_tasks": r.failed_tasks,
+        "error_tasks": r.error_tasks,
+        "total_cost_cents": r.total_cost_cents,
+        "total_tokens": r.total_tokens,
+        "total_duration_ms": r.total_duration_ms,
+        "started_at": r.started_at.map(|t| t.to_rfc3339()),
+        "completed_at": r.completed_at.map(|t| t.to_rfc3339()),
+        "queued_at": r.queued_at.map(|t| t.to_rfc3339()),
+        "requested_by": r.requested_by,
+        "error": r.error,
+        // `gate_status` keeps the eval-health rule: passed iff zero failed
+        // tasks. Absent when the run has no task counts, and absent while it is
+        // still pending -- a queued run has not passed anything.
+        "gate_status": match (r.status.is_terminal(), r.failed_tasks) {
+            (true, Some(f)) => Some(if f == 0 { "passed" } else { "failed" }),
+            _ => None,
+        },
+        // The honest state of a dispatched run nobody is executing.
+        "unclaimed": fd_storage::is_unclaimed(r),
+    })
+}
+
+/// Rebuild the in-memory summary from a stored row.
+///
+/// So `build_regression_report` and `build_suite_histories` keep working
+/// unchanged against the database. Rewriting those two against SQL would have
+/// given one question two implementations that can disagree -- the exact shape
+/// of bug this single store exists to remove.
+fn stored_to_summary(r: &fd_storage::models::EvalRun) -> EvalRunSummary {
+    let precision = r.measured_at_precision.as_deref().unwrap_or("second");
+    EvalRunSummary {
+        run_id: r.id.clone(),
+        suite: r.suite.clone(),
+        date: r.measured_at.map(|at| at.format("%Y-%m-%d").to_string()),
+        measured_at: r.measured_at.map(|at| MeasuredAt {
+            // Day-precision rows are re-rendered as a DATE, never as the
+            // midnight the column stores -- that midnight is a storage
+            // artifact, not a measurement.
+            at: if precision == "day" {
+                at.format("%Y-%m-%d").to_string()
+            } else {
+                at.to_rfc3339()
+            },
+            precision: if precision == "day" { "day" } else { "second" },
+            source: if r.measured_at_source.as_deref() == Some("report.started_at") {
+                "report.started_at"
+            } else {
+                "filename"
+            },
+        }),
+        report_run_id: r.harness_run_id.clone(),
+        dataset_name: r.dataset_name.clone(),
+        anchor: r.anchor.clone(),
+        total_cases: r.total_cases.map(|v| v as u64),
+        primary_metric: r.primary_metric_name.as_ref().and_then(|name| {
+            r.primary_metric_rate.map(|rate| PrimaryMetric {
+                name: name.clone(),
+                rate,
+            })
+        }),
+        assertion_coverage: r.assertion_coverage,
+        metrics: RunMetrics {
+            total_tasks: r.total_tasks.map(|v| v as u64),
+            passed_tasks: r.passed_tasks.map(|v| v as u64),
+            failed_tasks: r.failed_tasks.map(|v| v as u64),
+            error_tasks: r.error_tasks.map(|v| v as u64),
+            total_cost_cents: r.total_cost_cents,
+            total_tokens: r.total_tokens.map(|v| v as u64),
+            total_duration_ms: r.total_duration_ms.map(|v| v as u64),
+            started_at: r.started_at.map(|t| t.to_rfc3339()),
+            completed_at: r.completed_at.map(|t| t.to_rfc3339()),
+            gate_status: match (r.status.is_terminal(), r.failed_tasks) {
+                (true, Some(f)) => Some(if f == 0 { "passed" } else { "failed" }.to_string()),
+                _ => None,
+            },
+        },
+    }
+}
+
+/// Every stored run that has actually measured something, newest first.
+///
+/// Dispatched-but-unclaimed runs are excluded: a regression comparison or a
+/// suite headline built from a run with no metric would be built from nothing,
+/// and a queued run has not scored anything yet.
+async fn stored_summaries(
+    repo: &fd_storage::EvalsRepo,
+) -> Result<Vec<EvalRunSummary>, sqlx::Error> {
+    Ok(repo
+        .list(2000)
+        .await?
+        .iter()
+        .filter(|r| r.measured_at.is_some())
+        .map(stored_to_summary)
+        .collect())
+}
+
+/// The "the store has never been populated" response.
+///
+/// Distinct from an empty `200`. `eval_ingests` is what makes the distinction
+/// possible at all once the store is a database the gateway cannot start
+/// without — see migration 20260825000001.
+fn never_ingested_response() -> Response {
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({
+            "error": {
+                "code": "NO_EVAL_STORE",
+                "message": "The eval store has never been populated: no ingest of evals/reports has been recorded. No runs are returned rather than an empty list, because an empty list would read as 'no runs exist'. Run POST /v1/evals/ingest, or restart the gateway with a reachable evals/reports directory.",
+                "issue": "https://github.com/sattyamjjain/ferrumdeck/issues/46"
+            }
+        })),
+    )
+        .into_response()
+}
+
+fn store_error(e: sqlx::Error) -> Response {
+    tracing::error!(error = %e, "eval store query failed");
+    ApiError::internal("failed to read the eval store").into_response()
+}
+
+/// `GET /v1/evals/runs` — every run in the store, newest measurement first.
+pub async fn list_eval_runs_stored(State(state): State<AppState>) -> Response {
+    let repo = state.repos().evals();
+    match repo.latest_ingest().await {
+        Ok(None) => return never_ingested_response(),
+        Ok(Some(_)) => {}
+        Err(e) => return store_error(e),
+    }
+    match repo.list(500).await {
+        Ok(runs) => {
+            let count = runs.len();
+            let unclaimed = runs.iter().filter(|r| fd_storage::is_unclaimed(r)).count();
+            Json(json!({
+                "runs": runs.iter().map(stored_to_json).collect::<Vec<_>>(),
+                "count": count,
+                "source": "eval_runs",
+                // Surfaced rather than left to be inferred: with no executor
+                // shipping, every dispatched run sits here, and a dashboard
+                // showing a permanently-pending run should be able to say why.
+                "unclaimed_count": unclaimed,
+            }))
+            .into_response()
+        }
+        Err(e) => store_error(e),
+    }
+}
+
+/// `POST /v1/evals/runs` — dispatch a suite.
+///
+/// Persists the run and enqueues it. Answers **202 Accepted**, never 201: the
+/// run exists and is queryable, and it has not started. The gateway ships no
+/// eval executor, so nothing consumes the queue yet and the run stays `pending`
+/// with `queued_at` set and `started_at` null.
+///
+/// That is deliberately not the old stub. The old stub minted a synthetic
+/// `eval_stub_<ts>` id for a run with no backend at all — an affirmative
+/// confirmation of work that could never happen. This run is durable, is
+/// listed, reports `unclaimed: true`, and never claims to have completed.
+pub async fn dispatch_eval_run(
+    State(state): State<AppState>,
+    Extension(auth): Extension<crate::middleware::AuthContext>,
+    Json(request): Json<DispatchEvalRunRequest>,
+) -> Response {
+    let suite = request.suite_id.trim();
+    if suite.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": { "code": "INVALID_SUITE", "message": "suite_id is required" }
+            })),
+        )
+            .into_response();
+    }
+
+    let id = format!("evr_{}", ulid::Ulid::new());
+    let now = chrono::Utc::now();
+    let run = UpsertEvalRun {
+        id: id.clone(),
+        suite: suite.to_string(),
+        source: Some(EvalRunSource::Dispatched),
+        status: Some(EvalRunStatus::Pending),
+        requested_by: Some(auth.api_key_id.clone()),
+        queued_at: Some(now),
+        // No measurement, and no invented one. This run has measured nothing.
+        ..Default::default()
+    };
+
+    let stored = match state.repos().evals().upsert(run).await {
+        Ok(r) => r,
+        Err(e) => return store_error(e),
+    };
+
+    // Enqueue after the row commits, for the same reason every realtime event
+    // is published after its record: a queue entry naming a run that does not
+    // exist is unactionable, and a consumer could not tell "not written yet"
+    // from "never written".
+    let queued = match state
+        .queue
+        .enqueue(
+            EVAL_QUEUE,
+            &fd_storage::QueueMessage::new(
+                stored.id.clone(),
+                json!({ "eval_run_id": stored.id, "suite": stored.suite }),
+            ),
+        )
+        .await
+    {
+        Ok(_) => true,
+        Err(e) => {
+            // The run is durable either way, so it is not lost -- but a caller
+            // must not be told it is queued when it is not.
+            tracing::error!(eval_run_id = %stored.id, error = %e, "failed to enqueue eval run");
+            false
+        }
+    };
+
+    (
+        StatusCode::ACCEPTED,
+        Json(json!({
+            "eval_run_id": stored.id,
+            "suite": stored.suite,
+            "status": stored.status.as_str(),
+            "queued_at": stored.queued_at.map(|t| t.to_rfc3339()),
+            "queued": queued,
+            "unclaimed": true,
+            "note": "Accepted and persisted. No eval executor consumes this queue yet, so the run will remain 'pending' until one does — it is durable and queryable, and it is not running. Tracked in issue #46.",
+        })),
+    )
+        .into_response()
+}
+
+/// `POST /v1/evals/ingest` — import the committed reports into the store.
+pub async fn ingest_eval_reports(State(state): State<AppState>) -> Response {
+    match ingest_committed_reports(&state.repos().evals()).await {
+        Ok(o) => Json(json!({
+            "source_dir": o.source_dir,
+            "files_seen": o.files_seen,
+            "runs_upserted": o.upserted,
+            "files_skipped": o.skipped,
+        }))
+        .into_response(),
+        Err(msg) => (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(json!({
+                "error": {
+                    "code": "NO_EVAL_STORE",
+                    "message": format!("Could not ingest committed reports: {msg}"),
+                    "issue": "https://github.com/sattyamjjain/ferrumdeck/issues/46"
+                }
+            })),
+        )
+            .into_response(),
+    }
+}
+
+/// Redis stream a dispatched eval run is queued onto.
+pub const EVAL_QUEUE: &str = "evals:pending";
+
+/// Body of `POST /v1/evals/runs`.
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct DispatchEvalRunRequest {
+    /// The suite to run, as named in `evals/suites/*.yaml`.
+    pub suite_id: String,
 }
 
 #[cfg(test)]

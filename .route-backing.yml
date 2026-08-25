@@ -75,20 +75,39 @@ local_backed:
       has no runs", and a 503 (not an empty 200) is returned when neither source
       can be read.
 
-# Known-unimplemented routes. Each MUST return 501 and cite the issue tracking
-# it; the checker verifies both, so an entry cannot quietly become a fixture.
-declared_stubs:
+# Routes that DO reach a backend and return 501 only when that backend is
+# unreachable or its store was never populated.
+#
+# This category exists because those two 501s mean different things and used to
+# be indistinguishable to the checker: "we never built this" versus "the gateway
+# is down right now". Declaring a genuinely-backed route as a stub is a false
+# statement in the other direction, and this file exists to stop exactly that
+# drift. The checker enforces the difference -- an entry here must have a real
+# backend call AND a 501 path.
+degraded_fallback:
   - route: v1/evals/regression-report/route.ts
-    issue: 46
+    backend: gateway
     reason: >-
-      Proxies the gateway when it is reachable and falls back to 501 when it is
-      not. Never a fabricated 200 {total_regressions: 0}, which would read as
-      "no regressions found".
+      Proxies the gateway's regression report, which since 0.8.14 is computed
+      from the `eval_runs` store rather than from files. The 501 remains for two
+      honest states: the gateway is unreachable from this dashboard, or the store
+      has never been populated (no ingest recorded). Never a fabricated
+      200 {total_regressions: 0}, which would read as "no regressions found".
 
   - route: v1/evals/runs/route.ts
-    issue: 46
-    method: POST
+    backend: gateway
     reason: >-
-      GET proxies the gateway and serves real committed reports (fixed in
-      26749ca). POST -- dispatching a new eval run -- has nowhere to persist to,
-      so it returns 501 with no invented run id rather than a synthetic 201.
+      GET proxies the gateway's store-backed run list. POST dispatches a suite
+      (#46): the gateway persists the run to `eval_runs`, enqueues it, and
+      answers 202 Accepted -- never 201, because the run is queued and has not
+      started. The 501 remains only for an unreachable gateway, and mints no run
+      id when it fires. Was a declared stub until 0.8.14, when the durable store
+      landed and the dispatch became real.
+
+# Known-unimplemented routes. Each MUST return 501 and cite the issue tracking
+# it; the checker verifies both, so an entry cannot quietly become a fixture.
+#
+# Empty as of 0.8.14: #7 closed the eval read path and #46 closed the write half,
+# so the BFF has no undeclared-feature 501 left. An empty list is the goal state,
+# not a missing section -- if a route regresses to a stub it must be added back.
+declared_stubs: []

@@ -216,6 +216,12 @@ impl Repos {
         ApiKeysRepo::new(self.db.clone())
     }
 
+    /// The eval-run store (issue #46). One queryable place for both committed
+    /// reports and dispatched runs; `evals/reports/*.json` is its import source.
+    pub fn evals(&self) -> fd_storage::EvalsRepo {
+        fd_storage::EvalsRepo::new(self.db.clone())
+    }
+
     pub fn audit(&self) -> AuditRepo {
         AuditRepo::new(self.db.clone())
     }
