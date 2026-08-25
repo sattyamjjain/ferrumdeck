@@ -245,14 +245,26 @@ async fn the_ingest_marker_is_what_separates_found_none_from_never_looked() {
     assert_eq!(marker.files_seen, 37);
     assert_eq!(marker.runs_upserted, 37);
 
+    // The invariant: once an ingest is recorded, `latest_ingest` reports one.
+    // That is what separates "we looked and found none" from "we never looked",
+    // and it is the whole reason this table exists.
     let latest = repo
         .latest_ingest()
         .await
         .expect("query")
-        .expect("an ingest is recorded");
-    assert_eq!(latest.id, marker.id, "latest_ingest returns the newest row");
+        .expect("an ingest is recorded, so latest_ingest must report one");
+
+    // NOT `latest.id == marker.id`. These tests run in parallel and a sibling
+    // records its own ingest, so asserting that MY row is the newest asserts on
+    // the scheduler rather than on the repo -- it passed locally and failed in
+    // CI, which is the signature of exactly that. `id` is a BIGSERIAL, so
+    // monotonicity holds no matter who else wrote.
+    assert!(
+        latest.id >= marker.id,
+        "latest_ingest must return a row at least as new as the one just written"
+    );
     assert_eq!(
-        latest.source_dir, "evals/reports",
+        marker.source_dir, "evals/reports",
         "which directory was read is part of the evidence, not decoration"
     );
 }
