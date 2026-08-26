@@ -24,8 +24,11 @@ What replaces it depends on what the policy plane actually *does* with the input
 """
 
 import os
+
 import httpx
 import pytest
+
+from .conftest import unique_name
 
 # The project the dev seed creates (db/migrations/20241223000002_seed_dev_data.sql).
 # `POST /v1/workflows` requires it; every workflow payload below omitted it and got
@@ -76,7 +79,7 @@ class TestOversizedPayloadRejected:
         """A 10 MB request body must be rejected (413/400/422), not accepted."""
         large_data = "x" * (10 * 1024 * 1024)
         workflow = {
-            "name": "oversized-test",
+            "name": unique_name("oversized-test"),
             "version": "1.0.0",
             "definition": {
                 "steps": [
@@ -111,7 +114,7 @@ class TestOversizedPayloadRejected:
         """Control: a small, well-formed body is accepted (guards against the
         oversized assertion passing because *everything* is rejected)."""
         workflow = {
-            "name": "reasonable-test",
+            "name": unique_name("reasonable-test"),
             "version": "1.0.0",
             "definition": {
                 "steps": [

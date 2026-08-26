@@ -65,7 +65,7 @@ Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_
 
 The enforcement engine is published — you can depend on it, not just clone it. One dependency via the umbrella crate:
 
-> **Current version: `v0.8.14`.** <!-- x-current-version: 0.8.14 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
+> **Current version: `v0.8.15`.** <!-- x-current-version: 0.8.15 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
 
 ```bash
 cargo add ferrumdeck
@@ -560,7 +560,7 @@ Those counts are *collected*, which is not the same as run. Until 0.8.9 the thre
 suites reported **135 collected, 135 skipped, 0 executed** and the CI check was
 green throughout, because a skipped test and a passing test are indistinguishable
 in a green check. They now run against a real stack in the `live-stack-tests` job
-under an **executed-test floor of 80** — of the 135 collected, at least 80 must
+under an **executed-test floor of 102** — of the 141 collected, at least 102 must
 actually execute or the build fails, with a message naming the usual cause (a
 service that did not come up, a readiness probe pointing at a route the gateway
 does not serve, an unseeded API key). These counts live in the single source

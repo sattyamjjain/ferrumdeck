@@ -40,8 +40,12 @@ class TestCreateAndCompleteRun:
         """
         # Create workflow
         workflow_resp = gateway_client.post("/v1/workflows", json=simple_agent_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Start run
@@ -94,8 +98,12 @@ class TestRunWithToolCalls:
         E2E-RUN-002: Agent with tool execution
         """
         workflow_resp = gateway_client.post("/v1/workflows", json=tool_agent_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Start run
@@ -128,8 +136,12 @@ class TestRunWithApproval:
         E2E-RUN-003: Approval gate functionality
         """
         workflow_resp = gateway_client.post("/v1/workflows", json=approval_agent_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Start run
@@ -347,8 +359,12 @@ class TestRunCancellation:
         E2E-RUN-007: Run cancellation
         """
         workflow_resp = gateway_client.post("/v1/workflows", json=simple_agent_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Start run
@@ -414,8 +430,12 @@ class TestRunStatusTracking:
     ) -> None:
         """Test that run status history is tracked."""
         workflow_resp = gateway_client.post("/v1/workflows", json=simple_agent_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Start run
@@ -443,8 +463,12 @@ class TestRunResourceTracking:
     ) -> None:
         """Test that token usage is tracked."""
         workflow_resp = gateway_client.post("/v1/workflows", json=simple_agent_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Start run

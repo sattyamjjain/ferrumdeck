@@ -283,6 +283,22 @@ jobs:
       # Runs even when the eval failed: a red nightly is exactly when the
       # health page needs to say so. The page is generated from the committed
       # report files, never hand-written.
+      # The three headline benchmarks are deterministic and offline -- seeded,
+      # no LLM, no network -- and ci.yml already runs them on every push and
+      # pull request. What was missing was committing their reports: between
+      # 2026-08-10 and 2026-08-26 exactly two landed, so docs/eval-health.md
+      # reported "2 consecutive passes" for evals that had run hundreds of
+      # times. The evidence was stale, not the eval.
+      #
+      # Weekly rather than nightly. They are deterministic, so a nightly run
+      # commits three byte-identical files under a new date every night --- noise
+      # in the history for no added evidence. Weekly gives a 7-day cadence
+      # against the 14-day staleness limit: a full missed week of margin before
+      # the gate fires.
+      - name: Re-run the offline headline benchmarks (weekly)
+        if: always() && github.event.schedule == '0 3 * * 0'
+        run: make eval-injection-defense && make eval-asb && make bench-governed
+
       - name: Stage this run's report BEFORE regenerating the page
         if: always() && github.event_name == 'schedule' && github.ref == 'refs/heads/main'
         run: |
@@ -304,10 +320,25 @@ jobs:
           # no -f, which means a dropped report shows up as an ordinary
           # uncommitted change instead of vanishing silently.
           git add evals/reports/eval_*.json 2>/dev/null || true
+          # The benchmark reports are un-ignored now (see .gitignore), so a plain
+          # add is enough. They previously needed `git add -f`, which is exactly
+          # why they stopped being committed.
+          git add evals/reports/asb-*.json evals/reports/asb-*.md \
+                  evals/reports/injection_defense-*.json evals/reports/injection_defense-*.md \
+                  evals/reports/governed-benchmark-*.json evals/reports/governed-benchmark-*.md \
+                  2>/dev/null || true
 
-      - name: Regenerate eval-health page
+      - name: Regenerate eval-health page and fail on stale evidence
         if: always()
-        run: uv run python scripts/gen_eval_health.py
+        # --release turns a STALE row into a build failure. Without it the page
+        # would faithfully render the problem and nothing would break, which is
+        # the shape of every gap this file has already closed: `regression` sat
+        # at NEVER RUN for months while the page said so.
+        #
+        # The page is written even when the gate fails, so a failing nightly
+        # still publishes an accurate page rather than leaving the last green
+        # one in place.
+        run: uv run python scripts/gen_eval_health.py --release
 
       - name: Commit eval-health page
         if: always() && github.event_name == 'schedule' && github.ref == 'refs/heads/main'

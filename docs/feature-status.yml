@@ -209,7 +209,10 @@ test_counts:
   # README testing caveat) assert liveness more than behaviour. NOT counted in
   # the headline, reported on their own line.
   liveness:
-    security: 78
+    # 78 -> 84: the six tests/security/test_realtime_decisions.py cases added in
+    # 0.8.13 were never counted here. Collected counts drift silently because
+    # nothing derives them; `make claims-recount` re-reads them.
+    security: 84
     chaos: 14
     e2e: 43
     integration: 81
@@ -230,15 +233,29 @@ test_counts:
     # it FROM HERE, so the claims-integrity check owns this number like every
     # other count on this page and there is exactly one place to change it.
     #
-    # 80 is what executes today against a fresh database, observed stable
-    # across CI runs. That makes this a ratchet at the current value, not the
-    # slack cliff-detector it started as: a drop of even one test fails the
-    # build. That is deliberate -- the regression being guarded is silent, so
-    # the guard has to be tight. If a test starts skipping for a GOOD reason,
-    # re-baseline consciously (drop the entry from
+    # 102 is what executes today against a fresh database, observed stable
+    # across consecutive runs. That makes this a ratchet at the current value,
+    # not the slack cliff-detector it started as: a drop of even one test fails
+    # the build. That is deliberate -- the regression being guarded is silent,
+    # so the guard has to be tight. If a test starts skipping for a GOOD
+    # reason, re-baseline consciously (drop the entry from
     # .live-stack-known-failures.yml if it is a declared failure, then lower
     # this number in the same commit that explains why). Never lower it to
     # turn a red build green.
+    #
+    # 80 -> 102 (0.8.15, issue #6). Twenty cases were skipping on
+    # `pytest.skip("Could not create workflow")`, and the cause was not the
+    # stack: every workflow-creating fixture used a FIXED name, and
+    # `POST /v1/workflows` rejects a duplicate with 400. So the first test to
+    # use a fixture ran and every later one skipped -- and on a database that
+    # had ever run the suite before, even the first one skipped.
+    #
+    # Taking those skips out surfaced a real defect underneath:
+    # `POST /v1/workflow-runs` wrote the caller's TENANT id into the run's
+    # `project_id` foreign key, so the endpoint had never once created a run.
+    # Nine e2e cases had been skipping past it. That is issue #6's thesis
+    # stated as precisely as it can be: a suite that never executes looks
+    # exactly like a suite that passes.
     # ---------------------------------------------------------------------
-    executed_floor: 80
+    executed_floor: 102
     executed_floor_method: "scripts/check_live_stack_results.py --junit live-stack-results.xml  (executed = collected - skipped, measured in the live-stack-tests job)"

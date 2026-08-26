@@ -2,6 +2,7 @@
 
 import os
 import time
+import uuid
 from collections.abc import Generator
 
 import httpx
@@ -53,6 +54,30 @@ def wait_for_service(url: str, timeout: int = 30) -> bool:
             pass
         time.sleep(1)
     return False
+
+
+def unique_name(stem: str) -> str:
+    """A workflow name no other test or run will collide with.
+
+    THE bug behind issue #6's largest remaining cluster. Every
+    workflow-creating fixture used a fixed name, and `POST /v1/workflows`
+    rejects a duplicate with `400 Resource already exists`. The callers turned
+    that into `pytest.skip("Could not create workflow")`, so:
+
+      * the FIRST test to use a fixture created the workflow and ran;
+      * every later test using the same fixture got a 400 and SKIPPED;
+      * and on a database that had ever run the suite before, even the first
+        one skipped.
+
+    Twenty cases across `tests/security` and `tests/e2e` were skipping on this,
+    reporting green while asserting nothing -- "a suite that never executes
+    looks exactly like a suite that passes", which is the sentence at the top of
+    .live-stack-known-failures.yml.
+
+    `tests/performance/test_benchmark.py` already did this correctly with a
+    `time.time()` suffix; the pattern simply never propagated.
+    """
+    return f"{stem}-{uuid.uuid4().hex[:10]}"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -130,7 +155,7 @@ def tenant_b_client() -> Generator[httpx.Client, None, None]:
 def simple_agent_workflow() -> dict:
     """Simple agent workflow for testing."""
     return {
-        "name": "e2e-simple-agent",
+        "name": unique_name("e2e-simple-agent"),
         "description": "Simple agent for E2E testing",
         "version": "1.0.0",
         "definition": {
@@ -158,7 +183,7 @@ def simple_agent_workflow() -> dict:
 def tool_agent_workflow() -> dict:
     """Agent workflow with tool calls."""
     return {
-        "name": "e2e-tool-agent",
+        "name": unique_name("e2e-tool-agent"),
         "description": "Agent with tool calls for E2E testing",
         "version": "1.0.0",
         "definition": {
@@ -196,7 +221,7 @@ def tool_agent_workflow() -> dict:
 def approval_agent_workflow() -> dict:
     """Agent workflow requiring approval."""
     return {
-        "name": "e2e-approval-agent",
+        "name": unique_name("e2e-approval-agent"),
         "description": "Agent requiring approval for E2E testing",
         "version": "1.0.0",
         "definition": {
@@ -242,7 +267,7 @@ def approval_agent_workflow() -> dict:
 def budget_limited_workflow() -> dict:
     """Workflow with strict budget limits."""
     return {
-        "name": "e2e-budget-limited",
+        "name": unique_name("e2e-budget-limited"),
         "description": "Budget-limited workflow",
         "version": "1.0.0",
         "definition": {

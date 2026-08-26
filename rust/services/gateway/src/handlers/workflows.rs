@@ -308,11 +308,38 @@ pub async fn create_workflow_run(
         .await?
         .ok_or_else(|| ApiError::not_found("Workflow", &request.workflow_id))?;
 
+    // The workflow is fetched by id and `WorkflowsRepo::get` is not tenant-scoped,
+    // so without this a caller could start a run on ANY workflow whose id they
+    // knew. Previously the run at least landed under `auth.tenant_id`; now that
+    // it correctly lands under the workflow's project, the boundary has to be
+    // checked explicitly rather than fall out of a bug.
+    //
+    // Reported as not-found rather than forbidden: a 403 would confirm the id
+    // exists, which is the probe this is refusing.
+    let owner = repos.projects().tenant_id_for(&workflow.project_id).await?;
+    if owner.as_deref() != Some(auth.tenant_id.as_str()) {
+        return Err(ApiError::not_found("Workflow", &request.workflow_id));
+    }
+
     let run_id = format!("wfr_{}", Ulid::new());
     let create = CreateWorkflowRun {
         id: run_id.clone(),
         workflow_id: workflow.id.clone(),
-        project_id: auth.tenant_id.clone(),
+        // The workflow's project, not the caller's TENANT. This column is a
+        // foreign key into `projects`, and `auth.tenant_id` is a `ten_...` id --
+        // so every POST /v1/workflow-runs failed the constraint and returned
+        // `400 Referenced resource does not exist`. The endpoint had never
+        // successfully created a run.
+        //
+        // It went unnoticed because nine e2e cases turned that 400 into
+        // `pytest.skip("Could not create run")`, which is issue #6's thesis
+        // exactly: a suite that never executes looks like a suite that passes.
+        // Taking the skips out is what surfaced it.
+        //
+        // A run belongs to the same project as the workflow it runs, which is
+        // also what keeps it inside the tenant boundary: the workflow was
+        // fetched under this caller's auth.
+        project_id: workflow.project_id.clone(),
         input: request.input,
         trace_id: None,
     };

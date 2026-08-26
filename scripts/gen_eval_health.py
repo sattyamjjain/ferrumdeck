@@ -53,6 +53,32 @@ EXPECTED_EVALS: dict[str, str] = {
     "governed-benchmark": "Governed vs ungoverned overhead (offline)",
 }
 
+# How old a headline eval's most recent COMMITTED report may be before the page
+# stops calling it a pass.
+#
+# The gap this closes: `asb`, `injection_defense` and `governed-benchmark` back
+# the README's security numbers, and between 2026-08-10 and 2026-08-26 exactly
+# two of their reports were committed. The page rendered "pass / 2 consecutive
+# passes" for all three and said nothing about age, so a reader could not tell a
+# figure measured this morning from one measured sixteen days ago.
+#
+# Note what was NOT wrong: ci.yml runs all three on every push and pull request,
+# so they execute constantly. It was the EVIDENCE that was stale, because
+# nothing committed their reports (they were gitignored and needed `git add -f`).
+# That is fixed alongside this; the max-age assertion is what makes a relapse
+# visible instead of green.
+#
+# Fourteen days, against a weekly commit cadence — a full missed week of margin
+# before it fires. A gate that cries wolf gets deleted, which is the same
+# reasoning the live-stack executed floor is set below its observed value rather
+# than at it.
+MAX_AGE_DAYS = 14
+
+# `smoke` and `regression` are exempt: they run on a nightly and a weekly cron
+# and commit their own reports, so their age is already self-evident from the
+# table and a second gate on them would only add noise.
+STALENESS_EXEMPT: frozenset[str] = frozenset({"smoke", "regression"})
+
 DATE_RE = re.compile(r"(20\d{6})")
 TS_RE = re.compile(r"(20\d{6})_(\d{6})")
 SUITE_NAME_RE = re.compile(r"^name:\s*[\"']?([A-Za-z0-9_-]+)[\"']?\s*$", re.M)
@@ -171,6 +197,25 @@ class EvalHealth:
     @property
     def ever_passed(self) -> bool:
         return any(r.passed for r in self.runs)
+
+    def age_days(self, now: datetime) -> int | None:
+        """Whole days since the most recent committed report. None if never run."""
+        latest = self.latest
+        if latest is None:
+            return None
+        return (now - latest.when).days
+
+    def is_stale(self, now: datetime, max_age_days: int = MAX_AGE_DAYS) -> bool:
+        """Whether this eval's published evidence is older than the limit.
+
+        Exempt evals are never stale. An eval that has never run is not stale
+        either — that is a different and already-fatal condition, and reporting
+        it as staleness would blur two failures the page keeps apart on purpose.
+        """
+        if self.name in STALENESS_EXEMPT:
+            return False
+        age = self.age_days(now)
+        return age is not None and age > max_age_days
 
     @property
     def consecutive_passes(self) -> int:
@@ -407,7 +452,18 @@ def _verdict_prose(health: dict[str, EvalHealth]) -> str:
     return "\n".join(parts)
 
 
-def render(health: dict[str, EvalHealth], generated_at: datetime) -> str:
+def render(
+    health: dict[str, EvalHealth],
+    generated_at: datetime,
+    max_age_days: int = MAX_AGE_DAYS,
+) -> str:
+    """Render the page.
+
+    `max_age_days` is threaded through rather than read from the constant so the
+    page and the `--release` gate cannot disagree about what counts as stale.
+    They did briefly: the gate honoured `--max-age-days` and the page did not,
+    so a failing run could publish a page with no STALE row on it.
+    """
     lines: list[str] = []
     add = lines.append
 
@@ -456,6 +512,19 @@ def render(health: dict[str, EvalHealth], generated_at: datetime) -> str:
             result = "**NEVER PASSED**"
             streak = "0"
             detail = f"{latest.detail} — no passing run in {len(bucket.runs)} recorded run(s)"
+        elif bucket.is_stale(generated_at, max_age_days):
+            # A pass measured three weeks ago is not a statement about the
+            # code as it stands, and rendering it as "pass" invites it to be
+            # read as one. The score stays visible -- it was really measured --
+            # but the result column says how old it is instead of asserting it
+            # still holds.
+            age = bucket.age_days(generated_at)
+            result = "**STALE**"
+            streak = str(bucket.consecutive_passes)
+            detail = (
+                f"{latest.detail} — last committed report is {age} days old "
+                f"(limit {max_age_days}); re-run and commit it"
+            )
         else:
             result = "pass" if latest.passed else "**FAIL**"
             streak = str(bucket.consecutive_passes)
@@ -464,6 +533,35 @@ def render(health: dict[str, EvalHealth], generated_at: datetime) -> str:
         add(f"| `{name}` | {when} | {result} | {score} | {streak} | {detail} |")
 
     add("")
+    stale = sorted(n for n, b in health.items() if b.is_stale(generated_at, max_age_days))
+    if stale:
+        add("## Evals whose evidence has gone stale")
+        add("")
+        add(
+            f"These evals last committed a report more than {max_age_days} days "
+            "ago. The runs they *did* record passed — that is not in question — "
+            "but a figure measured that long ago is evidence about the code as "
+            "it stood then, and this page should not present it as a current "
+            "pass."
+        )
+        add("")
+        for name in stale:
+            bucket = health[name]
+            age = bucket.age_days(generated_at)
+            add(
+                f"- **`{name}`** — {bucket.description}. Last committed report "
+                f"{bucket.latest.when.strftime('%Y-%m-%d')} ({age} days ago)."
+            )
+        add("")
+        add(
+            "Re-run them and commit the reports. If one of these has genuinely "
+            "been running all along and only its evidence is missing, that is "
+            "the more likely story and the more dangerous one — it means "
+            "something stopped committing the report, which is how this went "
+            "unnoticed the first time."
+        )
+        add("")
+
     never = sorted(n for n, b in health.items() if not b.ever_passed)
     if never:
         add("## Evals with no passing run")
@@ -513,6 +611,24 @@ def main() -> int:
     )
     ap.add_argument("--suites", type=Path, default=Path("evals/suites"))
     ap.add_argument(
+        "--release",
+        action="store_true",
+        help=(
+            f"Exit non-zero if a headline eval's most recent committed report is "
+            f"older than {MAX_AGE_DAYS} days. The page renders such an eval as "
+            "STALE either way; this turns it into a build failure."
+        ),
+    )
+    ap.add_argument(
+        "--max-age-days",
+        type=int,
+        default=MAX_AGE_DAYS,
+        help=(
+            "Override the staleness limit. For testing the gate; changing it to "
+            "get a green build is the failure mode this exists to prevent."
+        ),
+    )
+    ap.add_argument(
         "--allow-never-run",
         action="store_true",
         help=(
@@ -554,9 +670,17 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+
     # A fixed timestamp line would churn the file on every run; --check
     # compares everything above it.
-    rendered = render(health, datetime.now(tz=UTC))
+    now = datetime.now(tz=UTC)
+    rendered = render(health, now, args.max_age_days)
+
+    stale = sorted(
+        name
+        for name, bucket in health.items()
+        if bucket.is_stale(now, args.max_age_days)
+    )
 
     if args.check:
         if not args.out.exists():
@@ -565,8 +689,29 @@ def main() -> int:
         current = args.out.read_text().rsplit("_Generated", 1)[0]
         fresh = rendered.rsplit("_Generated", 1)[0]
         if current != fresh:
+            if stale:
+                # Distinguish the two reasons the page can differ, because the
+                # fix is completely different. "Regenerate the page" is the
+                # wrong instruction here: regenerating would publish a STALE row,
+                # which is the honest state but not a repair.
+                print(
+                    f"{args.out} differs because {', '.join(stale)} went stale "
+                    f"(no committed report in {args.max_age_days} days), not "
+                    f"because anyone edited the page.",
+                    file=sys.stderr,
+                )
+                print(
+                    "\nRe-run the eval and commit its report. Regenerating the "
+                    "page alone will publish a STALE row -- honest, but it fixes "
+                    "the record rather than the evidence.\n"
+                    "  make eval-asb  |  make eval-injection-defense  |  make bench-governed",
+                    file=sys.stderr,
+                )
+                return 1
             print(f"{args.out} is stale; regenerate with scripts/gen_eval_health.py")
             return 1
+        if stale and args.release:
+            return _fail_stale(stale, health, now, args.max_age_days)
         print(f"{args.out} is up to date.")
         return 0
 
@@ -576,7 +721,48 @@ def main() -> int:
     print(f"Wrote {args.out} ({len(health)} evals, {len(never)} with no passing run)")
     if never:
         print("  never passed: " + ", ".join(never))
+    if stale:
+        print("  stale: " + ", ".join(stale))
+
+    # Written FIRST, then gated. The page must describe reality even on the run
+    # that fails -- a gate that aborts before publishing leaves the last green
+    # page in place, which is the state this whole file exists to avoid.
+    if stale and args.release:
+        return _fail_stale(stale, health, now, args.max_age_days)
     return 0
+
+
+def _fail_stale(
+    stale: list[str],
+    health: dict[str, EvalHealth],
+    now: datetime,
+    max_age_days: int,
+) -> int:
+    print(
+        f"STALE: {', '.join(stale)} — no committed report in {max_age_days} days.",
+        file=sys.stderr,
+    )
+    for name in stale:
+        bucket = health[name]
+        print(
+            f"  {name}: last committed report "
+            f"{bucket.latest.when.strftime('%Y-%m-%d')} "
+            f"({bucket.age_days(now)} days ago)",
+            file=sys.stderr,
+        )
+    print(
+        "\nThis is the gate, not a page defect. These evals back the README's "
+        "security numbers, and a pass measured this long ago is evidence about "
+        "the code as it stood then.\n"
+        "\nBefore re-running, check WHY the evidence is old. ci.yml runs all "
+        "three on every push and pull request, so the likely story is not that "
+        "they stopped running -- it is that something stopped committing their "
+        "reports. That is how the first sixteen-day gap went unnoticed.\n"
+        "\n  make eval-asb  |  make eval-injection-defense  |  make bench-governed\n"
+        "\nthen commit the reports under evals/reports/.",
+        file=sys.stderr,
+    )
+    return 1
 
 
 if __name__ == "__main__":
