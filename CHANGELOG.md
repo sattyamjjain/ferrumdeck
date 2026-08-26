@@ -17,6 +17,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.15] - 2026-08-26
+
+### Added
+
+- `docs/eval-health.md` marks a headline eval **STALE** when its most recent
+  committed report is more than 14 days old, instead of rendering it as a pass.
+  `gen_eval_health.py --release` turns that into a build failure, wired into
+  both the nightly and the CI eval-health check ([#6]-adjacent evidence work).
+- The nightly re-runs the three offline headline benchmarks on its weekly cron
+  and commits their reports, so the published evidence keeps up with the
+  execution.
+
+### Fixed
+
+- **`POST /v1/workflow-runs` had never created a run.** It wrote the caller's
+  tenant id (`ten_…`) into the run's `project_id` foreign key, so every request
+  failed the constraint and returned `400 Referenced resource does not exist`.
+  Nine e2e cases had been skipping past it.
+- **Twenty live-stack cases were skipping on a duplicate-name collision** ([#6]).
+  Every workflow-creating fixture used a fixed name, and `POST /v1/workflows`
+  rejects a duplicate with 400 — so the first test to use a fixture ran and every
+  later one took a `pytest.skip("Could not create workflow")` branch. A setup
+  failure is now a test failure, and the names are unique.
+- The three headline security evals (`asb`, `injection_defense`,
+  `governed-benchmark`) were gitignored and needed `git add -f`, so their reports
+  stopped being committed: two runs reached the record between 2026-08-10 and
+  2026-08-26 while CI ran all three on every push. They commit like any other
+  file now.
+- Dashboard e2e tests asserted against routes that do not exist
+  (`GET /v1/workflow-runs`, `/v1/workflow-runs/{id}/steps`). They now use the
+  real collection (`/v1/workflows/{id}/runs`) and `/executions`, and assert that
+  the runs created are in the response rather than that the response has a
+  plausible shape.
+- Stale collected-test counts: `tests/security` is 84, not 78.
+
+### Changed
+
+- Live-stack `executed_floor` raised **80 → 102**, and three entries cleared
+  from `.live-stack-known-failures.yml` (19 → 16).
+
+[#6]: https://github.com/sattyamjjain/ferrumdeck/issues/6
+
 ## [0.8.14] - 2026-08-25
 
 ### Added

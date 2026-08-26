@@ -21,7 +21,6 @@ import time
 from typing import ClassVar
 
 import httpx
-import pytest
 
 
 # ==========================================================================
@@ -37,8 +36,12 @@ class TestAuditImmutability:
         """
         # Create a workflow (generates audit event)
         workflow_resp = api_client.post("/v1/workflows", json=simple_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Try to access audit logs endpoint
@@ -64,8 +67,12 @@ class TestAuditImmutability:
         """Test that audit logs are append-only."""
         # Create workflow
         workflow_resp = api_client.post("/v1/workflows", json=simple_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Create a run
@@ -73,8 +80,12 @@ class TestAuditImmutability:
             "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {}},
         )
-        if run_resp.status_code not in (200, 201):
-            pytest.skip("Could not create run")
+        assert run_resp.status_code in (200, 201), (
+            f"could not create the run this test needs: "
+            f"{run_resp.status_code} {run_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         run_id = run_resp.json()["id"]
 
         # Subsequent operations should add to audit log, not replace
@@ -99,8 +110,12 @@ class TestAuditCompleteness:
         # Perform various actions
         # 1. Create workflow
         workflow_resp = api_client.post("/v1/workflows", json=simple_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # 2. Get workflow
@@ -149,8 +164,12 @@ class TestPIIRedaction:
         """
         # Create workflow with PII in input
         workflow_resp = api_client.post("/v1/workflows", json=simple_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Create run with PII data
@@ -232,8 +251,12 @@ class TestAuditTimestampIntegrity:
         """
         # Create workflow
         workflow_resp = api_client.post("/v1/workflows", json=simple_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
 
         workflow_data = workflow_resp.json()
 
@@ -246,8 +269,12 @@ class TestAuditTimestampIntegrity:
     def test_timestamps_sequential(self, api_client: httpx.Client, simple_workflow: dict) -> None:
         """Test that timestamps are sequential."""
         workflow_resp = api_client.post("/v1/workflows", json=simple_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Create run
@@ -255,8 +282,12 @@ class TestAuditTimestampIntegrity:
             "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {}},
         )
-        if run_resp.status_code not in (200, 201):
-            pytest.skip("Could not create run")
+        assert run_resp.status_code in (200, 201), (
+            f"could not create the run this test needs: "
+            f"{run_resp.status_code} {run_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         run_id = run_resp.json()["id"]
 
         # Wait and cancel

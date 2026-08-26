@@ -129,19 +129,23 @@ known_failures:
   # E2E run + agent scenarios: outcome depends on whether a worker is executing
   # steps, which differs by environment. CI runs no worker (and no
   # ANTHROPIC_API_KEY), so a created run never advances; a local `make dev-up`
-  # brings a worker up, so some of these pass there. All are marked `flaky`,
+  # brings a worker up, so some of these pass there.
+  #
+  # THREE ENTRIES WERE REMOVED FROM THIS BLOCK (0.8.15): create-and-complete,
+  # run-with-approval, and agent-approval-for-write. Their stated reason -- "a
+  # created run never advances" -- turned out to be a symptom of a different
+  # bug: `POST /v1/workflow-runs` wrote the caller's TENANT id into the run's
+  # `project_id` foreign key, so the endpoint had never created a run at all and
+  # every one of these took a `pytest.skip("Could not create run")` branch.
+  #
+  # With that fixed the gateway advances the run to `running` when it enqueues
+  # the first steps -- no worker required for that transition -- and all three
+  # assert a status set that includes it. Confirmed deterministic over three
+  # consecutive runs before the declarations were removed. All are marked `flaky`,
   # which exempts them from the stale-declaration check only -- they may still
   # never fail undeclared. The honest fix is a worker in the job, at which point
   # these stop being environment-dependent and the `flaky` markers come off.
   # ---------------------------------------------------------------------------
-  - test: "tests/e2e/test_agent_runs.py::TestCreateAndCompleteRun::test_create_and_complete_run"
-    reason: "Waits for a created run to reach a terminal state; needs a worker executing steps."
-    flaky: true
-    issue: 6
-  - test: "tests/e2e/test_agent_runs.py::TestRunWithApproval::test_run_with_approval"
-    reason: "Drives a run to an approval gate through the worker; needs a worker executing steps."
-    flaky: true
-    issue: 6
   - test: "tests/e2e/test_agent_runs.py::TestRunWithToolCalls::test_run_with_tool_calls"
     reason: "Needs a worker to dispatch the tool call the assertion inspects."
     flaky: true
@@ -160,10 +164,6 @@ known_failures:
     issue: 6
   - test: "tests/e2e/test_agent_scenarios.py::TestSafePRAgentPropose::test_agent_propose_changes"
     reason: "Full agent scenario; needs a worker executing LLM steps end to end."
-    flaky: true
-    issue: 6
-  - test: "tests/e2e/test_agent_scenarios.py::TestSafePRAgentApproval::test_agent_approval_for_write"
-    reason: "Drives the write path to an approval gate; needs a worker executing LLM steps."
     flaky: true
     issue: 6
   - test: "tests/e2e/test_agent_scenarios.py::TestAgentErrorRecovery::test_agent_retry_on_failure"

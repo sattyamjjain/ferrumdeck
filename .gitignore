@@ -116,12 +116,38 @@ docker-compose.override.yml
 # which is how a plain `git add -A` silently dropped one and a false "the
 # report is committed" claim reached the 0.8.7 notes.
 #
-# The three `*-20260810.json` benchmark reports predate this rule and stay
-# tracked: an ignore rule does not untrack an already-committed file.
+# The three headline benchmarks (`asb`, `injection_defense`,
+# `governed-benchmark`) are un-ignored for the same reason `eval_*.json` is, and
+# it is worth stating because the "unverified, machine-local" caveat above looks
+# like it should apply to them and does not.
+#
+# They are DETERMINISTIC and OFFLINE -- seeded, no LLM, no network. A local run
+# and a CI run produce byte-identical figures, which is precisely what
+# `make reproduce-readme-figures` asserts on every published number. So there is
+# no machine-local drift for the ignore rule to protect against.
+#
+# What the ignore rule DID cost: these reports are the evidence
+# docs/eval-health.md is generated from (it reads `git ls-files`, so an
+# untracked report is invisible to it), and committing one required `git add -f`
+# every time. Between 2026-08-10 and 2026-08-26 exactly two runs were committed,
+# while ci.yml ran all three on every push and PR. The page reported "2
+# consecutive passes" for evals that had in fact run hundreds of times -- the
+# evidence was stale, not the eval. That is the same failure the 0.8.7 note
+# describes for `eval_*.json`: a force-added file is one a plain `git add -A`
+# silently drops.
+#
+# The `*-20260810.json` reports predate all of this and stay tracked anyway: an
+# ignore rule does not untrack an already-committed file.
 evals/reports/*.json
 evals/reports/*.html
 evals/reports/*.md
 !evals/reports/eval_*.json
+!evals/reports/asb-*.json
+!evals/reports/asb-*.md
+!evals/reports/injection_defense-*.json
+!evals/reports/injection_defense-*.md
+!evals/reports/governed-benchmark-*.json
+!evals/reports/governed-benchmark-*.md
 
 # =============================================================================
 # Artifacts (runtime outputs)

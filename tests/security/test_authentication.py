@@ -234,8 +234,12 @@ class TestTenantIsolation:
         """
         # Create a workflow
         workflow_resp = api_client.post("/v1/workflows", json=simple_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
 
         workflow_id = workflow_resp.json()["id"]
 

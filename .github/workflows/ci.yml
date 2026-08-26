@@ -263,13 +263,24 @@ jobs:
           # is a lint.
           uv run python scripts/check_suite_reachability.py
 
-      - name: Assert no declared eval has zero committed reports
+      - name: Assert no declared eval has zero committed reports, and none has gone stale
         run: |
           # The other half of "declared but never executed": a suite that is
           # reachable but whose first run has never been committed. That used to
           # render as a NEVER RUN row, which is documentation of a problem rather
           # than a gate on it. gen_eval_health.py now exits non-zero instead.
-          uv run python scripts/gen_eval_health.py --check
+          #
+          # `--release` adds the third variant of the same class, and the one
+          # that had actually shipped: an eval that runs, passes, and whose
+          # EVIDENCE is sixteen days old. The page called that "pass". It now
+          # calls it STALE and this fails.
+          #
+          # Note the failure this can produce on an unrelated PR: staleness is a
+          # function of the clock, so once the limit is crossed every build goes
+          # red until someone re-runs the evals. That is intended --- it is a
+          # claim about the README's security numbers, not about the PR --- and
+          # the message says so rather than telling you to regenerate the page.
+          uv run python scripts/gen_eval_health.py --check --release
 
       - name: Assert no route serves plausible data without a backend
         run: |

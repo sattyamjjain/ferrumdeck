@@ -28,26 +28,48 @@ class TestViewRunsList:
         """
         # First create some runs
         workflow_resp = gateway_client.post("/v1/workflows", json=simple_agent_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
-        # Create a few runs
+        # Create a few runs, keeping their ids so the list below can be checked
+        # against them rather than against its own shape.
+        created_run_ids: set[str] = set()
         for i in range(3):
-            gateway_client.post(
+            resp = gateway_client.post(
                 "/v1/workflow-runs",
                 json={"workflow_id": workflow_id, "input": {"run_idx": i}},
             )
+            assert resp.status_code in (200, 201), (
+                f"could not create run {i}: {resp.status_code} {resp.text}"
+            )
+            created_run_ids.add(resp.json()["id"])
 
         # Wait for runs to be created
         time.sleep(1)
 
-        # List runs (this is what dashboard would call)
-        list_resp = gateway_client.get("/v1/workflow-runs")
-        assert list_resp.status_code == 200
-        data = list_resp.json()
-        # Should have runs (key might be "runs", "items", or "workflow_runs")
-        assert "runs" in data or "items" in data or isinstance(data, list)
+        # List the runs. `GET /v1/workflow-runs` does not exist -- the collection
+        # is addressed under its workflow -- so this asserted 405 forever behind
+        # a skip.
+        list_resp = gateway_client.get(f"/v1/workflows/{workflow_id}/runs")
+        assert list_resp.status_code == 200, list_resp.text
+
+        # Assert the runs we just created are actually IN the response, not that
+        # the response merely has a plausible shape. `"runs" in data` passes on
+        # an empty list, which is the assertion-free shape this suite is being
+        # drained of.
+        payload = list_resp.json()
+        runs = payload if isinstance(payload, list) else payload.get("runs", [])
+        listed = {r["id"] for r in runs}
+        assert created_run_ids, "the loop above created no runs to look for"
+        assert created_run_ids <= listed, (
+            f"created {sorted(created_run_ids)} but the list returned "
+            f"{sorted(listed)} -- the dashboard would not show them"
+        )
 
 
 # ==========================================================================
@@ -65,8 +87,12 @@ class TestViewRunDetail:
         """
         # Create workflow and run
         workflow_resp = gateway_client.post("/v1/workflows", json=simple_agent_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         run_resp = gateway_client.post(
@@ -85,9 +111,10 @@ class TestViewRunDetail:
         assert "id" in run_data
         assert "status" in run_data
 
-        # Get steps
-        steps_resp = gateway_client.get(f"/v1/workflow-runs/{run_id}/steps")
-        assert steps_resp.status_code == 200
+        # The per-run step collection is `/executions`, not `/steps`; the latter
+        # has never existed and returned 404 behind a skip.
+        steps_resp = gateway_client.get(f"/v1/workflow-runs/{run_id}/executions")
+        assert steps_resp.status_code == 200, steps_resp.text
 
 
 # ==========================================================================
@@ -105,8 +132,12 @@ class TestApproveFromDashboard:
         """
         # Create approval workflow
         workflow_resp = gateway_client.post("/v1/workflows", json=approval_agent_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Start run
@@ -137,8 +168,12 @@ class TestCancelFromDashboard:
         E2E-UI-004: Cancel action
         """
         workflow_resp = gateway_client.post("/v1/workflows", json=simple_agent_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Start run
@@ -208,8 +243,12 @@ class TestRealTimeUpdates:
         E2E-UI-007: Real-time updates via polling
         """
         workflow_resp = gateway_client.post("/v1/workflows", json=simple_agent_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Create run
@@ -243,35 +282,70 @@ class TestDashboardPagination:
     ) -> None:
         """Test pagination in runs list."""
         workflow_resp = gateway_client.post("/v1/workflows", json=simple_agent_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Create multiple runs
+        created: list[str] = []
         for i in range(5):
-            gateway_client.post(
+            resp = gateway_client.post(
                 "/v1/workflow-runs",
                 json={"workflow_id": workflow_id, "input": {"idx": i}},
             )
+            assert resp.status_code in (200, 201), f"{resp.status_code} {resp.text}"
+            created.append(resp.json()["id"])
 
-        # Test pagination
-        page1 = gateway_client.get("/v1/workflow-runs?limit=2&offset=0")
-        page2 = gateway_client.get("/v1/workflow-runs?limit=2&offset=2")
+        def page(offset: int) -> list[str]:
+            # `/v1/workflow-runs?limit=..` does not exist; the collection is
+            # addressed under its workflow. Scoping to THIS workflow also makes
+            # the assertion below deterministic -- a global list would be shared
+            # with every other test in the session.
+            resp = gateway_client.get(
+                f"/v1/workflows/{workflow_id}/runs?limit=2&offset={offset}"
+            )
+            assert resp.status_code == 200, resp.text
+            payload = resp.json()
+            runs = payload if isinstance(payload, list) else payload.get("runs", [])
+            return [r["id"] for r in runs]
 
-        assert page1.status_code == 200
-        assert page2.status_code == 200
+        page1, page2 = page(0), page(2)
+
+        # Assert pagination PAGINATES. Two 200s prove only that the endpoint
+        # answered; they would pass just as happily if `offset` were ignored and
+        # both pages returned the same rows.
+        assert len(page1) == 2, f"limit=2 returned {len(page1)} runs: {page1}"
+        assert len(page2) == 2, f"limit=2 returned {len(page2)} runs: {page2}"
+        assert not set(page1) & set(page2), (
+            f"offset=0 and offset=2 overlap ({set(page1) & set(page2)}) -- "
+            "offset is not being applied"
+        )
+        assert set(page1) | set(page2) <= set(created)
 
 
 class TestDashboardFiltering:
     """E2E tests for dashboard filtering."""
 
-    def test_runs_filter_by_status(
+    def test_a_cancelled_run_reads_as_cancelled(
         self, gateway_client: httpx.Client, simple_agent_workflow: dict
     ) -> None:
-        """Test filtering runs by status."""
+        """A cancelled run reads back as cancelled, and stays in its list.
+
+        Renamed from `test_runs_filter_by_status`: there is no status filter on
+        the workflow-runs collection, so the old name described an endpoint that
+        has never existed.
+        """
         workflow_resp = gateway_client.post("/v1/workflows", json=simple_agent_workflow)
-        if workflow_resp.status_code not in (200, 201):
-            pytest.skip("Could not create workflow")
+        assert workflow_resp.status_code in (200, 201), (
+            f"could not create the workflow this test needs: "
+            f"{workflow_resp.status_code} {workflow_resp.text}. A setup failure is not a pass; "
+            "skipping here is what let twenty cases report green while "
+            "asserting nothing (#6)."
+        )
         workflow_id = workflow_resp.json()["id"]
 
         # Create and cancel a run
@@ -279,9 +353,37 @@ class TestDashboardFiltering:
             "/v1/workflow-runs",
             json={"workflow_id": workflow_id, "input": {}},
         )
+        assert run_resp.status_code in (200, 201), f"{run_resp.status_code} {run_resp.text}"
         run_id = run_resp.json()["id"]
-        gateway_client.post(f"/v1/workflow-runs/{run_id}/cancel")
 
-        # Filter by cancelled status
-        filter_resp = gateway_client.get("/v1/workflow-runs?status=cancelled")
-        assert filter_resp.status_code == 200
+        cancel_resp = gateway_client.post(f"/v1/workflow-runs/{run_id}/cancel")
+        assert cancel_resp.status_code in (200, 202, 204), (
+            f"cancel returned {cancel_resp.status_code}: {cancel_resp.text}"
+        )
+
+        # Assert the cancellation LANDED, by reading the run back.
+        #
+        # This used to call `GET /v1/workflow-runs?status=cancelled` and assert
+        # only that it returned 200. That endpoint does not exist -- it 405s --
+        # and there is no status filter on the collection that does
+        # (`ListWorkflowsQuery` carries limit/offset/project_id only). Even had
+        # it existed, `status_code == 200` would have passed while the filter
+        # returned every run in the database.
+        #
+        # What the test was reaching for is that a cancelled run READS as
+        # cancelled, so that is asserted directly against the resource.
+        detail = gateway_client.get(f"/v1/workflow-runs/{run_id}")
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["status"] == "cancelled", (
+            f"cancel returned {cancel_resp.status_code} but the run reads as "
+            f"{detail.json()['status']!r} -- the call was accepted and did nothing"
+        )
+
+        # ...and that it is still listed under its workflow, with that status.
+        listed = gateway_client.get(f"/v1/workflows/{workflow_id}/runs")
+        assert listed.status_code == 200, listed.text
+        payload = listed.json()
+        runs = payload if isinstance(payload, list) else payload.get("runs", [])
+        row = next((r for r in runs if r["id"] == run_id), None)
+        assert row is not None, f"cancelled run {run_id} vanished from its workflow's list"
+        assert row["status"] == "cancelled"

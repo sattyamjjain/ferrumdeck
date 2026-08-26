@@ -3,6 +3,7 @@
 import os
 import subprocess
 import time
+import uuid
 from collections.abc import Generator
 
 import httpx
@@ -51,6 +52,30 @@ def wait_for_service(url: str, timeout: int = 30) -> bool:
     return False
 
 
+def unique_name(stem: str) -> str:
+    """A workflow name no other test or run will collide with.
+
+    THE bug behind issue #6's largest remaining cluster. Every
+    workflow-creating fixture used a fixed name, and `POST /v1/workflows`
+    rejects a duplicate with `400 Resource already exists`. The callers turned
+    that into `pytest.skip("Could not create workflow")`, so:
+
+      * the FIRST test to use a fixture created the workflow and ran;
+      * every later test using the same fixture got a 400 and SKIPPED;
+      * and on a database that had ever run the suite before, even the first
+        one skipped.
+
+    Twenty cases across `tests/security` and `tests/e2e` were skipping on this,
+    reporting green while asserting nothing -- "a suite that never executes
+    looks exactly like a suite that passes", which is the sentence at the top of
+    .live-stack-known-failures.yml.
+
+    `tests/performance/test_benchmark.py` already did this correctly with a
+    `time.time()` suffix; the pattern simply never propagated.
+    """
+    return f"{stem}-{uuid.uuid4().hex[:10]}"
+
+
 @pytest.fixture(scope="session", autouse=True)
 def ensure_services_running() -> None:
     """Ensure required services are running before chaos tests."""
@@ -76,7 +101,7 @@ def api_client() -> Generator[httpx.Client, None, None]:
 def simple_workflow() -> dict:
     """Simple workflow for chaos testing."""
     return {
-        "name": "chaos-test-workflow",
+        "name": unique_name("chaos-test-workflow"),
         "version": "1.0.0",
         "definition": {
             "steps": [
