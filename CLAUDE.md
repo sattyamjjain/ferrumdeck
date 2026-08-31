@@ -163,7 +163,7 @@ Dashboard / API clients
 - Errors: `thiserror` in libraries, `anyhow` in applications
 - IDs: ULID-based, strongly typed with prefixes (`run_`, `stp_`, `agt_`) via `define_id!` in fd-core
 - DB: SQLx with compile-time checked queries (`cargo sqlx prepare --workspace`; `SQLX_OFFLINE=true` to build without a DB)
-- Published crates rename on crates.io — `fd-core` → `ferrumdeck-core`, `fd-policy` → `ferrumdeck-policy`, `fd-audit` → `ferrumdeck-audit` — while lib/import paths stay `fd_core`, `fd_policy`, `fd_audit`. `fd-dag`, `fd-otel`, `fd-storage`, `fd-registry` are unpublished.
+- Published crates rename on crates.io — `fd-core` → `ferrumdeck-core`, `fd-policy` → `ferrumdeck-policy`, `fd-audit` → `ferrumdeck-audit` — while lib/import paths stay `fd_core`, `fd_policy`, `fd_audit`. `fd-otel` → `ferrumdeck-otel` is also published, but the release workflow does not carry it (it publishes core → policy → audit → umbrella only), so it sits at 0.8.12. `fd-dag`, `fd-storage`, `fd-registry` are unpublished.
 - Lint: `cargo clippy --workspace --all-targets -- -D warnings`
 
 ### Python

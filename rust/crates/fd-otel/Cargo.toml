@@ -16,12 +16,13 @@ readme = "README.md"
 name = "fd_otel"
 
 [dependencies]
-# ^0.8.9 (the latest ferrumdeck-core ON crates.io), not the workspace version:
-# the workspace bumped past 0.8.9 without the family being re-published, and a
-# published crate must name a requirement the registry can actually satisfy.
-# fd-core is unchanged since 0.8.9, so `^0.8.9` is an accurate claim and the
-# local path dep satisfies it too.
-fd-core = { path = "../fd-core", version = "0.8.9", package = "ferrumdeck-core" }
+# Tracks the workspace version, and `scripts/bump_version.py` rewrites it on
+# every bump -- do not hand-edit. This pin previously read `^0.8.9` on the
+# reasoning that a published crate must name a requirement the registry can
+# satisfy, which was true when core had not been re-published. It stopped being
+# true at 0.8.13, and the literal stayed. That is the failure mode the bump
+# script now owns; see `internal_pins_track_workspace_version`.
+fd-core = { path = "../fd-core", version = "0.8.15", package = "ferrumdeck-core" }
 
 # OpenTelemetry
 opentelemetry = { workspace = true }
