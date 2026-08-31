@@ -337,10 +337,11 @@ make db-migrate    # Run migrations
    ```
 
    You get **202 Accepted**, not 201, and the run shows as `pending` with
-   `unclaimed: true`. That is not a bug: FerrumDeck ships **no eval executor**,
-   so nothing consumes the queue and the run will not start. It is durable and
-   queryable, and it does not pretend to be running. Committed reports are
-   ingested into the same store at gateway startup — `POST /v1/evals/ingest`
-   re-runs that by hand.
+   `unclaimed: true`. That is not a bug: FerrumDeck ships no eval executor. The
+   limitation is stated and kept current in one place —
+   [Project Status & Limitations](README.md#project-status--limitations) — rather
+   than restated here where it could drift. Committed reports are ingested into
+   the same store at gateway startup — `POST /v1/evals/ingest` re-runs that by
+   hand.
 
 8. **Add MCP Tools** - Extend capabilities in `/python/packages/fd-mcp-tools/`

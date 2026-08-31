@@ -65,7 +65,7 @@ Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_
 
 The enforcement engine is published — you can depend on it, not just clone it. One dependency via the umbrella crate:
 
-> **Current version: `v0.8.15`.** <!-- x-current-version: 0.8.15 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
+> **Current version: `v0.8.16`.** <!-- x-current-version: 0.8.16 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
 
 ```bash
 cargo add ferrumdeck
@@ -546,12 +546,12 @@ Still liveness-only and deferred on #6: the rest of `tests/e2e`, the remaining
 (velocity, coherence, base64/unicode evasion) — do not read those as proof that
 a given attack is blocked.
 
-**Automated test coverage.** The CI-gating unit/lint suites total **1,973**
-tests, re-derivable with `make claims-recount`: Rust **768**
+**Automated test coverage.** The CI-gating unit/lint suites total **2,082**
+tests, re-derivable with `make claims-recount`: Rust **819**
 (`cargo test --workspace -- --list`), Python unit **532** (`pytest` over the four
-`python/packages/*/tests` the CI unit job runs), frontend **623**
+`python/packages/*/tests` the CI unit job runs), frontend **681**
 (`jest`), and API-contract **50** (`pytest tests/api`). The live-stack suites —
-`tests/security` (78), `tests/chaos` (14), `tests/e2e` (43) — need `make dev-up`,
+`tests/security` (84), `tests/chaos` (14), `tests/e2e` (43) — need `make dev-up`,
 **skip without it**, and (per the caveat above) are still being converted from
 liveness to behaviour, so they are **excluded from that headline**;
 `tests/integration` (81) is likewise live-stack and non-gating.

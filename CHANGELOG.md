@@ -17,6 +17,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.16] - 2026-08-31
+
+### Fixed
+
+- **Five internal cross-crate version pins had gone stale, one by six releases.**
+  The umbrella asked for `ferrumdeck-policy = "0.8.12"` and `ferrumdeck-audit =
+  "0.8.12"` while the workspace was at 0.8.15; `ferrumdeck-policy` and
+  `ferrumdeck-audit` both asked for `ferrumdeck-core = "0.8.12"`; `ferrumdeck-otel`
+  asked for `"0.8.9"`. These are caret requirements, so `^0.8.12` is satisfied by
+  0.8.15 and **the workspace builds, tests and clippies green** — the drift is
+  invisible from inside the repo. It is not invisible downstream: a published
+  `ferrumdeck` carrying `ferrumdeck-policy = "^0.8.12"` lets a consumer's resolver
+  select the three-releases-old 0.8.12 and still consider the constraint met, so
+  `cargo add ferrumdeck` could pair the current umbrella with an enforcement engine
+  predating the AP2 spend gate and the schema-drift Airlock layer. All five now
+  track the workspace version.
+- `scripts/bump_version.py` rewrites those pins as part of a bump and compares them
+  in `--check`. It had been caught under-covering twice before (0.8.13 moved two of
+  eleven manifests; `08d0bb48` repaired eight by hand), and this was the surface it
+  still missed. `sub_once` replaces only the first match precisely so that
+  dependency tables are left alone — correct for an external dependency, and exactly
+  backwards for a sibling crate released in lockstep, where pinning to the project's
+  own version is the only right answer. An internal pin is identified by the
+  `package = "ferrumdeck-..."` rename on the same line.
+- `nextjs/package-lock.json` had sat at **0.8.6 for ten releases** — the same
+  defect one level down, a version-bearing file nothing compared. `--check` now
+  covers the two *tracked* lockfiles (`uv.lock`, `package-lock.json`).
+  `Cargo.lock` is gitignored, so it is deliberately excluded: comparing it would
+  report drift in a per-developer artifact no clone ships.
+- Stale claim in `handlers/evals.rs`: the module doc still said a dispatched run
+  "has nowhere to persist yet" and that a `#7` disclosure stood pending live
+  verification. 0.8.14 gave dispatched runs the `eval_runs` table and #7 is closed,
+  so the module contradicted the README on the same subject. It now describes the
+  store as it is and defers the limitation to the one place that states it.
+- Stale count in `README.md`: the live-stack line still read `tests/security` (78)
+  after 0.8.15 corrected `docs/feature-status.yml` to 84. Re-derived: 84 collected
+  (chaos 14, e2e 43, integration 81 all unchanged).
+- **The frontend test count had never been re-derived by anything.**
+  `claims-recount`'s comment read "Rust + frontend need a build; re-derive only if
+  the toolchains are present", but only the rust branch existed — so
+  `frontend: 623` was a declared number no check had ever compared against
+  reality, and it had drifted to **681**. Jest prints its summary on stderr and
+  the helper captures stdout, which is the likely reason it was never wired.
+  Re-derivation added. The rust count had drifted too (768 → **819**), which
+  `--recount` did catch, but CI runs `check_claims_integrity.py` *without*
+  `--recount`, so nothing on the merge path was looking. Headline corrected:
+  **1,973 → 2,082** (rust 819, python 532, frontend 681, api 50).
+- `CLAUDE.md` and `rust/CLAUDE.md` both listed `fd-otel` as unpublished.
+  `ferrumdeck-otel` is on crates.io at 0.8.12; the release workflow simply does not
+  carry it (it publishes core → policy → audit → umbrella), which is why it lags.
+
+### Added
+
+- `internal_pins_track_workspace_version` (`rust/crates/ferrumdeck/tests/`) asserts
+  every `package = "ferrumdeck-..."` pin equals the workspace version, so the
+  invariant holds under `cargo test` and not only under the bump script. Verified
+  non-vacuous by mutation: restoring the 0.8.12 pin fails the test and
+  `bump_version.py --check`, while `cargo build` still finishes green — which is the
+  whole reason this drifted unnoticed.
+
+### Known gaps
+
+- **The eval executor gap declared in [0.8.14] is still open.** Nothing consumes
+  `evals:pending`: `EVAL_QUEUE` is written by `dispatch_eval_run` and read by no
+  one, and `fd-worker` contains no dispatch consumer. A dispatched run stays
+  `pending`/`unclaimed`. 0.8.14 gave those runs a durable home and 0.8.15 made their
+  status meaningful, but neither added an executor, so the [0.8.14] entry stands as
+  written. What changed here is only that the limitation is now stated in one
+  place — the README's Project Status section, backed by `docs/feature-status.yml`
+  and enforced by `make check-claims` — with `QUICKSTART.md` and the `handlers/evals.rs`
+  module doc pointing at it instead of asserting it independently.
+
 ## [0.8.15] - 2026-08-26
 
 ### Added

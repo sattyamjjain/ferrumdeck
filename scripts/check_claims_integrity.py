@@ -152,7 +152,8 @@ def recount(src: dict, errors: list[str]) -> None:
                 f"test count drift [{name}]: declared {declared}, "
                 f"re-derived {actual}. Update docs/feature-status.yml + the README."
             )
-    # Rust + frontend need a build; re-derive only if the toolchains are present.
+    # Rust and frontend need their toolchains; each re-derives only if present,
+    # and a skip is printed rather than passed over.
     rust_declared = tc["gating"]["rust"]["count"]
     rust_out = _run("cargo test --workspace -- --list 2>/dev/null")
     rust_actual = sum(1 for ln in rust_out.splitlines() if ln.rstrip().endswith(": test"))
@@ -165,6 +166,26 @@ def recount(src: dict, errors: list[str]) -> None:
             )
     else:
         print("  --  rust: skipped (no build output; run `cargo test` first)")
+
+    # Frontend. This block did not exist until 0.8.16: the comment above claimed
+    # "rust + frontend" were both re-derived and only rust ever was, so
+    # `frontend: 623` was a declared number nothing had ever checked. It had
+    # drifted to 681. Jest prints its summary on STDERR, which is why `_run`
+    # (stdout only) needs the explicit redirect — capture it wrong and this
+    # degrades to a permanent silent skip, which is the failure it replaces.
+    fe_declared = tc["gating"]["frontend"]["count"]
+    fe_out = _run("cd nextjs && npm test -- --watchAll=false --ci 2>&1")
+    fe_match = re.search(r"^Tests:.*?(\d+)\s+total", fe_out, re.MULTILINE)
+    if fe_match:
+        fe_actual = int(fe_match.group(1))
+        status = "OK " if fe_actual == fe_declared else "BAD"
+        print(f"  {status} frontend: declared {fe_declared}, re-derived {fe_actual}")
+        if fe_actual != fe_declared:
+            errors.append(
+                f"test count drift [frontend]: declared {fe_declared}, re-derived {fe_actual}."
+            )
+    else:
+        print("  --  frontend: skipped (no jest summary; run `npm install --prefix nextjs`)")
 
     # Executed-test floor. Re-derived from a live-stack JUnit report rather than
     # by booting a stack: `claims-recount` must stay a local, cheap command.

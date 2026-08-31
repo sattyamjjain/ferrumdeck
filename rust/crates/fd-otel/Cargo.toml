@@ -22,7 +22,7 @@ name = "fd_otel"
 # satisfy, which was true when core had not been re-published. It stopped being
 # true at 0.8.13, and the literal stayed. That is the failure mode the bump
 # script now owns; see `internal_pins_track_workspace_version`.
-fd-core = { path = "../fd-core", version = "0.8.15", package = "ferrumdeck-core" }
+fd-core = { path = "../fd-core", version = "0.8.16", package = "ferrumdeck-core" }
 
 # OpenTelemetry
 opentelemetry = { workspace = true }

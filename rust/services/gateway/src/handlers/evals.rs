@@ -1,4 +1,4 @@
-//! Eval-read endpoints (issue #7).
+//! Eval read + dispatch endpoints (issues #7, #46 — both closed).
 //!
 //! Serves the on-disk eval **reports** the fd-evals framework writes to
 //! `evals/reports/`, so the dashboard's eval-run and regression views can read
@@ -8,19 +8,25 @@
 //! first was handled until 2026-08-16, so every safe-PR smoke and regression
 //! report was dropped before it reached the dashboard — see [`parse_stem`].
 //!
-//! ## Deployment caveat — why #7 stays disclosed
+//! ## What the store is, and the one thing it still cannot do
 //!
-//! These reports are file-backed run records. A `make run-gateway` process
-//! (cwd = repo root) resolves `evals/reports/`, and the gateway **image now bakes
-//! the committed reports** (`deploy/docker/Dockerfile.gateway` copies them and sets
-//! `FD_EVALS_REPORTS_DIR`), so a deployed container serves real data rather than
-//! `501`. When no reports directory is reachable at all these endpoints still return
-//! `501 { code: "NO_EVAL_STORE" }` — never an empty `200 { runs: [] }`, which would
-//! read as "no runs exist" (the fabricated-success class the SSE mock and eval-run
-//! POST fixes already closed). The store is **read-only committed records**: a run
-//! *dispatched* at request time has nowhere to persist yet, so the end-to-end live
-//! round-trip (dispatch → gateway → durable store → dashboard) is **not yet
-//! verified** and the #7 disclosure stays until it is confirmed on a live stack.
+//! The store is the `eval_runs` table (0.8.14, #46). Committed reports under
+//! `evals/reports/` are its **import source**, ingested at gateway startup, not a
+//! second query surface — so a dispatched run and a committed report are read back
+//! from one place. `eval_ingests` records that an ingest happened, which is what
+//! keeps "we looked and found none" (`200` with an empty list) distinct from "we
+//! never looked" (`501 { code: "NO_EVAL_STORE" }`). Neither is ever answered with a
+//! fabricated empty `200` — the class of lie the SSE mock and the eval-run POST
+//! fixes closed.
+//!
+//! The open gap is the **executor**: `dispatch_eval_run` writes to [`EVAL_QUEUE`]
+//! and nothing consumes it, so a dispatched run stays `pending` with `queued_at`
+//! set and `started_at` null. That is reported, not disguised — `202 Accepted`
+//! rather than `201`, and `unclaimed: true` on the record. The normative statement
+//! of this limitation lives in ONE place, the README's "Project Status &
+//! Limitations" section, backed by `docs/feature-status.yml` which
+//! `make check-claims` enforces. Do not restate it here; if it changes, it changes
+//! there.
 
 use std::path::{Path, PathBuf};
 
