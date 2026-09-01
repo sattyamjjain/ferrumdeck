@@ -415,6 +415,18 @@ in [`docs/compliance/safe-evidence-coverage.md`](docs/compliance/safe-evidence-c
   committed report files on every nightly run and shows, per eval, the last run
   date, pass/fail, score, consecutive-pass streak and **assertion coverage**.
 
+  That page is a snapshot — each refresh overwrites yesterday's answer, so a
+  number that has held steady for a month and one that has never been
+  re-measured render identically. The **record** is
+  [`docs/eval-health-series.jsonl`](docs/eval-health-series.jsonl): one
+  append-only row per eval run carrying the measurement date, the commit that
+  produced it, the numbers, and **the harness version that produced them** —
+  the last because two of this repo's eval numbers changed without the agent
+  changing at all. The page reprints the most recent rows so drift is visible
+  without opening the data. The file is never rewritten; a row found to be
+  wrong is corrected by appending a row with `correction_of` and `reason`, and
+  CI fails if the committed file stops being a prefix of the working one.
+
   > **Read the coverage before the score.** On its most recent committed run the
   > `regression` suite scored **1.00 with assertion coverage of 50%**: half of
   > its scorer results asserted nothing at all and returned a full score for

@@ -328,7 +328,7 @@ jobs:
                   evals/reports/governed-benchmark-*.json evals/reports/governed-benchmark-*.md \
                   2>/dev/null || true
 
-      - name: Regenerate eval-health page and fail on stale evidence
+      - name: Append the measurement series, regenerate the page, fail on stale evidence
         if: always()
         # --release turns a STALE row into a build failure. Without it the page
         # would faithfully render the problem and nothing would break, which is
@@ -338,7 +338,24 @@ jobs:
         # The page is written even when the gate fails, so a failing nightly
         # still publishes an accurate page rather than leaving the last green
         # one in place.
-        run: uv run python scripts/gen_eval_health.py --release
+        #
+        # --append-series records each new run as one line in the append-only
+        # JSONL series. Note the interaction with the commit step below, which
+        # is `if: always()` and therefore pushes even on a run where --release
+        # failed, under a [skip ci] commit nothing re-checks. That would be a way
+        # to publish a stale row, except that rows are keyed to the REPORT that
+        # produced them: a refresh that finds no unseen report appends nothing.
+        # A stale day leaves a gap in the series, which is honest, rather than a
+        # restated measurement, which is not.
+        run: uv run python scripts/gen_eval_health.py --append-series --release
+
+      - name: Assert the series was appended to, not rewritten
+        if: always()
+        # Runs after the append and before the commit. An append-only evidence
+        # file that gets rewritten is worse than no evidence file: it carries the
+        # authority of a record with the mutability of a cache. This is the only
+        # thing standing between the series and that.
+        run: uv run python scripts/gen_eval_health.py --check-series
 
       - name: Commit eval-health page
         if: always() && github.event_name == 'schedule' && github.ref == 'refs/heads/main'
@@ -347,10 +364,14 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add evals/reports/eval_*.json 2>/dev/null || true
           git add docs/eval-health.md
+          # The series is the durable half of this artifact. Committing the page
+          # without it would leave the record behind while publishing the
+          # snapshot -- the exact asymmetry this change exists to remove.
+          git add docs/eval-health-series.jsonl
           if git diff --cached --quiet; then
             echo "Eval health unchanged — nothing to commit."
           else
-            git commit -m "docs(evals): refresh eval health $(date -u +%Y-%m-%d) [skip ci]"
+            git commit -m "docs(evals): refresh eval health + append series $(date -u +%Y-%m-%d) [skip ci]"
             git push
           fi
 
@@ -362,6 +383,7 @@ jobs:
           path: |
             evals/reports/
             docs/eval-health.md
+            docs/eval-health-series.jsonl
           retention-days: 90
 
       - name: Open/refresh tracking issue on scheduled failure

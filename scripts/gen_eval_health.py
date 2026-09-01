@@ -79,6 +79,35 @@ MAX_AGE_DAYS = 14
 # table and a second gate on them would only add noise.
 STALENESS_EXEMPT: frozenset[str] = frozenset({"smoke", "regression"})
 
+# ---------------------------------------------------------------------------
+# The series.
+#
+# The page is a snapshot: every refresh overwrites yesterday's answer with
+# today's. That is a dashboard, and it is the wrong artifact for an evidence
+# obligation, which needs the opposite property -- a record that yesterday's
+# number existed and what it was. A reader cannot tell a number that has held
+# steady for a month from one that has never been measured, because both render
+# identically on a page that only ever shows the latest value.
+#
+# So each measurement also lands as one line in an append-only JSONL series.
+#
+# Rows are keyed to the REPORT that produced them, not to the refresh that
+# observed them. That choice is what makes the series trustworthy: a refresh on
+# a day when no eval ran finds no unseen report and therefore appends nothing.
+# The alternative -- one row per refresh -- would manufacture a row every night
+# restating an old measurement, and a row in an evidence file looks like a
+# measurement whether or not one happened. A missing row is an honest gap; a
+# restated row is a false claim.
+SERIES_PATH = Path("docs/eval-health-series.jsonl")
+
+# Bump when the row shape changes. Every row carries it, so a consumer reading
+# a mixed-schema file can tell which rows it understands.
+SERIES_SCHEMA = 1
+
+# How many of the most recent rows the human-readable page shows. Enough that a
+# flat line is visibly flat rather than merely current.
+SERIES_PAGE_ROWS = 20
+
 DATE_RE = re.compile(r"(20\d{6})")
 TS_RE = re.compile(r"(20\d{6})_(\d{6})")
 SUITE_NAME_RE = re.compile(r"^name:\s*[\"']?([A-Za-z0-9_-]+)[\"']?\s*$", re.M)
@@ -368,6 +397,279 @@ def collect(reports_dir: Path) -> dict[str, EvalHealth]:
     return health
 
 
+def harness_version() -> str:
+    """Version of the eval harness that produced these numbers.
+
+    Recorded per row because a score is only comparable to another score from
+    the same harness. Two of this repo's eval numbers changed without the agent
+    changing at all -- 0% then 1.00 -- because the harness changed underneath
+    them, and a series that did not record which harness produced each row
+    would present that as the agent improving.
+    """
+    return _version_from(_HARNESS_MANIFEST.read_text()) if _HARNESS_MANIFEST.exists() else "unknown"
+
+
+_HARNESS_MANIFEST = Path("python/packages/fd-evals/pyproject.toml")
+
+
+def _version_from(manifest_text: str) -> str:
+    m = re.search(r'^version\s*=\s*"([^"]+)"', manifest_text, re.M)
+    return m.group(1) if m else "unknown"
+
+
+def harness_version_at(commit: str | None) -> str:
+    """The harness version as of `commit`, not as of today.
+
+    A backfilled row records a measurement taken months ago; stamping it with
+    the CURRENT harness version would be the precise misattribution this field
+    exists to prevent. The 0% and the 1.00 this repo published for the same
+    suite differed because the harness changed, so a series that credited both
+    to today's harness would show the agent improving when nothing about the
+    agent moved.
+    """
+    if not commit:
+        return harness_version()
+    try:
+        out = subprocess.run(
+            ["git", "show", f"{commit}:{_HARNESS_MANIFEST}"],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout
+        return _version_from(out)
+    except (OSError, subprocess.CalledProcessError):
+        return harness_version()
+
+
+def _when_precision(path: Path) -> str:
+    """How precisely this report's measurement time is known.
+
+    `mtime` means the filename carried no date and the timestamp came from the
+    filesystem -- which on a fresh clone is the checkout time, not the
+    measurement time. Recording that keeps a checkout from being read as a
+    measurement.
+    """
+    if TS_RE.search(path.stem):
+        return "second"
+    if DATE_RE.search(path.stem):
+        return "day"
+    return "mtime"
+
+
+def report_commit(path: Path) -> str | None:
+    """The commit that ADDED this report -- the provenance of the measurement.
+
+    Not HEAD: HEAD is where the observer happened to be standing, which for a
+    backfilled row is today and says nothing about when the number was taken.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "log", "--diff-filter=A", "--format=%H", "-1", "--", str(path)],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout.strip()
+        return out or None
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def series_key(row: dict[str, Any]) -> tuple[str, str]:
+    """Identity of a measurement: which suite, and which report produced it."""
+    return (str(row.get("suite", "")), str(row.get("report", "")))
+
+
+def read_series(path: Path) -> list[dict[str, Any]]:
+    """Parse the series file. A malformed line is skipped, never rewritten."""
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def build_series_rows(
+    health: dict[str, EvalHealth],
+    reports_dir: Path,
+    observed_at: datetime,
+    seen: set[tuple[str, str]],
+    max_age_days: int = MAX_AGE_DAYS,
+    backfill: bool = False,
+) -> list[dict[str, Any]]:
+    """One row per committed eval run not already in the series.
+
+    `backfill` marks the rows written by the run that CREATES the series, which
+    imports the whole committed report history at once. Those rows are observed
+    today no matter when they were measured, so most would otherwise be labelled
+    stale-when-recorded and read as an operational failure. They are import
+    provenance, not a late measurement, and the two need telling apart.
+    """
+    rows: list[dict[str, Any]] = []
+
+    for name in sorted(health):
+        for run in health[name].runs:
+            key = (name, run.source)
+            if key in seen:
+                continue
+            seen.add(key)
+            path = reports_dir / run.source
+            commit = report_commit(path)
+            age = (observed_at - run.when).days
+            rows.append(
+                {
+                    "schema": SERIES_SCHEMA,
+                    "suite": name,
+                    "report": run.source,
+                    # When the eval actually ran, and how well we know that.
+                    "measured_at": run.when.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "measured_at_precision": _when_precision(path),
+                    # When this row was written. The gap between the two is the
+                    # thing a reader needs: a report committed three weeks after
+                    # it was measured is evidence about the code as it stood
+                    # then, not about the day the row appeared.
+                    "observed_at": observed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "age_at_observation_days": age,
+                    # A report committed long after it was measured. Flagged
+                    # rather than rejected: it is real evidence and belongs in
+                    # the record, but a reader must not mistake the date it
+                    # appeared for the date it was taken. Never set on a
+                    # backfilled row, where the gap is an artifact of import.
+                    "stale_at_observation": (
+                        not backfill and name not in STALENESS_EXEMPT and age > max_age_days
+                    ),
+                    "backfilled": backfill,
+                    "commit": commit,
+                    "result": "pass" if run.passed else "fail",
+                    "score": run.score,
+                    "coverage": run.coverage,
+                    "detail": run.detail,
+                    "harness_version": harness_version_at(commit),
+                }
+            )
+
+    rows.sort(key=lambda r: (str(r["measured_at"]), str(r["suite"])))
+    return rows
+
+
+def append_series(path: Path, rows: list[dict[str, Any]]) -> int:
+    """Append rows. Never opens the file for writing -- only for appending.
+
+    The mode is the enforcement. `"a"` cannot truncate, so no bug in this
+    function can rewrite a past row; the worst it can do is add a wrong one,
+    which is correctable by appending a correction and is visible in the diff.
+    A past row that silently changes is neither.
+    """
+    if not rows:
+        return 0
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, sort_keys=True) + "\n")
+    return len(rows)
+
+
+def check_series_append_only(path: Path) -> tuple[bool, str]:
+    """The committed series must be a byte-prefix of the working one.
+
+    This is the guard the whole artifact rests on. An append-only evidence file
+    that gets rewritten is worse than no evidence file, because it carries the
+    authority of a record while having the mutability of a cache. If a past row
+    was wrong, the repair is an appended correction row with a reason -- the
+    wrong row stays, because the fact that it was published is itself part of
+    the record.
+    """
+    try:
+        committed = subprocess.run(
+            ["git", "show", f"HEAD:{path}"],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        # Not in HEAD yet: a first commit of the series has nothing to violate.
+        return True, f"{path} is not yet in HEAD — nothing to compare."
+
+    current = path.read_text() if path.exists() else ""
+    if current.startswith(committed):
+        added = len(current[len(committed) :].splitlines())
+        return True, f"{path} is append-only ({added} row(s) added since HEAD)."
+
+    return False, (
+        f"{path} is NOT append-only: the committed content is no longer a prefix "
+        f"of the working file, so at least one already-published row was altered "
+        f"or removed.\n\n"
+        f"Rewriting history in an evidence file is the one change that makes the "
+        f"whole artifact worthless — a reader cannot rely on a record that can be "
+        f"edited after the fact. If a past row was wrong, append a correction row "
+        f'carrying `"correction_of"` and `"reason"` and leave the wrong row '
+        f"where it is; that it was published is part of the record.\n\n"
+        f"  git checkout HEAD -- {path}   # then re-append"
+    )
+
+
+def _series_section(rows: list[dict[str, Any]], limit: int = SERIES_PAGE_ROWS) -> list[str]:
+    """The last N measurements, so drift is visible without opening the data."""
+    out: list[str] = ["## Recent measurements", ""]
+    if not rows:
+        out += [
+            "The series file is empty. No measurement has been recorded yet — "
+            "which is a different statement from a number that has not moved.",
+            "",
+        ]
+        return out
+
+    out.append(
+        f"The last {min(limit, len(rows))} of {len(rows)} rows from "
+        f"[`eval-health-series.jsonl`](eval-health-series.jsonl), newest first. "
+        "The table above says what is true today; this says what was true before, "
+        "which is the part a snapshot throws away. **A number that has never moved "
+        "here has not been re-measured** — check `measured` against `recorded` "
+        "before reading a steady value as a stable one."
+    )
+    out.append("")
+    out.append("| Measured | Recorded | Suite | Result | Score | Harness | Detail |")
+    out.append("| --- | --- | --- | --- | --- | --- | --- |")
+
+    for row in list(reversed(rows))[:limit]:
+        measured = str(row.get("measured_at", "—"))[:10]
+        recorded = str(row.get("observed_at", "—"))[:10]
+        score = row.get("score")
+        score_s = f"{float(score):.2f}" if isinstance(score, int | float) else "—"
+        result = str(row.get("result", "—"))
+        if row.get("correction_of"):
+            result = f"correction — {result}"
+        elif row.get("stale_at_observation"):
+            result = f"{result} (stale when recorded)"
+        elif row.get("backfilled"):
+            result = f"{result} (backfilled)"
+        detail = str(row.get("detail", "")).replace("|", "\\|")
+        if row.get("reason"):
+            detail = f"{detail} — {row['reason']}"
+        out.append(
+            f"| {measured} | {recorded} | `{row.get('suite', '?')}` | {result} | "
+            f"{score_s} | {row.get('harness_version', '—')} | {detail} |"
+        )
+    out.append("")
+    out.append(
+        "The file is append-only and never rewritten by the refresh job. A row "
+        "found to be wrong is corrected by appending a row carrying "
+        "`correction_of` and `reason`; the original stays, because the fact that "
+        "it was published is part of the record. `--check-series` enforces that "
+        "the committed file remains a prefix of the working one."
+    )
+    out.append("")
+    return out
+
+
 def _verdict_prose(health: dict[str, EvalHealth]) -> str:
     """State, in sentences, what the safe-PR numbers on this page mean.
 
@@ -456,6 +758,7 @@ def render(
     health: dict[str, EvalHealth],
     generated_at: datetime,
     max_age_days: int = MAX_AGE_DAYS,
+    series: list[dict[str, Any]] | None = None,
 ) -> str:
     """Render the page.
 
@@ -473,6 +776,16 @@ def render(
         "Generated from the report files in `evals/reports/` by "
         "`scripts/gen_eval_health.py`. Regenerated on every nightly "
         "`Evaluations` run; do not edit by hand."
+    )
+    add("")
+    add(
+        "This page is the current state. The **record** is "
+        "[`eval-health-series.jsonl`](eval-health-series.jsonl): one append-only "
+        "row per eval run, carrying the date, the commit that produced it, the "
+        "numbers and the harness version. The page is regenerated and overwritten; "
+        "the series is only ever appended to. If you need to show that a number "
+        "existed on a given date rather than that it holds today, the series is "
+        "the artifact — see [Recent measurements](#recent-measurements)."
     )
     add("")
     add(
@@ -584,6 +897,9 @@ def render(
         )
         add("")
 
+    for line in _series_section(series or []):
+        add(line)
+
     add("## How a row is decided")
     add("")
     add(
@@ -626,6 +942,29 @@ def main() -> int:
         help=(
             "Override the staleness limit. For testing the gate; changing it to "
             "get a green build is the failure mode this exists to prevent."
+        ),
+    )
+    ap.add_argument(
+        "--series",
+        type=Path,
+        default=SERIES_PATH,
+        help="Path to the append-only JSONL measurement series.",
+    )
+    ap.add_argument(
+        "--append-series",
+        action="store_true",
+        help=(
+            "Append a row for every committed eval run not already in the series. "
+            "A run already recorded is skipped, so a refresh on a day when nothing "
+            "new ran appends nothing rather than restating an old measurement."
+        ),
+    )
+    ap.add_argument(
+        "--check-series",
+        action="store_true",
+        help=(
+            "Verify the committed series is still a byte-prefix of the working "
+            "one, i.e. that no already-published row was altered or removed."
         ),
     )
     ap.add_argument(
@@ -674,12 +1013,45 @@ def main() -> int:
     # A fixed timestamp line would churn the file on every run; --check
     # compares everything above it.
     now = datetime.now(tz=UTC)
-    rendered = render(health, now, args.max_age_days)
+
+    # Append BEFORE rendering, so the page shows the rows this run added rather
+    # than describing the series as it stood a moment ago. Same ordering lesson
+    # as the reports themselves: the nightly regenerated the page from N-1
+    # reports and then committed the Nth beside it, and the published page
+    # described the previous night's run forever.
+    if args.append_series:
+        existing = read_series(args.series)
+        seen = {series_key(r) for r in existing}
+        new_rows = build_series_rows(
+            health, args.reports, now, seen, args.max_age_days, backfill=not existing
+        )
+        added = append_series(args.series, new_rows)
+        if added:
+            print(f"Appended {added} row(s) to {args.series}")
+            for row in new_rows:
+                flag = " [STALE WHEN RECORDED]" if row["stale_at_observation"] else ""
+                print(f"  + {row['suite']} {row['measured_at'][:10]} {row['result']}{flag}")
+        else:
+            # Not a failure. Nothing new was measured, so nothing is claimed.
+            print(f"No new eval runs to record in {args.series}")
+
+    series = read_series(args.series)
+
+    if args.check_series:
+        ok, message = check_series_append_only(args.series)
+        print(message, file=sys.stdout if ok else sys.stderr)
+        if not ok:
+            return 1
+        if not args.check and not args.append_series:
+            # A check flag must not write. Asked only to verify the series, do
+            # only that -- regenerating the page as a side effect would make a
+            # read-only gate mutate the tree it is auditing.
+            return 0
+
+    rendered = render(health, now, args.max_age_days, series)
 
     stale = sorted(
-        name
-        for name, bucket in health.items()
-        if bucket.is_stale(now, args.max_age_days)
+        name for name, bucket in health.items() if bucket.is_stale(now, args.max_age_days)
     )
 
     if args.check:

@@ -1,7 +1,7 @@
 # FerrumDeck - Development Makefile
 # ================================
 
-.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image eval-health eval-health-check check-suite-reachability check-route-backing reproduce-readme-figures test-live-stack
+.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image eval-health eval-health-check eval-series eval-series-check check-suite-reachability check-route-backing reproduce-readme-figures test-live-stack
 
 # Default target
 help:
@@ -48,6 +48,8 @@ help:
 	@echo "  make eval-report  - Generate report from latest results"
 	@echo "  make eval-health  - Regenerate docs/eval-health.md from evals/reports/"
 	@echo "  make eval-health-check - Fail if docs/eval-health.md is stale"
+	@echo "  make eval-series  - Append new runs to docs/eval-health-series.jsonl"
+	@echo "  make eval-series-check - Fail if a published series row was rewritten"
 	@echo "  make eval-injection-defense - Run the offline injection-defense benchmark"
 	@echo "  make eval-asb     - Run the offline ASB + EU AI Act Art.50 benchmark"
 	@echo "  make bench-enforcement - Benchmark the enforcement decision-path latency (criterion)"
@@ -313,6 +315,18 @@ eval-health-check:
 	@echo "Checking docs/eval-health.md is up to date..."
 	uv run python scripts/gen_eval_health.py --check
 
+# Append one row per eval run not already recorded. The page is a snapshot that
+# each refresh overwrites; this is the record that survives it.
+eval-series:
+	@echo "Appending new eval runs to docs/eval-health-series.jsonl..."
+	uv run python scripts/gen_eval_health.py --append-series
+
+# The committed series must remain a byte-prefix of the working one. A past row
+# that changes turns an evidence file into a cache.
+eval-series-check:
+	@echo "Checking the eval series was appended to, not rewritten..."
+	uv run python scripts/gen_eval_health.py --check-series
+
 check-suite-reachability:
 	@echo "Checking every declared eval suite is reachable from a workflow trigger..."
 	uv run python scripts/check_suite_reachability.py
@@ -383,7 +397,7 @@ clean-docker:
 # CI Helpers
 # =============================================================================
 
-ci-check: check-claims check-changelog-issues eval-health-check check-suite-reachability check-route-backing
+ci-check: check-claims check-changelog-issues eval-health-check eval-series-check check-suite-reachability check-route-backing
 	@echo "Running CI checks..."
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings

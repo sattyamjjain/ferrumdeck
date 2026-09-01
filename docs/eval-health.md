@@ -2,6 +2,8 @@
 
 Generated from the report files in `evals/reports/` by `scripts/gen_eval_health.py`. Regenerated on every nightly `Evaluations` run; do not edit by hand.
 
+This page is the current state. The **record** is [`eval-health-series.jsonl`](eval-health-series.jsonl): one append-only row per eval run, carrying the date, the commit that produced it, the numbers and the harness version. The page is regenerated and overwritten; the series is only ever appended to. If you need to show that a number existed on a given date rather than that it holds today, the series is the artifact — see [Recent measurements](#recent-measurements).
+
 For whether a green row is *evidence about the agent* rather than the harness reporting on itself, see [`docs/eval-verdicts.md`](eval-verdicts.md), which carries one verdict per eval. This page answers *did it pass*; that one answers *does the pass mean anything*.
 
 FerrumDeck claims eval gating in CI. This page is the evidence for that claim. An eval that has never passed says so in its own row rather than being left out.
@@ -24,6 +26,35 @@ So neither number was ever evidence about the agent. The response is to rescope 
 | `regression` | 2026-08-30 | pass | 1.00 | 4 | 20/20 tasks passed, avg score 1.00, assertion coverage 100% |
 | `smoke` | 2026-09-01 | pass | 1.00 | 19 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
 
+## Recent measurements
+
+The last 20 of 35 rows from [`eval-health-series.jsonl`](eval-health-series.jsonl), newest first. The table above says what is true today; this says what was true before, which is the part a snapshot throws away. **A number that has never moved here has not been re-measured** — check `measured` against `recorded` before reading a steady value as a stable one.
+
+| Measured | Recorded | Suite | Result | Score | Harness | Detail |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2026-09-01 | 2026-09-01 | `smoke` | pass (backfilled) | 1.00 | 0.8.16 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
+| 2026-08-31 | 2026-09-01 | `smoke` | pass (backfilled) | 1.00 | 0.8.15 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
+| 2026-08-30 | 2026-09-01 | `regression` | pass (backfilled) | 1.00 | 0.8.15 | 20/20 tasks passed, avg score 1.00, assertion coverage 100% |
+| 2026-08-30 | 2026-09-01 | `smoke` | pass (backfilled) | 1.00 | 0.8.15 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
+| 2026-08-30 | 2026-09-01 | `injection_defense` | pass (backfilled) | 1.00 | 0.8.15 | block 100%, benign utility 100% |
+| 2026-08-30 | 2026-09-01 | `governed-benchmark` | pass (backfilled) | 1.00 | 0.8.15 | governed blocked 100% vs ungoverned 0% |
+| 2026-08-30 | 2026-09-01 | `asb` | pass (backfilled) | 1.00 | 0.8.15 | block 100%, benign utility 100% |
+| 2026-08-29 | 2026-09-01 | `smoke` | pass (backfilled) | 1.00 | 0.8.15 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
+| 2026-08-28 | 2026-09-01 | `smoke` | pass (backfilled) | 1.00 | 0.8.15 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
+| 2026-08-27 | 2026-09-01 | `smoke` | pass (backfilled) | 1.00 | 0.8.15 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
+| 2026-08-26 | 2026-09-01 | `smoke` | pass (backfilled) | 1.00 | 0.8.14 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
+| 2026-08-26 | 2026-09-01 | `injection_defense` | pass (backfilled) | 1.00 | 0.8.15 | block 100%, benign utility 100% |
+| 2026-08-26 | 2026-09-01 | `governed-benchmark` | pass (backfilled) | 1.00 | 0.8.15 | governed blocked 100% vs ungoverned 0% |
+| 2026-08-26 | 2026-09-01 | `asb` | pass (backfilled) | 1.00 | 0.8.15 | block 100%, benign utility 100% |
+| 2026-08-25 | 2026-09-01 | `smoke` | pass (backfilled) | 1.00 | 0.8.13 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
+| 2026-08-24 | 2026-09-01 | `smoke` | pass (backfilled) | 1.00 | 0.8.12 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
+| 2026-08-23 | 2026-09-01 | `regression` | pass (backfilled) | 1.00 | 0.8.12 | 20/20 tasks passed, avg score 1.00, assertion coverage 100% |
+| 2026-08-23 | 2026-09-01 | `smoke` | pass (backfilled) | 1.00 | 0.8.12 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
+| 2026-08-22 | 2026-09-01 | `smoke` | pass (backfilled) | 1.00 | 0.8.10 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
+| 2026-08-22 | 2026-09-01 | `injection_defense` | pass (backfilled) | 1.00 | 0.8.11 | block 100%, benign utility 100% |
+
+The file is append-only and never rewritten by the refresh job. A row found to be wrong is corrected by appending a row carrying `correction_of` and `reason`; the original stays, because the fact that it was published is part of the record. `--check-series` enforces that the committed file remains a prefix of the working one.
+
 ## How a row is decided
 
 | Report family | Counts as a pass when |
@@ -32,4 +63,4 @@ So neither number was ever evidence about the agent. The response is to rescope 
 | `governed-benchmark` | the governed run blocks 100% of unsafe actions |
 | `eval_<suite>_<ts>` (LLM suites) | every task passed (`failed_tasks == 0`) |
 
-_Generated 2026-09-01 07:23 UTC._
+_Generated 2026-09-01 10:55 UTC._

@@ -282,6 +282,21 @@ jobs:
           # the message says so rather than telling you to regenerate the page.
           uv run python scripts/gen_eval_health.py --check --release
 
+      - name: Assert the eval measurement series was appended to, not rewritten
+        run: |
+          # Fifth surface of the same class, and the one with the longest half
+          # life. docs/eval-health.md is a snapshot: every refresh overwrites
+          # yesterday's answer, so a number that has held steady for a month and
+          # one that has never been re-measured render identically. The record
+          # that separates them is docs/eval-health-series.jsonl, and it is only
+          # worth having if a past row cannot change.
+          #
+          # A correction is an APPENDED row carrying `correction_of` and
+          # `reason`. The wrong row stays: that it was published is part of the
+          # record, and an evidence file that can be edited after the fact is
+          # not evidence.
+          uv run python scripts/gen_eval_health.py --check-series
+
       - name: Assert no route serves plausible data without a backend
         run: |
           # Fourth and last surface of the same class. An eval that never runs, a

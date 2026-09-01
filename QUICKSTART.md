@@ -296,6 +296,12 @@ make db-migrate    # Run migrations
    [`docs/eval-health.md`](docs/eval-health.md) from the committed report files:
    per eval, the last run date, pass/fail, score and consecutive-pass streak.
    Evals that have never passed are labelled as such rather than omitted.
+
+   That page is today's answer. `make eval-series` appends each new run to
+   [`docs/eval-health-series.jsonl`](docs/eval-health-series.jsonl), an
+   append-only record of what the numbers were on the days they were taken —
+   with the commit and harness version behind each one. `make eval-series-check`
+   fails if a published row was rewritten rather than corrected by appending.
 5. **Read the eval results the gateway serves** - the read path is backed by the
    committed reports in `evals/reports/`, not a stub:
 

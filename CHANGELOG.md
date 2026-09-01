@@ -17,6 +17,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`docs/eval-health.md` was a dashboard; it is now the front page of a record.**
+  Every refresh overwrote yesterday's answer, so a number that had held steady for
+  a month and a number that had never been re-measured rendered identically. Each
+  eval run now also lands as one line in
+  **`docs/eval-health-series.jsonl`**, append-only: measurement date, the commit
+  that produced the report, suite, result, score, assertion coverage, and the
+  harness version. The page reprints the most recent rows so drift is visible
+  without opening the data file.
+
+  The harness version is on every row because two of this repo's eval numbers
+  changed without the agent changing at all — the safe-PR suite read 0%, then
+  1.00, both times describing the harness. A series that credited every
+  historical row to today's harness would render that as improvement. Rows are
+  therefore stamped with the version read from the commit that produced them;
+  the backfill of the 35 committed reports spans **eleven harness versions
+  (0.8.6 → 0.8.16)**.
+
+  Rows are keyed to the **report** that produced them, not to the refresh that
+  observed them. This is what makes the file trustworthy rather than merely
+  long: a refresh on a day when no eval ran finds no unseen report and appends
+  nothing. One row per refresh would have restated an old measurement every
+  night, and a row in an evidence file reads as a measurement whether or not one
+  happened. A missing row is an honest gap; a restated row is a false claim.
+  That matters here specifically because the nightly's commit step is
+  `if: always()` and pushes under `[skip ci]` even on a run where the
+  `--release` staleness gate failed — so the gate alone was not going to stop a
+  stale row. Each row also carries `measured_at` and `observed_at` separately,
+  with `stale_at_observation` set when a report is committed more than
+  `MAX_AGE_DAYS` after it was taken, so a late-committed report cannot be read
+  as a fresh one.
+
+  The file is never rewritten. `gen_eval_health.py --check-series` fails if the
+  committed content stops being a byte-prefix of the working file, and it runs in
+  CI and in the nightly before the commit step. A row found to be wrong is
+  corrected by **appending** a row carrying `correction_of` and `reason`; the
+  wrong row stays, because the fact that it was published is part of the record.
+  An evidence file that can be edited after the fact carries the authority of a
+  record with the mutability of a cache, which is worse than having none.
+
+  Backfilled rows are marked `backfilled: true` and are never labelled stale —
+  importing history is not the same event as committing a report late, and
+  conflating them would have flagged 22-day-old imports as an operational
+  failure on day one.
+
 ### Notes
 
 - **Issues #9 and #11 triaged after 35 days open across four releases
