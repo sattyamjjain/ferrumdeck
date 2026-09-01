@@ -5,6 +5,14 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+  # Manual trigger. Added after a push to main on 2026-09-01 created no run at
+  # all -- Actions reported operational, the repo was public with Actions
+  # enabled and the CI workflow active, and the push event simply never
+  # produced one. Without a dispatch trigger there was no way to start CI for
+  # that commit short of pushing another one. A gate you cannot run on demand is
+  # a gate you cannot confirm ran, which is the failure this repo keeps finding
+  # in other forms.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
