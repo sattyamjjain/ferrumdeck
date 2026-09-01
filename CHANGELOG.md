@@ -17,6 +17,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Notes
+
+- **Issues #9 and #11 triaged after 35 days open across four releases
+  (0.8.13 → 0.8.16).** Both were filed 2026-07-28 and neither moved. Recording
+  the outcome here rather than leaving it in a comment thread, on the same
+  principle as the reconciliation note at the top of this file: a bookkeeping
+  decision that is not written down is indistinguishable from not having made
+  one.
+
+  Both were **SCOPED** — neither was unwanted, both were mis-scoped, and in both
+  cases the issue as written asked for the expensive half of the work.
+
+  - **#9** (harness suggestion applies a policy change) is reduced to
+    **narrowing-only**: an auto-apply may remove a tool, lower a budget or
+    tighten a rule, never widen. This is the one place in the repo where a
+    mistake writes to a policy plane rather than to a log, and the direction
+    constraint is what bounds it — it turns the worst case from silent privilege
+    escalation, which succeeds invisibly, into self-inflicted denial of service,
+    which fails loudly. Acceptance criteria added for a reversal path, an
+    apply-time re-check against the policy state at apply time rather than at
+    approval time, and rollback when the audit write fails. Note that **#10 has
+    since closed**, so the "an approval is not attributable to an authenticated
+    human" blocker recorded in the earlier triage no longer holds.
+  - **#11** (optional enforcement on the reliability signals) is reduced to
+    **measure the false-positive rate first**. The enforcement mechanism already
+    exists — `coherence.rs` carries the shadow/enforce split and `handlers/runs.rs`
+    gates on it through the R3 rung. What does not exist is the number: README
+    and both runbooks say "non-zero false-positive rate" in prose and no figure
+    appears anywhere. Enforcement on an unmeasured signal converts a reliability
+    feature into an availability incident, since the failure mode is a correct run
+    parked at a gate. The measurement is itself larger than it looks: the golden
+    fixture holds 6 cases, **2** of them negative, and a rate derived from two
+    hand-written negatives would be its own fabricated precision claim, so a
+    negative corpus has to be built first. Claim-grounding enforcement is
+    descoped from #11 — it lives in `fd-otel`, off the decision path entirely,
+    and bundling the two is part of why the issue never moved.
+
+
 ## [0.8.16] - 2026-08-31
 
 ### Fixed
