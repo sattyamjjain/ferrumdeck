@@ -295,9 +295,16 @@ jobs:
       # in the history for no added evidence. Weekly gives a 7-day cadence
       # against the 14-day staleness limit: a full missed week of margin before
       # the gate fires.
+      # `eval-coherence-fp` joins them, and it is the one with teeth: the
+      # gateway refuses to activate FERRUMDECK_COHERENCE_MODE=enforce when this
+      # measurement is missing or older than 14 days. Letting it lapse does not
+      # produce a wrong number, it silently turns a requested gate off -- so
+      # this step is what keeps the enforce switch usable at all.
       - name: Re-run the offline headline benchmarks (weekly)
         if: always() && github.event.schedule == '0 3 * * 0'
-        run: make eval-injection-defense && make eval-asb && make bench-governed
+        run: |
+          make eval-injection-defense && make eval-asb && make bench-governed
+          make eval-coherence-fp
 
       - name: Stage this run's report BEFORE regenerating the page
         if: always() && github.event_name == 'schedule' && github.ref == 'refs/heads/main'
@@ -326,6 +333,7 @@ jobs:
           git add evals/reports/asb-*.json evals/reports/asb-*.md \
                   evals/reports/injection_defense-*.json evals/reports/injection_defense-*.md \
                   evals/reports/governed-benchmark-*.json evals/reports/governed-benchmark-*.md \
+                  evals/reports/coherence_fp-*.json evals/reports/coherence_fp-*.md \
                   2>/dev/null || true
 
       - name: Append the measurement series, regenerate the page, fail on stale evidence

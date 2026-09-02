@@ -14,6 +14,7 @@ use tower_http::{
 };
 use tracing::{info, warn};
 
+mod coherence_evidence;
 mod events;
 mod handlers;
 mod middleware;

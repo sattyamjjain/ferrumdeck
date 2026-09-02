@@ -512,8 +512,8 @@ mod registry_tests {
 #[cfg(test)]
 mod health_tests {
     use crate::handlers::health::{
-        AirlockCoverageReport, ComponentHealth, ComponentStatus, HealthResponse,
-        LayerCoverageReport, ReadinessResponse,
+        AirlockCoverageReport, CoherenceEnforcementReport, ComponentHealth, ComponentStatus,
+        HealthResponse, LayerCoverageReport, ReadinessResponse,
     };
 
     #[test]
@@ -545,6 +545,16 @@ mod health_tests {
         }
     }
 
+    /// Enforcement refused for want of a measurement — the default an operator
+    /// gets, and the state these readiness fixtures should represent.
+    fn shadow_enforcement() -> CoherenceEnforcementReport {
+        CoherenceEnforcementReport {
+            requested: false,
+            active: false,
+            reason: "refused: no measurement series".to_string(),
+        }
+    }
+
     fn full_coverage() -> AirlockCoverageReport {
         AirlockCoverageReport {
             anti_rce: full_layer(),
@@ -571,6 +581,7 @@ mod health_tests {
                 },
             },
             airlock_coverage: full_coverage(),
+            coherence_enforcement: shadow_enforcement(),
         };
 
         let json = serde_json::to_string(&response).unwrap();
@@ -598,6 +609,7 @@ mod health_tests {
                 },
             },
             airlock_coverage: full_coverage(),
+            coherence_enforcement: shadow_enforcement(),
         };
 
         assert_eq!(response.status, "not_ready");

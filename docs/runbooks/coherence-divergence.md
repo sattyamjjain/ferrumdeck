@@ -64,7 +64,8 @@ Two modes, mirroring the Airlock shadow/enforce convention:
 
 - **`shadow` (default)** — the chosen rung is **recorded + surfaced** (audit
   details, SSE, the run's `response_level`), but the run is **never gated**.
-  Safe for the heuristic's false-positive rate.
+  Safe for the heuristic's false-positive rate, which is **10.42%** (25/240 benign
+  trajectories, Wilson 95% CI [7.16%, 14.92%] — `make eval-coherence-fp`).
 - **`enforce`** (`FERRUMDECK_COHERENCE_MODE=enforce`) — an **R3** divergence
   **gates the run**: its status is set to `WaitingApproval` for human review
   instead of `Completed`. R1/R2 are recorded but not gated.
@@ -81,8 +82,9 @@ The `shadow`/`enforce` switch is exactly the DeepMind **AI Control Roadmap**
   recorded to the audit trail + surfaced (SSE, the Coherence card), and a human
   reviews after the fact. The roadmap deems R1 acceptable for **low-risk,
   easily reversible** actions — which is the right default here because the
-  detector is a lexical heuristic with a non-zero false-positive rate, so you
-  do not want it halting runs unattended.
+  detector is a lexical heuristic whose **measured** false-positive rate is
+  **10.42%** (Wilson 95% CI [7.16%, 14.92%]), so you do not want it halting runs
+  unattended.
 - **`enforce` ≈ R3 (synchronous).** An R3 divergence (default severity → R3)
   **blocks before the run proceeds**: the run is set to `WaitingApproval` for
   human review instead of `Completed`. The roadmap's guidance is that **R1 async
@@ -93,7 +95,10 @@ The `shadow`/`enforce` switch is exactly the DeepMind **AI Control Roadmap**
 **Rule of thumb.** Flip `FERRUMDECK_COHERENCE_MODE=enforce` for agents that can
 take irreversible, high-consequence actions (prod deploys, payments, data
 deletion, external comms) and where a false-positive gate (a run parked at
-`WaitingApproval` until a human clears it) is an acceptable cost. Keep the
+`WaitingApproval` until a human clears it) is an acceptable cost. Price that cost
+with the measured rate rather than a feeling: at **10.42%**, roughly **one correct
+run in ten** is parked, so `enforce` needs someone actually watching the approval
+queue. Keep the
 default `shadow` for exploratory / reversible workloads where you want the
 signal recorded but not the friction. Coverage and time-to-response are
 unchanged by the mode — only the *response* (record vs gate) differs.
@@ -133,8 +138,28 @@ The response ladder is anchored in `fd_policy::reversibility`
 `lookahead` (default 8), `risk_score` (70), `min_confidence` (0.5). Env toggles:
 
 - `FERRUMDECK_COHERENCE_ENABLED=false` — disable the monitor entirely.
-- `FERRUMDECK_COHERENCE_MODE=enforce` — gate R3 divergences (default `shadow`,
-  which records + surfaces but never gates).
+- `FERRUMDECK_COHERENCE_MODE=enforce` — **request** gating of R3 divergences
+  (default `shadow`, which records + surfaces but never gates).
+- `FERRUMDECK_COHERENCE_FP_SERIES` — path to the append-only measurement series
+  (default `docs/eval-health-series.jsonl`).
+
+### Enforce is requested, not switched
+
+Setting `enforce` does not by itself gate anything. `coherence_evidence.rs` reads
+the newest `coherence_fp` row from the measurement series and **refuses** to
+activate enforcement when any of these holds:
+
+| Condition | Why it refuses |
+| --- | --- |
+| no series file | gating on an unmeasured lexical matcher is an availability risk of unknown size |
+| no `coherence_fp` row | same — the file exists but nothing has measured this detector |
+| measurement older than 14 days | the keyword lists are hand-edited, so an old rate describes a different matcher |
+| rate above `MAX_FP_RATE_FOR_ENFORCE` (15%) | worse than today's data says the true rate plausibly already is |
+
+A refusal logs at **ERROR** and is reported on `/ready` under
+`coherence_enforcement` as `{requested, active, reason}` — because an operator who
+asked for a gate and did not get one must not have to infer that from runs that
+never park. Re-measure with `make eval-coherence-fp` and commit the report.
 
 ## Limitation — single-process trajectory state
 

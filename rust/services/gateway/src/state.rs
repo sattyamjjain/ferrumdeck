@@ -56,6 +56,17 @@ pub struct AppState {
     /// is never gated. Mirrors the Airlock shadow/enforce convention.
     pub coherence_enforce: bool,
 
+    /// Why [`Self::coherence_enforce`] is what it is. Surfaced on `/ready` so an
+    /// operator who set `FERRUMDECK_COHERENCE_MODE=enforce` and did not get a
+    /// gate can see the reason without reading boot logs — the same treatment
+    /// `airlock_coverage` gets, for the same reason.
+    pub coherence_enforce_reason: String,
+
+    /// Whether enforce mode was asked for, independent of whether it was
+    /// granted. Without this, "enforce: false" cannot be told apart from
+    /// "nobody asked".
+    pub coherence_enforce_requested: bool,
+
     /// How long a human has to act on an approval gate before it expires
     /// (`FERRUMDECK_APPROVAL_TTL_SECS`, default 3600).
     ///
@@ -438,12 +449,34 @@ impl AppState {
                 .unwrap_or(true),
             ..CoherenceConfig::default()
         };
-        let coherence_enforce = std::env::var("FERRUMDECK_COHERENCE_MODE")
+        // Enforce mode is REQUESTED here and granted below only if there is a
+        // measured false-positive rate to justify it. Asking is not the same as
+        // being allowed: this detector is a lexical matcher, and gating runs on
+        // an unmeasured matcher trades a reliability signal for an availability
+        // risk of unknown size. See `crate::coherence_evidence`.
+        let coherence_enforce_requested = std::env::var("FERRUMDECK_COHERENCE_MODE")
             .map(|v| v.eq_ignore_ascii_case("enforce"))
             .unwrap_or(false);
+
+        let coherence_evidence = crate::coherence_evidence::decide_now();
+        let coherence_enforce = coherence_enforce_requested && coherence_evidence.allowed();
+
+        if coherence_enforce_requested && !coherence_enforce {
+            // ERROR, not WARN. The operator asked for a gate and is not getting
+            // one; silently running in shadow while the config says `enforce`
+            // is the failure this whole module exists to prevent.
+            tracing::error!(
+                requested = true,
+                active = false,
+                reason = %coherence_evidence.explain(),
+                "FERRUMDECK_COHERENCE_MODE=enforce REFUSED — running in shadow"
+            );
+        }
         tracing::info!(
             enabled = coherence_config.enabled,
+            enforce_requested = coherence_enforce_requested,
             enforce = coherence_enforce,
+            evidence = %coherence_evidence.explain(),
             "Coherence-divergence monitor initialized"
         );
         let coherence = Arc::new(CoherenceMonitor::new());
@@ -468,6 +501,8 @@ impl AppState {
             coherence,
             coherence_config,
             coherence_enforce,
+            coherence_enforce_reason: coherence_evidence.explain(),
+            coherence_enforce_requested,
             airlock_coverage,
             approval_ttl_secs,
             queue: Arc::new(queue),

@@ -47,6 +47,27 @@ pub struct ReadinessResponse {
     /// reading logs: still `0` after traffic has flowed means the push path is
     /// not wired, not that nothing happened.
     pub realtime_events_published: u64,
+    /// Whether the coherence monitor is actually gating runs, and why.
+    ///
+    /// Reported for the same reason `airlock_coverage` is, and one reason of its
+    /// own: `enforce` is the only setting in this service that can be *asked
+    /// for and refused*. It is refused when no measured false-positive rate
+    /// backs it, because gating on an unmeasured lexical matcher is an
+    /// availability risk of unknown size. An operator who set
+    /// `FERRUMDECK_COHERENCE_MODE=enforce` and did not get a gate needs to see
+    /// that here rather than infer it from runs that never park.
+    pub coherence_enforcement: CoherenceEnforcementReport,
+}
+
+/// Requested-vs-active state of coherence enforcement, with the reason.
+#[derive(Serialize, ToSchema)]
+pub struct CoherenceEnforcementReport {
+    /// `FERRUMDECK_COHERENCE_MODE=enforce` was set.
+    pub requested: bool,
+    /// Enforcement is actually gating runs.
+    pub active: bool,
+    /// The measured-evidence decision, in one line.
+    pub reason: String,
 }
 
 /// Coverage for every name-matched Airlock layer.
@@ -205,6 +226,11 @@ pub async fn readiness_check(
             exfiltration: LayerCoverageReport::from(&state.airlock_coverage.exfiltration),
         },
         realtime_events_published: state.events.latest_seq(),
+        coherence_enforcement: CoherenceEnforcementReport {
+            requested: state.coherence_enforce_requested,
+            active: state.coherence_enforce,
+            reason: state.coherence_enforce_reason.clone(),
+        },
     };
 
     if all_healthy {

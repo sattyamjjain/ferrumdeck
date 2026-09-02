@@ -14,12 +14,12 @@ readme = "README.md"
 
 [dependencies]
 # Re-exports the enforcement decision path; import path stays `fd_policy`.
-fd-policy = { path = "../fd-policy", version = "0.8.16", package = "ferrumdeck-policy" }
+fd-policy = { path = "../fd-policy", version = "0.8.17", package = "ferrumdeck-policy" }
 # Optional: the audit trail + out-of-band chain-head checkpoint anchoring
 # (0.8.0's headline feature, #14) lives in `ferrumdeck-audit`. Behind a feature
 # so a plain `cargo add ferrumdeck` stays the lean policy engine, and
 # `cargo add ferrumdeck --features audit` reaches it (import path `fd_audit`).
-fd-audit = { path = "../fd-audit", version = "0.8.16", package = "ferrumdeck-audit", optional = true }
+fd-audit = { path = "../fd-audit", version = "0.8.17", package = "ferrumdeck-audit", optional = true }
 
 [features]
 # Off by default: the umbrella is the enforcement engine unless you opt in.
