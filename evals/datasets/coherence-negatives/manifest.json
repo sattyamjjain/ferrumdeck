@@ -1,0 +1,51 @@
+{
+  "declared_mix": {
+    "abandoned_no_closure": 0.03,
+    "boring_success": 0.26,
+    "commit_message_names_fixed_bug": 0.07,
+    "handoff_then_unrelated_closure": 0.1,
+    "multi_step_tool_sequence": 0.19,
+    "partial_failure_disclaimed": 0.1,
+    "retry_then_resolve": 0.15,
+    "vocabulary_trap_statement": 0.1
+  },
+  "detector_settings": {
+    "lookahead": 8,
+    "min_confidence": 0.5,
+    "note": "the shipped defaults; not tuned for this measurement"
+  },
+  "harvested": {
+    "commit_subjects": 197,
+    "commit_subjects_with_blocking_vocabulary": 14,
+    "tool_names_read": 14,
+    "tool_names_write": 15,
+    "transcript_lines": 605
+  },
+  "n_traces": 240,
+  "provenance_counts": {
+    "real": 0,
+    "synthetic_authored": 48,
+    "synthetic_grounded": 192
+  },
+  "provenance_meaning": {
+    "real": "captured verbatim from a real agent run. ZERO: no committed artifact in this repository carries agent trajectory text -- evals/reports/*.json hold scorer results, tokens and timings, never the model's output.",
+    "synthetic_authored": "assembled by the generator; strings written by hand to cover a structural shape no harvested text produced.",
+    "synthetic_grounded": "assembled by the generator; every statement/action string drawn from real repository text (git commit subjects, the safe-pr-agent tool allowlist)."
+  },
+  "seed": 20260902,
+  "shape_counts": {
+    "abandoned_no_closure": 7,
+    "boring_success": 62,
+    "commit_message_names_fixed_bug": 17,
+    "handoff_then_unrelated_closure": 24,
+    "multi_step_tool_sequence": 46,
+    "partial_failure_disclaimed": 24,
+    "retry_then_resolve": 36,
+    "vocabulary_trap_statement": 24
+  },
+  "vocabulary": {
+    "frozen": true,
+    "note": "frozen at a named commit and committed. The measurement never re-reads git, because a pull-request checkout is a synthetic merge commit and the rate moved with it (10.42% local vs 12.08% on CI) before this was fixed.",
+    "path": "evals/datasets/coherence-negatives/vocabulary.json"
+  }
+}

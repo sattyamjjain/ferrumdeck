@@ -51,6 +51,7 @@ EXPECTED_EVALS: dict[str, str] = {
     "asb": "Agent Security Bench + EU AI Act Art.50 (offline, seeded)",
     "injection_defense": "Prompt-injection defense benchmark (offline)",
     "governed-benchmark": "Governed vs ungoverned overhead (offline)",
+    "coherence_fp": "Coherence-monitor false-positive rate on benign traces (offline, seeded)",
 }
 
 # How old a headline eval's most recent COMMITTED report may be before the page
@@ -147,6 +148,11 @@ class RunRecord:
     coverage: float | None = None
     # Scorer names that skipped on every task of the run.
     always_skipped: tuple[str, ...] = ()
+    # Extra machine-readable numbers this report family carries into its series
+    # row. Kept as a bag rather than as new columns because only one family
+    # populates it, and because the alternative -- a second series file with a
+    # second schema -- is the thing the series was created to avoid.
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 # Messages a scorer emits when it had nothing to assert. Reports written before
@@ -312,6 +318,44 @@ def _classify(path: Path, data: dict[str, Any]) -> RunRecord | None:
             pct / 100.0,
             f"governed blocked {pct:.0f}% vs ungoverned {ungoverned:.0f}%",
             path.name,
+        )
+
+    # Coherence false-positive rate (offline, seeded; fd_evals.coherence_negatives).
+    if "false_positive_rate" in data:
+        fp = data.get("false_positive_rate") or {}
+        rate = float(fp.get("rate") or 0.0)
+        # `ci95_low` / `ci95_high` / `successes` are the repo's existing Wilson
+        # keys (ProportionCI.to_dict), shared with asb and injection_defense.
+        ci_low = float(fp.get("ci95_low") or 0.0)
+        ci_high = float(fp.get("ci95_high") or 0.0)
+        flagged = int(fp.get("successes") or 0)
+        total = int(fp.get("total") or 0)
+        prov = data.get("by_provenance") or {}
+        real_n = int((prov.get("real") or {}).get("total") or 0)
+        # `score` is specificity (1 - FP), not the FP rate, so that "higher is
+        # better" holds for every row in the series. A column where one suite
+        # improves by going up and another by going down is a column nobody can
+        # read at a glance.
+        return RunRecord(
+            "coherence_fp",
+            when,
+            passed=total > 0,
+            score=(1.0 - rate) if total else None,
+            detail=(
+                f"false-positive rate {rate:.2%} ({flagged}/{total}), "
+                f"Wilson 95% CI [{ci_low:.2%}, {ci_high:.2%}]; "
+                f"{real_n} trace(s) from a real agent run"
+            ),
+            source=path.name,
+            extra={
+                "fp_rate": rate,
+                "fp_flagged": flagged,
+                "fp_total": total,
+                "fp_ci95_low": ci_low,
+                "fp_ci95_high": ci_high,
+                "fp_ci_method": str(fp.get("ci_method") or "wilson_95"),
+                "corpus_real_traces": real_n,
+            },
         )
 
     # EvalRunSummary (the LLM-backed suites written by `fd_evals run`).
@@ -553,6 +597,7 @@ def build_series_rows(
                     "coverage": run.coverage,
                     "detail": run.detail,
                     "harness_version": harness_version_at(commit),
+                    **run.extra,
                 }
             )
 

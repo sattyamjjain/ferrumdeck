@@ -65,7 +65,7 @@ Full table, workloads, reproduce commands + honest caveats: [`fd-evals/GOVERNED_
 
 The enforcement engine is published — you can depend on it, not just clone it. One dependency via the umbrella crate:
 
-> **Current version: `v0.8.16`.** <!-- x-current-version: 0.8.16 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
+> **Current version: `v0.8.17`.** <!-- x-current-version: 0.8.17 --> `cargo add ferrumdeck` pulls the latest published release. The `--features audit` variant below has resolved since **0.8.4** — the release that first published `ferrumdeck-audit`; on 0.8.0–0.8.1 that command errored, because the crate was unpublished and the name unclaimed. (This version line is asserted against the workspace version by a test, so it can't silently go stale.)
 
 ```bash
 cargo add ferrumdeck
@@ -184,7 +184,7 @@ uv run python -m fd_evals asb --suite asb --seed 0   # or: make eval-asb
 COHERENCE OK ✓  2 divergences fired (both R3), control clean. In enforce mode each R3 gates the run for review.
 ```
 
-Against the live gateway the same divergence writes an `audit_events` row with `violation_type=coherence_divergence`, emits the `coherence.divergence.detected` SSE event, and surfaces on the run's **Coherence** card. It runs **shadow by default** (records + surfaces, never blocks); set `FERRUMDECK_COHERENCE_MODE=enforce` to gate an R3 divergence (run → `WaitingApproval`). This is the **enforce-not-observe** wedge: FerrumDeck acts on the drift, it doesn't just chart it.
+Against the live gateway the same divergence writes an `audit_events` row with `violation_type=coherence_divergence`, emits the `coherence.divergence.detected` SSE event, and surfaces on the run's **Coherence** card. It runs **shadow by default** (records + surfaces, never blocks); set `FERRUMDECK_COHERENCE_MODE=enforce` to gate an R3 divergence (run → `WaitingApproval`). Setting it is a request, not a switch: the gateway **refuses to activate enforce mode unless a measured false-positive rate is in the committed series and under the threshold named in `coherence_evidence.rs`**, and says so on `/ready`. Enforcing on an unmeasured matcher is an availability risk of unknown size. This is the **enforce-not-observe** wedge: FerrumDeck acts on the drift, it doesn't just chart it.
 
 ### Mapping to the DeepMind AI Control Roadmap (D1–D4 / R1–R3)
 
@@ -204,7 +204,7 @@ Google DeepMind's [**AI Control Roadmap**](https://storage.googleapis.com/deepmi
 - **Recall** — the divergence pattern is the Strained-Coherence signal (`arxiv:2606.07889`); the shared cross-plane golden fixture pins detection so recall doesn't silently regress.
 - **Time-to-response** — `CoherenceMonitor::observe_event` fires **mid-run**, the instant a divergence completes, *before the run finishes* — not only in a post-hoc autopsy. That is what moves the same signal from R1 (async) to R3 (synchronous) when `enforce` is on.
 
-**Honest scope.** R3 enforcement of a coherence divergence is **opt-in** (`FERRUMDECK_COHERENCE_MODE=enforce`) and **shadow-by-default** — the heuristic is a lexical matcher with a non-zero false-positive rate, so gating is a deliberate choice for high-consequence agents (the roadmap's own point: R1 async review is insufficient for critical-infrastructure agents where a harmful action can't be undone after the fact). The mapping above is **machine-checked**: `examples/demo/coherence-drift.py` prints and asserts the `R3 → "DeepMind R3: synchronous block-before-execute"` label and that the `enforce` path gates it, exiting non-zero if that ever stops holding. Several advertised layers remain in-progress — see **[Project Status & Limitations](#project-status--limitations)** before relying on any tier.
+**Honest scope.** R3 enforcement of a coherence divergence is **opt-in** (`FERRUMDECK_COHERENCE_MODE=enforce`) and **shadow-by-default**. The heuristic is a lexical matcher, and its **measured false-positive rate is 10.42%** (25 of 240 benign trajectories, Wilson 95% CI [7.16%, 14.92%]; `make eval-coherence-fp`, [report](evals/reports/coherence_fp-20260902.md)) — so roughly **one correct run in ten would be parked at an approval gate**, and gating is a deliberate choice for high-consequence agents (the roadmap's own point: R1 async review is insufficient for critical-infrastructure agents where a harmful action can't be undone after the fact). The mapping above is **machine-checked**: `examples/demo/coherence-drift.py` prints and asserts the `R3 → "DeepMind R3: synchronous block-before-execute"` label and that the `enforce` path gates it, exiting non-zero if that ever stops holding. Several advertised layers remain in-progress — see **[Project Status & Limitations](#project-status--limitations)** before relying on any tier.
 
 ---
 
@@ -558,9 +558,9 @@ Still liveness-only and deferred on #6: the rest of `tests/e2e`, the remaining
 (velocity, coherence, base64/unicode evasion) — do not read those as proof that
 a given attack is blocked.
 
-**Automated test coverage.** The CI-gating unit/lint suites total **2,082**
-tests, re-derivable with `make claims-recount`: Rust **819**
-(`cargo test --workspace -- --list`), Python unit **532** (`pytest` over the four
+**Automated test coverage.** The CI-gating unit/lint suites total **2,108**
+tests, re-derivable with `make claims-recount`: Rust **829**
+(`cargo test --workspace -- --list`), Python unit **548** (`pytest` over the four
 `python/packages/*/tests` the CI unit job runs), frontend **681**
 (`jest`), and API-contract **50** (`pytest tests/api`). The live-stack suites —
 `tests/security` (84), `tests/chaos` (14), `tests/e2e` (43) — need `make dev-up`,

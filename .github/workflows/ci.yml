@@ -792,6 +792,13 @@ jobs:
       - name: Governance eval suites (injection-defense, ASB, governed-vs-ungoverned)
         run: make eval-injection-defense && make eval-asb && make bench-governed
 
+      # The coherence false-positive rate, on the same terms: seeded, offline,
+      # no LLM. Run on every push and PR so a change to the detector's keyword
+      # lists -- which are hand-edited -- cannot move the rate without the
+      # number moving in the same commit.
+      - name: Coherence monitor false-positive rate
+        run: make eval-coherence-fp
+
       # The real fd_policy engine tests that pin those same numbers + the AP2
       # signed-Mandate gate. (Crate published as `ferrumdeck-policy`.)
       - name: Real-engine governance pins

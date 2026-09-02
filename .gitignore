@@ -148,6 +148,14 @@ evals/reports/*.md
 !evals/reports/injection_defense-*.md
 !evals/reports/governed-benchmark-*.json
 !evals/reports/governed-benchmark-*.md
+# `coherence_fp` joins them on the same terms: seeded (SEED in
+# fd_evals.coherence_negatives), offline, no LLM, byte-identical between a local
+# and a CI run. It is un-ignored FROM THE START rather than added later, because
+# the sixteen-day gap above was created by exactly that lag -- a report family
+# that had to be force-added was one a plain `git add -A` silently dropped, and
+# the gate that now depends on this number reads it out of the committed series.
+!evals/reports/coherence_fp-*.json
+!evals/reports/coherence_fp-*.md
 
 # =============================================================================
 # Artifacts (runtime outputs)

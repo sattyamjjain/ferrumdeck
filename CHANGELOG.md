@@ -17,6 +17,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The coherence monitor's false-positive rate is measured and published:
+  10.42% (25 of 240 benign trajectories), Wilson 95% CI [7.16%, 14.92%]**
+  ([#11]). For four releases the only statement of this detector's precision
+  anywhere in the repository was the phrase "non-zero false-positive rate" in
+  the README and both runbooks, while `FERRUMDECK_COHERENCE_MODE=enforce` could
+  already park a run at `WaitingApproval`. Enforcement on an unmeasured signal
+  is not a reliability feature: its failure mode is a correct run parked at a
+  gate, so an unknown rate is an unknown availability risk. At the measured
+  rate, roughly **one correct run in ten** is parked, and that now sits next to
+  the switch in `README.md` and the runbook instead of being described as
+  "non-zero".
+
+- A benign corpus of **240 trajectories** (`evals/datasets/coherence-negatives/`),
+  generated deterministically from seed 20260902 and committed, replacing the
+  **two** hand-written negative cases in the golden fixture that the #11 triage
+  identified as too few to support a rate. Eight shapes in a declared mix
+  weighted toward the boring successful run: multi-step tool sequences, retries,
+  partial failures with a disclaimer, long runs, hand-offs, vocabulary traps,
+  commits naming the bug they fix, and abandoned runs. Every trace carries a
+  `why_benign` line, because a false-positive rate is only meaningful if a
+  reader can audit the labelling rather than take it on trust.
+
+  **The vocabulary is frozen, not re-harvested.** The first version of the
+  generator read commit subjects from a live `git log`, and CI caught what a
+  laptop could not: a pull-request checkout is a synthetic merge commit
+  (`Merge <head> into <base>`), that string entered the corpus, and the same
+  code on the same corpus definition measured **10.42% (25/240)** locally and
+  **12.08% (29/240)** on the runner. A number that moves with the history of
+  whoever runs it is not a measurement, so the harvest is now frozen to
+  `evals/datasets/coherence-negatives/vocabulary.json`, stamped with the commit
+  it was taken at. Re-harvesting is a deliberate `--reharvest` act that changes
+  the corpus and forces the rate to be re-published. A test blows up on any
+  subprocess call made on the measurement path, so the shell-out cannot come
+  back anywhere -- not just in the harvester it happened in.
+
+  **Provenance is recorded and never pooled.** Trajectories captured verbatim
+  from a real agent run: **0** — no committed artifact in this repository
+  carries agent trajectory text (`evals/reports/*.json` hold scorer results,
+  tokens and timings, never the model's output). What is real is the
+  *vocabulary*: statement and action strings are drawn from this repository's
+  own git commit subjects and the `safe-pr-agent` tool allowlist, because for a
+  lexical matcher the language is the thing under test. The manifest and the
+  report break the rate down by provenance so `synthetic_grounded` (6.77%) and
+  `synthetic_authored` (25.00%) are never silently averaged into one number.
+
+  The corpus is composed by what benign runs look like, not by what the matcher
+  is expected to do with them. An earlier draft ended every vocabulary-trap
+  trace in a commit inside the lookahead window and measured 16.67%; that number
+  was produced by how the corpus was built, not by how the detector behaves.
+  Varying the tail to match real runs gives the 10.42% published here.
+
+### Changed
+
+- **`FERRUMDECK_COHERENCE_MODE=enforce` is now a request, not a switch**
+  ([#11]). `gateway::coherence_evidence` reads the newest `coherence_fp` row
+  from the append-only measurement series and refuses to activate enforcement
+  when there is no series, no measurement, a measurement older than 14 days, or
+  a rate above **`MAX_FP_RATE_FOR_ENFORCE` = 15%**.
+
+  The threshold is named in code and is **not** a derived tolerance: deriving
+  one honestly would need how many runs go through the gate and how fast a human
+  clears a parked one, neither of which we have. It is the pessimistic reading
+  of the measurement that exists — the Wilson interval's upper bound (14.92%)
+  rounded up — so enforcement is permitted while the rate is no worse than
+  today's data says the true rate plausibly already is, and refused the moment
+  it is worse. The comment says exactly that, so a later reader is not left
+  guessing whether 15% meant something.
+
+  Refusal logs at **ERROR** and is reported on `/ready` as
+  `coherence_enforcement: {requested, active, reason}`. An operator who asked
+  for a gate and did not get one must not have to infer that from runs that
+  never park. The behaviour worth keeping if the rest is rewritten: **absence of
+  a measurement refuses, never permits.** Mutation-tested — inverting that makes
+  three tests fail.
+
+- `evals/reports/coherence_fp-*` is un-ignored from the start, on the same terms
+  as the three headline benchmarks: seeded, offline, byte-identical between a
+  local and a CI run. Added now rather than later because a report family that
+  needs `git add -f` is one a plain `git add -A` silently drops, which is how
+  sixteen days of stale evidence reached the record in August.
+
+- Test counts re-derived: Rust **819 → 829**, Python unit **532 → 546**,
+  headline **2,082 → 2,106**.
+
+[#11]: https://github.com/sattyamjjain/ferrumdeck/issues/11
+
+
 ### Changed
 
 - **`docs/eval-health.md` was a dashboard; it is now the front page of a record.**
