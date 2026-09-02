@@ -93,6 +93,8 @@ SHAPE_MIX: dict[str, float] = {
 }
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
+DATASET_DIR = REPO_ROOT / "evals/datasets/coherence-negatives"
+VOCAB_PATH = DATASET_DIR / "vocabulary.json"
 
 
 @dataclass
@@ -163,7 +165,10 @@ def harvest_commit_subjects(repo: Path, limit: int = 400) -> list[str]:
     """
     try:
         out = subprocess.run(
-            ["git", "log", f"-{limit}", "--format=%s"],
+            # --no-merges is load-bearing. A CI checkout of a pull request is a
+            # synthetic merge commit ("Merge <head> into <base>"), so without
+            # this the harvested vocabulary depends on *where* the harvest ran.
+            ["git", "log", "--no-merges", f"-{limit}", "--format=%s"],
             cwd=repo,
             capture_output=True,
             check=True,
@@ -309,17 +314,91 @@ class Vocab:
     transcript: list[str]
 
 
-def load_vocab(repo: Path = REPO_ROOT) -> Vocab:
+BLOCKING_KEYWORDS = (
+    "fail",
+    "error",
+    "not found",
+    "denied",
+    "does not exist",
+    "missing",
+    "panic",
+)
+
+
+def harvest_vocab(repo: Path = REPO_ROOT) -> Vocab:
+    """Read the vocabulary out of the working tree, live.
+
+    Only `--reharvest` calls this. A measurement never does -- see `load_vocab`.
+    """
     tools = harvest_tool_names(repo)
     subjects = harvest_commit_subjects(repo)
-    blocking_kw = ("fail", "error", "not found", "denied", "does not exist", "missing", "panic")
     return Vocab(
         tools_read=tools.get("allowed") or ["git_status", "git_diff", "git_log"],
         tools_write=tools.get("approval_required") or ["git_commit", "git_push"],
         commit_subjects=subjects or ["chore: routine update"],
-        commit_subjects_blocking=[s for s in subjects if any(k in s.lower() for k in blocking_kw)]
+        commit_subjects_blocking=[
+            s for s in subjects if any(k in s.lower() for k in BLOCKING_KEYWORDS)
+        ]
         or ["fix: build failed on arm64"],
         transcript=harvest_transcript_lines(repo),
+    )
+
+
+def write_vocab(v: Vocab, repo: Path = REPO_ROOT) -> Path:
+    """Freeze a harvest to disk, stamped with the commit it was taken at."""
+    try:
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        head = "unknown"
+    payload = {
+        "harvested_at_commit": head,
+        "harvested_from": [
+            "git log --no-merges (commit subjects, [skip ci] excluded)",
+            "evals/agents/safe-pr-agent/config.yaml (tool allowlist)",
+            "examples/demo/TRANSCRIPT.md (CI/tool output lines)",
+        ],
+        "why_frozen": (
+            "A measurement must not depend on the git history of whoever runs it. "
+            "Re-harvesting changes the corpus and therefore the published rate, so it "
+            "is a deliberate act (`--reharvest`) that forces a re-measure, not a "
+            "side effect of running the eval on a different checkout."
+        ),
+        **asdict(v),
+    }
+    VOCAB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    VOCAB_PATH.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return VOCAB_PATH
+
+
+def load_vocab(repo: Path = REPO_ROOT) -> Vocab:
+    """The frozen vocabulary the committed corpus was built from.
+
+    This deliberately does **not** shell out to git. The first version did, and
+    CI caught it: a pull-request checkout is a synthetic merge commit, so the
+    harvested subjects -- and with them the measured false-positive rate --
+    differed between a laptop and a runner (10.42% vs 12.08%). A number that
+    changes depending on where you run it is not a measurement.
+    """
+    if not VOCAB_PATH.exists():
+        msg = (
+            f"{VOCAB_PATH} is missing. The corpus cannot be rebuilt without the frozen "
+            f"vocabulary it was generated from; run `--reharvest` to recreate it, which "
+            f"changes the corpus and requires re-publishing the rate."
+        )
+        raise FileNotFoundError(msg)
+    data = json.loads(VOCAB_PATH.read_text())
+    return Vocab(
+        tools_read=data["tools_read"],
+        tools_write=data["tools_write"],
+        commit_subjects=data["commit_subjects"],
+        commit_subjects_blocking=data["commit_subjects_blocking"],
+        transcript=data["transcript"],
     )
 
 
@@ -657,6 +736,15 @@ def manifest(traces: list[BenignTrace], v: Vocab, result: FalsePositiveResult) -
             ),
         },
         "shape_counts": shape_counts,
+        "vocabulary": {
+            "path": "evals/datasets/coherence-negatives/vocabulary.json",
+            "frozen": True,
+            "note": (
+                "frozen at a named commit and committed. The measurement never re-reads "
+                "git, because a pull-request checkout is a synthetic merge commit and the "
+                "rate moved with it (10.42% local vs 12.08% on CI) before this was fixed."
+            ),
+        },
         "harvested": {
             "tool_names_read": len(v.tools_read),
             "tool_names_write": len(v.tools_write),
@@ -676,7 +764,6 @@ def manifest(traces: list[BenignTrace], v: Vocab, result: FalsePositiveResult) -
 # Report + CLI
 # =============================================================================
 
-DATASET_DIR = REPO_ROOT / "evals/datasets/coherence-negatives"
 REPORTS_DIR = REPO_ROOT / "evals/reports"
 
 
@@ -766,7 +853,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--n", type=int, default=TARGET_TRACES)
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--no-write", action="store_true", help="measure and print; write no files")
+    ap.add_argument(
+        "--reharvest",
+        action="store_true",
+        help=(
+            "re-read the vocabulary from the working tree and freeze it. This CHANGES "
+            "the corpus and therefore the published rate; the report and the series row "
+            "must be regenerated and the new number published."
+        ),
+    )
     args = ap.parse_args(argv)
+
+    if args.reharvest:
+        path = write_vocab(harvest_vocab())
+        print(f"re-harvested vocabulary -> {path.relative_to(REPO_ROOT)}")
 
     traces, v = build_corpus(args.n, args.seed)
     result = measure(traces)

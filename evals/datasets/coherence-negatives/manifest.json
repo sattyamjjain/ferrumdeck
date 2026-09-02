@@ -15,7 +15,7 @@
     "note": "the shipped defaults; not tuned for this measurement"
   },
   "harvested": {
-    "commit_subjects": 198,
+    "commit_subjects": 197,
     "commit_subjects_with_blocking_vocabulary": 14,
     "tool_names_read": 14,
     "tool_names_write": 15,
@@ -42,5 +42,10 @@
     "partial_failure_disclaimed": 24,
     "retry_then_resolve": 36,
     "vocabulary_trap_statement": 24
+  },
+  "vocabulary": {
+    "frozen": true,
+    "note": "frozen at a named commit and committed. The measurement never re-reads git, because a pull-request checkout is a synthetic merge commit and the rate moved with it (10.42% local vs 12.08% on CI) before this was fixed.",
+    "path": "evals/datasets/coherence-negatives/vocabulary.json"
   }
 }

@@ -41,6 +41,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `why_benign` line, because a false-positive rate is only meaningful if a
   reader can audit the labelling rather than take it on trust.
 
+  **The vocabulary is frozen, not re-harvested.** The first version of the
+  generator read commit subjects from a live `git log`, and CI caught what a
+  laptop could not: a pull-request checkout is a synthetic merge commit
+  (`Merge <head> into <base>`), that string entered the corpus, and the same
+  code on the same corpus definition measured **10.42% (25/240)** locally and
+  **12.08% (29/240)** on the runner. A number that moves with the history of
+  whoever runs it is not a measurement, so the harvest is now frozen to
+  `evals/datasets/coherence-negatives/vocabulary.json`, stamped with the commit
+  it was taken at. Re-harvesting is a deliberate `--reharvest` act that changes
+  the corpus and forces the rate to be re-published. A test blows up on any
+  subprocess call made on the measurement path, so the shell-out cannot come
+  back anywhere -- not just in the harvester it happened in.
+
   **Provenance is recorded and never pooled.** Trajectories captured verbatim
   from a real agent run: **0** — no committed artifact in this repository
   carries agent trajectory text (`evals/reports/*.json` hold scorer results,

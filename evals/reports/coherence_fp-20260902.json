@@ -87,7 +87,7 @@
     {
       "category": "build_error",
       "confidence": 0.8875,
-      "contradicting_action": "git_commit: feat: add comprehensive test suite and CI integration",
+      "contradicting_action": "git_commit: fix(ci): use pgvector image in evals workflow",
       "gap": 4,
       "id": "neg_0025",
       "shape": "retry_then_resolve",
@@ -107,7 +107,7 @@
     {
       "category": "build_error",
       "confidence": 0.8124999999999999,
-      "contradicting_action": "git_commit: ci: run eval gate on pushes to main",
+      "contradicting_action": "git_commit: fix: format Python worker main.py",
       "gap": 6,
       "id": "neg_0048",
       "shape": "retry_then_resolve",
@@ -127,7 +127,7 @@
     {
       "category": "generic_error",
       "confidence": 0.6375,
-      "contradicting_action": "git_commit: fix(rust): format gateway code",
+      "contradicting_action": "git_commit: fix(python): format test_runner_server.py",
       "gap": 8,
       "id": "neg_0059",
       "shape": "vocabulary_trap_statement",
@@ -157,7 +157,7 @@
     {
       "category": "generic_error",
       "confidence": 0.7875,
-      "contradicting_action": "git_commit: Merge remote-tracking branch 'origin/feat/fd-evals-harness-signal-loop'",
+      "contradicting_action": "git_commit: docs(demo): one-command reproducible governance demo + README \"What this proves\"",
       "gap": 4,
       "id": "neg_0080",
       "shape": "vocabulary_trap_statement",
@@ -167,7 +167,7 @@
     {
       "category": "build_error",
       "confidence": 0.8124999999999999,
-      "contradicting_action": "git_commit: fix(nextjs): add @testing-library/dom peer dependency",
+      "contradicting_action": "git_commit: fix(nextjs): exclude test files from TypeScript type check",
       "gap": 6,
       "id": "neg_0083",
       "shape": "retry_then_resolve",
@@ -187,7 +187,7 @@
     {
       "category": "build_error",
       "confidence": 0.8124999999999999,
-      "contradicting_action": "git_commit: feat: complete production-ready infrastructure and spec compliance",
+      "contradicting_action": "git_commit: fix: pytest import conflict with multiple test packages",
       "gap": 6,
       "id": "neg_0092",
       "shape": "retry_then_resolve",
@@ -220,7 +220,7 @@
       "note": "the shipped defaults; not tuned for this measurement"
     },
     "harvested": {
-      "commit_subjects": 198,
+      "commit_subjects": 197,
       "commit_subjects_with_blocking_vocabulary": 14,
       "tool_names_read": 14,
       "tool_names_write": 15,
@@ -247,6 +247,11 @@
       "partial_failure_disclaimed": 24,
       "retry_then_resolve": 36,
       "vocabulary_trap_statement": 24
+    },
+    "vocabulary": {
+      "frozen": true,
+      "note": "frozen at a named commit and committed. The measurement never re-reads git, because a pull-request checkout is a synthetic merge commit and the rate moved with it (10.42% local vs 12.08% on CI) before this was fixed.",
+      "path": "evals/datasets/coherence-negatives/vocabulary.json"
     }
   },
   "seed": 20260902,

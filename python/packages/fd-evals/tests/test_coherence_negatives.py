@@ -16,6 +16,7 @@ from fd_evals.coherence_negatives import (
     DATASET_DIR,
     SHAPE_MIX,
     TARGET_TRACES,
+    VOCAB_PATH,
     build_corpus,
     manifest,
     measure,
@@ -191,3 +192,41 @@ def test_the_report_uses_the_repos_wilson_key_names() -> None:
     fp = json.loads(reports[-1].read_text())["false_positive_rate"]
     for key in ("successes", "total", "rate", "ci95_low", "ci95_high"):
         assert key in fp, f"missing the canonical Wilson key {key!r}"
+
+
+def test_a_measurement_never_reads_git(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The corpus must not depend on the history of whoever runs the eval.
+
+    This is a regression test for a defect CI caught and a laptop could not:
+    the first version harvested commit subjects with a live `git log`, and a
+    pull-request checkout is a synthetic merge commit ("Merge <head> into
+    <base>"). That string entered the vocabulary, and the measured rate moved
+    from 10.42% (25/240) locally to 12.08% (29/240) on the runner. Both numbers
+    were produced by the same code on the same corpus definition, which is what
+    makes it a defect rather than noise.
+
+    Blowing up on any subprocess call is a blunt instrument on purpose: it fails
+    if anyone reintroduces a shell-out anywhere on the measurement path, not
+    just in the harvester it happened in the first time.
+    """
+
+    def explode(*args: object, **kwargs: object) -> None:
+        msg = "a measurement must not shell out; the vocabulary is frozen on disk"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr("fd_evals.coherence_negatives.subprocess.run", explode)
+    traces, _ = build_corpus()
+    assert len(traces) == TARGET_TRACES
+
+
+def test_the_frozen_vocabulary_is_committed_and_stamped() -> None:
+    """Freezing is only honest if you can see what it was frozen from."""
+    assert VOCAB_PATH.exists(), "the corpus cannot be re-derived without its vocabulary"
+    data = json.loads(VOCAB_PATH.read_text())
+    assert len(data["harvested_at_commit"]) == 40, "the harvest must name the commit it read"
+    assert data["harvested_from"], "the harvest must name its sources"
+    assert data["commit_subjects"], "an empty vocabulary would silently degrade the corpus"
+    assert not [s for s in data["commit_subjects"] if s.startswith("Merge ")], (
+        "a merge-commit subject in the vocabulary means the harvest ran on a "
+        "pull-request checkout; re-harvest on a real branch"
+    )
