@@ -164,38 +164,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Changed
-- **[#11] closed with the number, not with a link.** The closing comment states
-  10.42%, n=240, the Wilson 95% interval, the per-provenance split (including
-  `real: 0`), the shapes it fires worst on, the threshold enforce now gates on,
-  and the three commits — so the closed issue answers the question it asked
-  without the reader opening anything else. Claim-grounding enforcement stays
-  descoped, as recorded in the 2026-09-01 triage: it lives in `fd-otel`, off the
-  decision path, and bundling the two is part of why the issue sat 35 days.
-
-- **Crates.io publication audited; nothing was published under an `fd-*` name.**
-  The library crates were already on crates.io and had been since 0.8.x — as
-  **`ferrumdeck-core`, `ferrumdeck-policy`, `ferrumdeck-audit`** (0.8.16) and
-  **`ferrumdeck-otel`** (0.8.12). `fd-policy` is not this project's package name;
-  it is the *directory*, and `fd_policy` is the import path. The package names
-  have carried the `ferrumdeck-` prefix since publication.
-
-  **Held back deliberately: `fd-core` and `fd-policy` as crates.io names.**
-  `fd-core` on crates.io is **someone else's crate** — `khangnghiem/fast-draft`,
-  version 0.1.18, "FD (Fast Draft) — core data model, parser, emitter, and layout
-  solver". It cannot be published to, and `cargo add fd-core` silently pulls
-  unrelated third-party code into a build that meant to depend on this engine.
-  Publishing a *new* `fd-policy` would permanently claim a generic public name
-  (crates.io names are never released), duplicate `ferrumdeck-policy`, and split
-  the crate graph for no gain. Also held back: **`fd-dag`, `fd-storage`,
-  `fd-registry`** stay unpublished — `fd-storage` requires a live Postgres with
-  the workspace migrations applied and its SQLx offline data, so it is not
-  dependable by a stranger in the sense that matters.
-
-  Verified end to end rather than asserted: in a fresh crate outside this
-  repository, `cargo add fd-policy` fails with *"could not be found in registry
-  index"*, `cargo add ferrumdeck-policy` resolves 0.8.16, and a five-line program
-  building a deny-by-default `ToolAllowlist` and calling
-  `evaluate_tool_call_with` compiles and prints `delete_repo allowed? false`.
 
 - **`docs/eval-health.md` was a dashboard; it is now the front page of a record.**
   Every refresh overwrote yesterday's answer, so a number that had held steady for
@@ -243,8 +211,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 
-- **Issues #9 and #11 triaged after 35 days open across four releases
-  (0.8.13 → 0.8.16).** Both were filed 2026-07-28 and neither moved. Recording
+- **Issues #9 and #11 triaged after 35 days without movement across four
+  releases (0.8.13 → 0.8.16).** #11 has since been closed by the measurement
+  recorded above; #9 is still on the roadmap. Both were filed 2026-07-28. Recording
   the outcome here rather than leaving it in a comment thread, on the same
   principle as the reconciliation note at the top of this file: a bookkeeping
   decision that is not written down is indistinguishable from not having made
