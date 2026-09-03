@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.17] - 2026-09-03
+
 ### Added
 - **`ferrumdeck-otel` joins the release workflow.** It had been omitted from
   `release-crate.yml` since the crate was first published and drifted five patch
