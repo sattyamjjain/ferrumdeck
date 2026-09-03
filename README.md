@@ -6,6 +6,8 @@
 
 **See the blind spot for yourself.** [`docs/benchmarks/enforce-vs-observe.md`](docs/benchmarks/enforce-vs-observe.md) runs one AgentDojo-style injection trace two ways over the *same* governance profile: a record-only stack that emits a span *after* the unsafe `send_email` already ran, versus the in-path gate that emits `ferrumdeck.decision=deny` on the same span and the call never fires. Deterministic, offline, no LLM — spans captured with an in-memory exporter so the output is real telemetry, not a mock. Reproduce with `make bench-enforce-vs-observe`.
 
+**And here is what enforcement costs when it is wrong.** The coherence-divergence monitor's **measured false-positive rate is 10.42%** — 25 of 240 benign trajectories, Wilson 95% CI [7.16%, 14.92%] ([corpus + method](docs/benchmarks/enforce-vs-observe.md#false-positive-posture), [report](evals/reports/coherence_fp-20260902.md), `make eval-coherence-fp`) — so roughly **one correct run in ten** would be parked at an approval gate. That number is on this screen rather than in a footnote because it is the honest cost of being in the path instead of beside it, and because `FERRUMDECK_COHERENCE_MODE=enforce` now **refuses to activate** unless a measurement like it exists, is under 14 days old, and is under the threshold named in `coherence_evidence.rs`. Enforcing on an unmeasured matcher is an availability risk of unknown size.
+
 **"But won't in-path enforcement slow my agent down?"** No — the decision is sub-millisecond. Measured CPU cost of the governance decision itself (Apple M4, `--release`, decision path only — excludes DB / queue / LLM):
 
 | Enforcement layer | p50 | p95 |

@@ -18,6 +18,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`ferrumdeck-otel` joins the release workflow.** It had been omitted from
+  `release-crate.yml` since the crate was first published and drifted five patch
+  releases behind — 0.8.12 on crates.io while the workspace read 0.8.17. Nothing
+  downstream broke, because nothing published depends on it at build time: it is
+  a path-only *dev*-dependency of `fd-policy` and `fd-storage` (stripped from the
+  published manifest) and a real dependency only of the unpublished gateway. What
+  it did break is a claim surface — `cargo add ferrumdeck-otel` handed a stranger
+  0.8.12 while the docs described 0.8.17 behaviour. It now publishes after
+  `ferrumdeck-core`, its only workspace dependency, and is covered by the release
+  job's clippy and test gates.
+
+- **The measured false-positive rate moved to the README's first screen**, next
+  to the enforce-vs-observe benchmark it belongs with: **10.42%** (25 of 240
+  benign trajectories, Wilson 95% CI [7.16%, 14.92%]). It had been accurate but
+  buried ~200 lines down under "Honest scope", where it read as a caveat rather
+  than as the finding. `docs/benchmarks/enforce-vs-observe.md` gains a
+  **False-positive posture** section carrying the same number, the per-provenance
+  split, and the reason the contrast matters: a record-only stack cannot produce
+  a false positive because it never withholds anything, so the cost of moving
+  into the path is exactly the thing that benchmark would be dishonest to omit.
+  It also states why quoting the injection corpus's 17/17 with 8/8 benign utility
+  *alone* would be a fabricated precision claim about a different detector — the
+  allowlist is an exact-match decision, the coherence monitor is a lexical
+  matcher, and they have different error profiles.
+
 
 - **The coherence monitor's false-positive rate is measured and published:
   10.42% (25 of 240 benign trajectories), Wilson 95% CI [7.16%, 14.92%]**
@@ -71,6 +96,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Varying the tail to match real runs gives the 10.42% published here.
 
 ### Changed
+- **[#11] closed with the number, not with a link.** The closing comment states
+  10.42%, n=240, the Wilson 95% interval, the per-provenance split (including
+  `real: 0`), the shapes it fires worst on, the threshold enforce now gates on,
+  and the three commits — so the closed issue answers the question it asked
+  without the reader opening anything else. Claim-grounding enforcement stays
+  descoped, as recorded in the 2026-09-01 triage: it lives in `fd-otel`, off the
+  decision path, and bundling the two is part of why the issue sat 35 days.
+
+- **Crates.io publication audited; nothing was published under an `fd-*` name.**
+  The library crates were already on crates.io and had been since 0.8.x — as
+  **`ferrumdeck-core`, `ferrumdeck-policy`, `ferrumdeck-audit`** (0.8.16) and
+  **`ferrumdeck-otel`** (0.8.12). `fd-policy` is not this project's package name;
+  it is the *directory*, and `fd_policy` is the import path. The package names
+  have carried the `ferrumdeck-` prefix since publication.
+
+  **Held back deliberately: `fd-core` and `fd-policy` as crates.io names.**
+  `fd-core` on crates.io is **someone else's crate** — `khangnghiem/fast-draft`,
+  version 0.1.18, "FD (Fast Draft) — core data model, parser, emitter, and layout
+  solver". It cannot be published to, and `cargo add fd-core` silently pulls
+  unrelated third-party code into a build that meant to depend on this engine.
+  Publishing a *new* `fd-policy` would permanently claim a generic public name
+  (crates.io names are never released), duplicate `ferrumdeck-policy`, and split
+  the crate graph for no gain. Also held back: **`fd-dag`, `fd-storage`,
+  `fd-registry`** stay unpublished — `fd-storage` requires a live Postgres with
+  the workspace migrations applied and its SQLx offline data, so it is not
+  dependable by a stranger in the sense that matters.
+
+  Verified end to end rather than asserted: in a fresh crate outside this
+  repository, `cargo add fd-policy` fails with *"could not be found in registry
+  index"*, `cargo add ferrumdeck-policy` resolves 0.8.16, and a five-line program
+  building a deny-by-default `ToolAllowlist` and calling
+  `evaluate_tool_call_with` compiles and prints `delete_repo allowed? false`.
 
 - **`FERRUMDECK_COHERENCE_MODE=enforce` is now a request, not a switch**
   ([#11]). `gateway::coherence_evidence` reads the newest `coherence_fp` row
@@ -107,6 +164,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Changed
+- **[#11] closed with the number, not with a link.** The closing comment states
+  10.42%, n=240, the Wilson 95% interval, the per-provenance split (including
+  `real: 0`), the shapes it fires worst on, the threshold enforce now gates on,
+  and the three commits — so the closed issue answers the question it asked
+  without the reader opening anything else. Claim-grounding enforcement stays
+  descoped, as recorded in the 2026-09-01 triage: it lives in `fd-otel`, off the
+  decision path, and bundling the two is part of why the issue sat 35 days.
+
+- **Crates.io publication audited; nothing was published under an `fd-*` name.**
+  The library crates were already on crates.io and had been since 0.8.x — as
+  **`ferrumdeck-core`, `ferrumdeck-policy`, `ferrumdeck-audit`** (0.8.16) and
+  **`ferrumdeck-otel`** (0.8.12). `fd-policy` is not this project's package name;
+  it is the *directory*, and `fd_policy` is the import path. The package names
+  have carried the `ferrumdeck-` prefix since publication.
+
+  **Held back deliberately: `fd-core` and `fd-policy` as crates.io names.**
+  `fd-core` on crates.io is **someone else's crate** — `khangnghiem/fast-draft`,
+  version 0.1.18, "FD (Fast Draft) — core data model, parser, emitter, and layout
+  solver". It cannot be published to, and `cargo add fd-core` silently pulls
+  unrelated third-party code into a build that meant to depend on this engine.
+  Publishing a *new* `fd-policy` would permanently claim a generic public name
+  (crates.io names are never released), duplicate `ferrumdeck-policy`, and split
+  the crate graph for no gain. Also held back: **`fd-dag`, `fd-storage`,
+  `fd-registry`** stay unpublished — `fd-storage` requires a live Postgres with
+  the workspace migrations applied and its SQLx offline data, so it is not
+  dependable by a stranger in the sense that matters.
+
+  Verified end to end rather than asserted: in a fresh crate outside this
+  repository, `cargo add fd-policy` fails with *"could not be found in registry
+  index"*, `cargo add ferrumdeck-policy` resolves 0.8.16, and a five-line program
+  building a deny-by-default `ToolAllowlist` and calling
+  `evaluate_tool_call_with` compiles and prints `delete_repo allowed? false`.
 
 - **`docs/eval-health.md` was a dashboard; it is now the front page of a record.**
   Every refresh overwrote yesterday's answer, so a number that had held steady for
