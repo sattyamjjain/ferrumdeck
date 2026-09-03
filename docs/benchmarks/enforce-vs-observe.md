@@ -103,6 +103,44 @@ decision rides the GenAI span, you get the audit trail *and* the block in one
 pass. That is the whole content of the "enforce, don't just observe" wedge, made
 reproducible.
 
+## False-positive posture
+
+Deciding *before* execution buys you the block, and it charges you for being
+wrong. A record-only stack cannot produce a false positive, because it never
+withholds anything — that asymmetry is the real cost of moving into the path,
+and this benchmark would be dishonest without it.
+
+For the coherence-divergence monitor, the trajectory-level signal with the
+loosest inputs, that cost is measured:
+
+| Metric | Value | 95% CI (Wilson) |
+| --- | --- | --- |
+| False-positive rate | **10.42%** (25/240) | [7.16%, 14.92%] |
+
+Roughly **one correct run in ten** would be parked at an approval gate. Measured
+at the shipped defaults (`lookahead 8`, `min_confidence 0.5`) over 240 benign
+trajectories, split by provenance and never pooled: `synthetic_grounded` 6.77%
+(13/192), `synthetic_authored` 25.00% (12/48), and **zero** trajectories captured
+from a real agent run — no committed artifact in this repository carries agent
+trajectory text, so the corpus is generated and the manifest says so.
+
+This is why `FERRUMDECK_COHERENCE_MODE=enforce` is a *request* rather than a
+switch: the gateway refuses to activate it unless a measurement is in
+`docs/eval-health-series.jsonl`, under `MAX_EVIDENCE_AGE_DAYS`, and below
+`MAX_FP_RATE_FOR_ENFORCE` — a threshold that is the Wilson upper bound rounded
+up, not a tolerance anyone derived. Enforcing on an unmeasured matcher is an
+availability risk of unknown size.
+
+Note the contrast with the injection corpus in the same repository, where the
+in-path gate blocks 17/17 attacks with 8/8 benign utility retained. Both numbers
+are real. The deny-by-default allowlist is an exact-match decision and has no
+false positives to speak of; the coherence monitor is a lexical matcher over a
+trajectory and has 10.42%. Quoting only the first would be a fabricated
+precision claim about the second.
+
+Reproduce: `make eval-coherence-fp` — deterministic, offline, no LLM. Full
+report: [`evals/reports/coherence_fp-20260902.md`](../../evals/reports/coherence_fp-20260902.md).
+
 ## Further reading
 
 - AgentDojo indirect-injection corpus — [arXiv:2406.13352](https://arxiv.org/abs/2406.13352).

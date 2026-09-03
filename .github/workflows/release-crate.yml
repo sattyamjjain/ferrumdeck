@@ -3,7 +3,8 @@ name: Release Crate
 # Publishes the FerrumDeck enforcement engine to crates.io on a version tag.
 # Requires a `CARGO_REGISTRY_TOKEN` repository secret (a crates.io API token for
 # an account that owns — or will claim on first publish — the `ferrumdeck-core`,
-# `ferrumdeck-policy`, `ferrumdeck-audit`, and `ferrumdeck` crate names).
+# `ferrumdeck-otel`, `ferrumdeck-policy`, `ferrumdeck-audit`, and `ferrumdeck`
+# crate names).
 # `workflow_dispatch` lets you run it manually after adding the secret, without
 # cutting a new tag.
 
@@ -45,10 +46,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy (published crates)
-        run: cargo clippy -p ferrumdeck-core -p ferrumdeck-policy -p ferrumdeck-audit -p ferrumdeck --all-targets -- -D warnings
+        run: cargo clippy -p ferrumdeck-core -p ferrumdeck-otel -p ferrumdeck-policy -p ferrumdeck-audit -p ferrumdeck --all-targets -- -D warnings
 
       - name: Test (published crates)
-        run: cargo test -p ferrumdeck-core -p ferrumdeck-policy -p ferrumdeck-audit -p ferrumdeck
+        run: cargo test -p ferrumdeck-core -p ferrumdeck-otel -p ferrumdeck-policy -p ferrumdeck-audit -p ferrumdeck
 
       # Provenance for conformity / audit reviewers: cargo-auditable embeds the
       # dependency SBOM into a compiled binary. The published crates are source
@@ -79,6 +80,17 @@ jobs:
       # `v*.*.*` tag publish all four crates instead of failing at the umbrella.
       - name: Publish ferrumdeck-core
         run: cargo publish -p ferrumdeck-core --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
+
+      # ferrumdeck-otel was omitted from this list until 0.8.17 and drifted five
+      # patch releases behind (0.8.12 while the workspace was at 0.8.17). Nothing
+      # published depends on it at build time -- it is a path-only dev-dependency
+      # of fd-policy and fd-storage, and a real dependency only of the unpublished
+      # gateway -- so the gap broke no downstream build. It did make the crate a
+      # false claim surface: `cargo add ferrumdeck-otel` handed a stranger 0.8.12
+      # while the docs described 0.8.17 behaviour. It publishes after core, which
+      # is its only workspace dependency.
+      - name: Publish ferrumdeck-otel
+        run: cargo publish -p ferrumdeck-otel --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
 
       - name: Publish ferrumdeck-policy
         run: cargo publish -p ferrumdeck-policy --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
