@@ -1,7 +1,7 @@
 # FerrumDeck - Development Makefile
 # ================================
 
-.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image eval-health eval-health-check eval-coherence-fp eval-series eval-series-check check-suite-reachability check-route-backing reproduce-readme-figures test-live-stack
+.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image eval-health eval-health-check eval-coherence-fp docs-coherence-fp docs-coherence-fp-check eval-series eval-series-check check-suite-reachability check-route-backing reproduce-readme-figures test-live-stack
 
 # Default target
 help:
@@ -49,6 +49,7 @@ help:
 	@echo "  make eval-health  - Regenerate docs/eval-health.md from evals/reports/"
 	@echo "  make eval-health-check - Fail if docs/eval-health.md is stale"
 	@echo "  make eval-coherence-fp - Measure the coherence monitor false-positive rate"
+	@echo "  make docs-coherence-fp - Render the per-provenance FP data report (docs/reports/)"
 	@echo "  make eval-series  - Append new runs to docs/eval-health-series.jsonl"
 	@echo "  make eval-series-check - Fail if a published series row was rewritten"
 	@echo "  make eval-injection-defense - Run the offline injection-defense benchmark"
@@ -326,6 +327,17 @@ eval-coherence-fp:
 	@echo "Measuring the coherence monitor's false-positive rate..."
 	uv run python -m fd_evals.coherence_negatives
 
+# The per-provenance data report published under docs/reports/. Rendered from
+# the committed corpus and the committed report -- never from a local-only run,
+# and never from wall-clock time -- so regenerating it on any checkout produces
+# the same bytes. `-check` is the staleness gate.
+docs-coherence-fp:
+	@echo "Rendering docs/reports/coherence-fp-<YYYY>-<MM>.md..."
+	uv run python -m fd_evals.coherence_negatives --data-report
+
+docs-coherence-fp-check:
+	uv run python -m fd_evals.coherence_negatives --check-data-report
+
 eval-series:
 	@echo "Appending new eval runs to docs/eval-health-series.jsonl..."
 	uv run python scripts/gen_eval_health.py --append-series
@@ -406,7 +418,7 @@ clean-docker:
 # CI Helpers
 # =============================================================================
 
-ci-check: check-claims check-changelog-issues eval-health-check eval-series-check check-suite-reachability check-route-backing
+ci-check: check-claims check-changelog-issues eval-health-check eval-series-check docs-coherence-fp-check check-suite-reachability check-route-backing
 	@echo "Running CI checks..."
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets -- -D warnings

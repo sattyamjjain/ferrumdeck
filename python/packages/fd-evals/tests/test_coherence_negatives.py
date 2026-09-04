@@ -12,14 +12,20 @@ from pathlib import Path
 
 import pytest
 
+from fd_evals.coherence import DEFAULT_LOOKAHEAD, DEFAULT_MIN_CONFIDENCE
 from fd_evals.coherence_negatives import (
     DATASET_DIR,
+    MAX_CI_WIDTH_FOR_RATE,
     SHAPE_MIX,
+    SWEEP_THRESHOLDS,
     TARGET_TRACES,
     VOCAB_PATH,
     build_corpus,
+    build_data_report,
+    confidence_floor,
     manifest,
     measure,
+    sweep,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -230,3 +236,87 @@ def test_the_frozen_vocabulary_is_committed_and_stamped() -> None:
         "a merge-commit subject in the vocabulary means the harvest ran on a "
         "pull-request checkout; re-harvest on a real branch"
     )
+
+
+# -----------------------------------------------------------------------------
+# The published data report (docs/reports/)
+# -----------------------------------------------------------------------------
+
+
+def test_the_committed_data_report_is_not_stale() -> None:
+    """`docs/reports/coherence-fp-*.md` must match what the generator renders.
+
+    The page carries numbers that are quoted elsewhere. Letting it drift from
+    the corpus turns a published measurement into a stale assertion -- the same
+    failure `eval-health-check` exists to prevent.
+    """
+    traces, v = build_corpus()
+    path, body = build_data_report(traces, manifest(traces, v, measure(traces)))
+    assert path.exists(), f"{path} is missing; run `make docs-coherence-fp`"
+    assert path.read_text() == body, (
+        f"{path.name} is stale. Run `make docs-coherence-fp` and commit the result."
+    )
+
+
+def test_the_data_report_withholds_a_rate_it_cannot_support() -> None:
+    """A class whose interval is too wide prints its count and no percentage.
+
+    `abandoned_no_closure` is n=7: one flag moves the rate 14 points. Printing
+    "14.29%" there would be a precision the sample does not carry.
+    """
+    traces, v = build_corpus()
+    _, body = build_data_report(traces, manifest(traces, v, measure(traces)))
+    result = measure(traces)
+
+    suppressed = [
+        k
+        for k, b in result.by_shape.items()
+        if b["ci95_high"] - b["ci95_low"] > MAX_CI_WIDTH_FOR_RATE
+    ]
+    assert suppressed, "expected at least one class too small to carry a rate"
+    for k in suppressed:
+        row = next(ln for ln in body.splitlines() if ln.startswith(f"| `{k}` |"))
+        assert "n too small" in row, f"{k} printed a rate its interval cannot support: {row}"
+        assert "%" not in row.split("|")[4], f"{k} printed a percentage: {row}"
+
+
+def test_the_data_report_prints_the_zero_real_row_rather_than_omitting_it() -> None:
+    """`real` is 0. A missing row reads as an oversight; a printed zero is a fact."""
+    traces, v = build_corpus()
+    _, body = build_data_report(traces, manifest(traces, v, measure(traces)))
+    assert "| `real` | 0 | 0 |" in body
+
+
+def test_the_sweep_brackets_the_shipped_threshold() -> None:
+    """Two thresholds either side of the shipped value, and the shipped value itself."""
+    assert DEFAULT_MIN_CONFIDENCE in SWEEP_THRESHOLDS
+    below = [t for t in SWEEP_THRESHOLDS if t < DEFAULT_MIN_CONFIDENCE]
+    above = [t for t in SWEEP_THRESHOLDS if t > DEFAULT_MIN_CONFIDENCE]
+    assert len(below) >= 2, f"want two thresholds below the shipped value, got {below}"
+    assert len(above) >= 2, f"want two thresholds above the shipped value, got {above}"
+
+    traces, _ = build_corpus()
+    rows = sweep(traces, SWEEP_THRESHOLDS)
+    assert [r["min_confidence"] for r in rows] == list(SWEEP_THRESHOLDS)
+    assert sum(1 for r in rows if r["shipped"]) == 1
+
+
+def test_the_shipped_min_confidence_is_still_inert() -> None:
+    """Pins the finding the data report publishes.
+
+    `compute_confidence` floors at ~0.6375 for an emitted span, so every
+    threshold at or below it admits the same spans and the shipped 0.5 changes
+    nothing. If someone raises the default above the floor -- or reshapes the
+    confidence function -- this fails, and the report's "dead knob" paragraph
+    has to be rewritten rather than quietly becoming false.
+    """
+    floor = confidence_floor(DEFAULT_LOOKAHEAD)
+    assert DEFAULT_MIN_CONFIDENCE < floor, (
+        f"min_confidence {DEFAULT_MIN_CONFIDENCE} is no longer inert (floor {floor:.4f}); "
+        "update docs/reports/coherence-fp-*.md"
+    )
+
+    traces, _ = build_corpus()
+    at_default = measure(traces, min_confidence=DEFAULT_MIN_CONFIDENCE)
+    at_floor = measure(traces, min_confidence=floor)
+    assert at_default.flagged == at_floor.flagged

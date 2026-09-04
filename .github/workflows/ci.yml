@@ -305,6 +305,17 @@ jobs:
           # not evidence.
           uv run python scripts/gen_eval_health.py --check-series
 
+      - name: Assert the published false-positive breakdown is not stale
+        run: |
+          # docs/reports/coherence-fp-*.md publishes the per-provenance split of
+          # the number `coherence_evidence.rs` gates enforce mode on, and the
+          # README's first screen quotes figures out of it. It is rendered from
+          # the committed corpus and the committed report, so it can be checked
+          # rather than trusted -- and it has to be, because a generated page
+          # nobody regenerates is the same failure as an eval nobody runs: it
+          # keeps asserting yesterday's measurement in today's voice.
+          uv run python -m fd_evals.coherence_negatives --check-data-report
+
       - name: Assert no route serves plausible data without a backend
         run: |
           # Fourth and last surface of the same class. An eval that never runs, a
