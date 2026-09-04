@@ -28,6 +28,10 @@ The data plane executes agent steps with full observability:
 - **MCP Router**: Deny-by-default tool execution
 - **Sandbox**: Isolated code execution (future)
 
+It is **install-from-source only** — not on PyPI, deliberately. See
+[The Python data plane](python-plane.md) for what it is, why it is not published,
+and what to build against instead.
+
 ### Key Abstractions
 
 | Concept | Description |
@@ -73,6 +77,15 @@ See [Threat Model](architecture/threat-model.md) for details.
 - [Contributing](../CONTRIBUTING.md)
 - [Architecture Decision Records](adr/)
 - [Runbooks](runbooks/)
+
+## Measurement reports
+
+Point-in-time data reports, generated from committed evidence:
+
+- [Coherence monitor false-positive rate, by provenance (2026-09)](reports/coherence-fp-2026-09.md)
+
+Ongoing measurement records live in [eval health](eval-health.md) and the
+append-only [series](eval-health-series.jsonl).
 
 ## Support
 

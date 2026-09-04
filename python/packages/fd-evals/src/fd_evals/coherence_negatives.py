@@ -834,6 +834,337 @@ def render_markdown(result: FalsePositiveResult, man: dict[str, Any], day: str) 
     return "\n".join(lines)
 
 
+# =============================================================================
+# Standalone data report (docs/reports/)
+# =============================================================================
+
+DOCS_REPORTS_DIR = REPO_ROOT / "docs/reports"
+
+# A class prints a *rate* only when its Wilson 95% interval is narrower than
+# this. Wider than ~40 points the interval cannot separate "rare" from "common",
+# so the percentage adds nothing the raw count does not already say -- while
+# looking like a precision the sample cannot support. `abandoned_no_closure`
+# (n=7) is the row this exists for: one flag there moves the rate 14 points and
+# the interval spans half the unit interval. Suppressed rows still print n and
+# the flag count. The rule withholds a derived figure, never data.
+MAX_CI_WIDTH_FOR_RATE = 0.40
+
+# Swept around the shipped `min_confidence` (DEFAULT_MIN_CONFIDENCE = 0.5): two
+# thresholds below, the shipped value, two above.
+SWEEP_THRESHOLDS: tuple[float, ...] = (0.30, 0.40, 0.50, 0.60, 0.70)
+
+# Carried past the shipped ladder to show where the knob actually starts to
+# bite. Not a recommendation -- see `confidence_floor`.
+SWEEP_THRESHOLDS_EXTENDED: tuple[float, ...] = (0.75, 0.80, 0.90, 1.00)
+
+
+def confidence_floor(lookahead: int = DEFAULT_LOOKAHEAD) -> float:
+    """The lowest confidence any *emitted* span can carry, at this lookahead.
+
+    `_compute_confidence` is `0.6 + proximity + category_bonus`, and a fact
+    older than the lookahead window is expired before it can pair with an
+    action -- so `gap` never exceeds `lookahead`, and the worst case is a
+    generic-category fact at the window edge. Every threshold at or below this
+    value therefore admits exactly the same spans: `min_confidence` is inert
+    across the whole range, and the shipped 0.5 sits inside it.
+    """
+    la = float(max(lookahead, 1))
+    worst_proximity = (max(la - (la - 1.0), 0.0) / la) * 0.3
+    return 0.6 + worst_proximity
+
+
+def sweep(
+    traces: list[BenignTrace],
+    thresholds: tuple[float, ...] = SWEEP_THRESHOLDS,
+    *,
+    lookahead: int = DEFAULT_LOOKAHEAD,
+) -> list[dict[str, Any]]:
+    """Re-measure the same corpus at each confidence threshold."""
+    rows: list[dict[str, Any]] = []
+    for t in thresholds:
+        r = measure(traces, lookahead=lookahead, min_confidence=t)
+        rows.append(
+            {
+                "min_confidence": t,
+                "shipped": t == DEFAULT_MIN_CONFIDENCE,
+                **wilson_ci(r.flagged, r.total).to_dict(),
+            }
+        )
+    return rows
+
+
+def _pct(x: float) -> str:
+    return f"{x * 100:.2f}%"
+
+
+def _rate_cells(block: dict[str, Any]) -> tuple[str, str]:
+    """Render (rate, interval) for one class, honouring MAX_CI_WIDTH_FOR_RATE."""
+    n = block["total"]
+    if n == 0:
+        return ("—", "no traces")
+    width = block["ci95_high"] - block["ci95_low"]
+    if width > MAX_CI_WIDTH_FOR_RATE:
+        return ("—", f"n too small (interval spans {width * 100:.0f} pts)")
+    return (_pct(block["rate"]), f"[{_pct(block['ci95_low'])}, {_pct(block['ci95_high'])}]")
+
+
+def render_data_report(
+    result: FalsePositiveResult,
+    man: dict[str, Any],
+    shipped_sweep: list[dict[str, Any]],
+    extended_sweep: list[dict[str, Any]],
+    *,
+    measured_on: str,
+    commit: str,
+    report_md: str,
+) -> str:
+    """The standalone per-provenance data report published under `docs/reports/`.
+
+    `evals/reports/coherence_fp-<day>.md` is the machine-written artifact of one
+    run. This is the page a reader is sent to: the same numbers, plus the
+    threshold sweep and an explicit statement of what the corpus does *not*
+    represent.
+    """
+    floor = confidence_floor(result.lookahead)
+    prov_counts: dict[str, int] = man["provenance_counts"]
+
+    lines = [
+        "# Coherence monitor — false-positive rate, by provenance",
+        "",
+        f"**{_pct(result.rate)} ({result.flagged}/{result.total})**, "
+        f"Wilson 95% CI [{_pct(result.ci_low)}, {_pct(result.ci_high)}].",
+        "",
+        "| Field | Value |",
+        "| --- | --- |",
+        f"| Measured on | {measured_on} |",
+        f"| Commit | [`{commit[:12]}`](https://github.com/sattyamjjain/ferrumdeck/commit/{commit}) |",
+        f"| Corpus | {result.total} benign trajectories, seed {man['seed']} |",
+        f"| Detector settings | lookahead {result.lookahead}, "
+        f"min_confidence {result.min_confidence} (shipped defaults) |",
+        "| Reproduce | `make eval-coherence-fp` |",
+        "",
+        "A **false positive** is a trajectory a careful reader calls benign — at no point "
+        "does the agent state a blocking fact and then advance as if it were untrue — on "
+        "which `scan_trajectory` emits at least one divergence. The monitor is a lexical "
+        "matcher over the run trajectory, so this rate is a property of *the vocabulary it "
+        "meets*, not of the agent's competence.",
+        "",
+        "Where a class is too small to carry a percentage, this page prints the count and "
+        "leaves the rate blank rather than computing one. The rule: a rate is shown only "
+        "when its Wilson 95% interval is narrower than "
+        f"{MAX_CI_WIDTH_FOR_RATE * 100:.0f} percentage points. Wider than that the interval "
+        'cannot separate "rare" from "common", so the percentage would read as a precision '
+        "the sample does not support.",
+        "",
+        "## By provenance",
+        "",
+        "Where the text in each trajectory came from. Never pooled silently.",
+        "",
+        "| Provenance | Flagged | n | Rate | 95% CI |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+
+    real_n = prov_counts.get("real", 0)
+    if "real" not in result.by_provenance:
+        lines.append(f"| `real` | 0 | {real_n} | — | no traces |")
+    for k, b in result.by_provenance.items():
+        rate, ci = _rate_cells(b)
+        lines.append(f"| `{k}` | {b['successes']} | {b['total']} | {rate} | {ci} |")
+
+    lines += [
+        "",
+        f"- **`real` — captured verbatim from a real agent run: {real_n}.** No committed "
+        "artifact in this repository carries agent trajectory text (`evals/reports/*.json` "
+        "hold scorer results, tokens and timings, never the model's output), so there is "
+        "nothing to draw from. The row is printed at n=0 rather than omitted, because a "
+        "missing row reads as an oversight and a zero reads as a fact.",
+        "- **`synthetic_grounded`** — assembled by the generator, every statement and action "
+        "string drawn from real repository text: this repo's own `git log` subjects and the "
+        "`safe-pr-agent` tool allowlist. For a lexical matcher the language is the thing "
+        "under test, so this is the class that carries the claim.",
+        "- **`synthetic_authored`** — assembled by the generator from strings written by "
+        "hand, to cover a structural shape no harvested text happened to produce. It flags "
+        "nearly four times as often as the grounded class, which is the expected direction: "
+        "these were written to exercise the awkward shapes.",
+        "",
+        "## By shape",
+        "",
+        "What the trajectory *does*. The rate is not spread evenly across shapes — four of "
+        "the eight never fire at all, and the headline number is carried by two.",
+        "",
+        "| Shape | Flagged | n | Rate | 95% CI |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for k, b in sorted(result.by_shape.items(), key=lambda kv: -kv[1]["rate"]):
+        rate, ci = _rate_cells(b)
+        lines.append(f"| `{k}` | {b['successes']} | {b['total']} | {rate} | {ci} |")
+
+    lines += [
+        "",
+        "`vocabulary_trap_statement` is the clearest failure: a statement like "
+        "`error: 0 errors, 0 warnings` carries a blocking keyword while reporting a clean "
+        "result. `handoff_then_unrelated_closure` is the second: the agent states a real "
+        "blocker, hands it off, and then advances on a *different* workstream — which is "
+        "correct behaviour that looks structurally identical to the thing being detected.",
+        "",
+        "## By threshold",
+        "",
+        f"The shipped threshold is **`min_confidence = {result.min_confidence}`** "
+        f"(lookahead {result.lookahead}). The headline rate is measured there. Two steps "
+        "either side:",
+        "",
+        "| `min_confidence` | Flagged | n | Rate | 95% CI |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for row in shipped_sweep:
+        mark = " ← shipped" if row["shipped"] else ""
+        lines.append(
+            f"| {row['min_confidence']:.2f}{mark} | {row['successes']} | {row['total']} | "
+            f"{_pct(row['rate'])} | [{_pct(row['ci95_low'])}, {_pct(row['ci95_high'])}] |"
+        )
+
+    lines += [
+        "",
+        f"**The rate does not move.** That is not a flat response curve — it is a dead "
+        f"knob. `_compute_confidence` is `0.6 + proximity + category_bonus`, and a fact "
+        f"older than the lookahead window is expired before it can pair with an action, so "
+        f"`gap` never exceeds `lookahead` and the lowest confidence any emitted span can "
+        f"carry is **{floor:.4f}**. Every threshold at or below that value admits exactly "
+        f"the same spans. The shipped {result.min_confidence} sits inside that dead zone: "
+        "raising it to 0.6 to suppress false positives, or lowering it to 0.3 to catch "
+        "more, both change nothing.",
+        "",
+        "Carried past the shipped ladder, to the region where the knob does something:",
+        "",
+        "| `min_confidence` | Flagged | n | Rate | 95% CI |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for row in extended_sweep:
+        lines.append(
+            f"| {row['min_confidence']:.2f} | {row['successes']} | {row['total']} | "
+            f"{_pct(row['rate'])} | [{_pct(row['ci95_low'])}, {_pct(row['ci95_high'])}] |"
+        )
+
+    lines += [
+        "",
+        "These are **not a recommendation**. Every row above trades false positives for "
+        "false negatives, and this corpus contains no true positives, so it cannot measure "
+        "what a higher threshold would stop catching. Quoting a lower rate from this table "
+        "without a matched true-positive corpus would be picking a number, not tuning a "
+        "detector.",
+        "",
+        "## What this corpus is",
+        "",
+        f"{result.total} benign agent trajectories generated from a fixed seed "
+        f"({man['seed']}) across {len(man['shape_counts'])} structural shapes, mixed by "
+        "what benign runs are *expected to look like* — weighted toward the boring "
+        "successful case — and explicitly not by what the matcher is expected to do with "
+        "them. Composing it the other way yields one of two worthless numbers: a corpus of "
+        "cases the matcher handles (rate 0 by construction) or a corpus picked to break it "
+        "(inflated by construction). The mix is declared in "
+        "`evals/datasets/coherence-negatives/manifest.json` so a reader can disagree with "
+        "the weighting instead of reverse-engineering it. Every trace carries a "
+        "`why_benign` line, so any individual flag can be argued with.",
+        "",
+        "The vocabulary is frozen at a named commit in "
+        "`evals/datasets/coherence-negatives/vocabulary.json` and the measurement never "
+        "re-reads `git`. It did once, and CI caught it: a pull-request checkout is a "
+        "synthetic merge commit, so the harvested subjects — and the rate with them — "
+        "differed between a laptop and a runner (10.42% vs 12.08%). A number that changes "
+        "with where you run it is not a measurement.",
+        "",
+        "## What this corpus is not",
+        "",
+        "Read this before quoting the headline figure.",
+        "",
+        "- **Not a sample of real agent traffic.** `real` is 0. Every trajectory is "
+        "assembled by a generator. The *vocabulary* is real; the *trajectories* are not. A "
+        "production agent's phrasing distribution is unknown, and this number does not "
+        "estimate it.",
+        "- **Not a precision or an F-score.** There are no true positives here. The corpus "
+        "is all-negative by construction, so it measures the false-positive rate and "
+        "nothing else. It says how often the monitor stops a correct run; it says nothing "
+        "about how often it catches an incorrect one.",
+        "- **Not portable to another agent.** The grounded strings come from this "
+        "repository's `git log` and the `safe-pr-agent` allowlist. An agent working in a "
+        "different domain — different tool names, different error vocabulary — would meet "
+        "a different rate. For a lexical matcher this is the whole point, not a caveat.",
+        "- **Not a claim about English.** Only the matcher's own keyword lists are "
+        "exercised. Blocking language the lists do not contain is invisible to both the "
+        "detector and this measurement.",
+        "- **Not a per-run probability.** A trajectory is one unit. Longer runs offer more "
+        "statement/action pairs and more chances to fire; the corpus does not model any "
+        "particular run-length distribution.",
+        "",
+        "## Reproduce",
+        "",
+        "```bash",
+        "make eval-coherence-fp        # rate, corpus, evals/reports/coherence_fp-<day>.*",
+        "make docs-coherence-fp        # regenerate this page",
+        "```",
+        "",
+        f"Deterministic: seed {man['seed']}, frozen vocabulary, fixed corpus, no LLM and no "
+        "network. The machine-written artifact of the run behind this page is "
+        f"[`evals/reports/{report_md}`](../../evals/reports/{report_md}); "
+        "the append-only measurement record is "
+        "[`docs/eval-health-series.jsonl`](../eval-health-series.jsonl).",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def frozen_vocab_commit() -> str:
+    """The commit the corpus vocabulary was frozen at.
+
+    This -- not `git rev-parse HEAD` -- is the SHA the report cites. HEAD moves
+    with every unrelated commit and would make the page stale on contact; the
+    frozen-vocabulary commit is the one that actually determines the number.
+    """
+    data = json.loads(VOCAB_PATH.read_text())
+    return str(data.get("harvested_at_commit", "unknown"))
+
+
+def latest_committed_measurement() -> tuple[str, str]:
+    """(measurement day as ISO, report basename) of the newest committed report.
+
+    Read from committed evidence rather than `datetime.now()`, for the same
+    reason `gen_eval_health` does: a page generated from local wall-clock time
+    describes the machine that ran it, not the measurement.
+    """
+    reports = sorted(REPORTS_DIR.glob("coherence_fp-*.json"))
+    if not reports:
+        msg = (
+            "no committed coherence_fp report under evals/reports/. Run "
+            "`make eval-coherence-fp` first; this page is generated from committed "
+            "evidence, never from a local-only run."
+        )
+        raise FileNotFoundError(msg)
+    newest = reports[-1]
+    day = newest.stem.rsplit("-", 1)[-1]
+    return f"{day[:4]}-{day[4:6]}-{day[6:8]}", f"{newest.stem}.md"
+
+
+def data_report_path(measured_on: str) -> Path:
+    """`docs/reports/coherence-fp-<YYYY>-<MM>.md` -- one page per measurement month."""
+    return DOCS_REPORTS_DIR / f"coherence-fp-{measured_on[:7]}.md"
+
+
+def build_data_report(traces: list[BenignTrace], man: dict[str, Any]) -> tuple[Path, str]:
+    """Render the standalone data report from the committed corpus."""
+    result = measure(traces)
+    measured_on, report_md = latest_committed_measurement()
+    body = render_data_report(
+        result,
+        man,
+        sweep(traces, SWEEP_THRESHOLDS),
+        sweep(traces, SWEEP_THRESHOLDS_EXTENDED),
+        measured_on=measured_on,
+        commit=frozen_vocab_commit(),
+        report_md=report_md,
+    )
+    return data_report_path(measured_on), body
+
+
 def write_dataset(traces: list[BenignTrace], man: dict[str, Any]) -> tuple[Path, Path]:
     DATASET_DIR.mkdir(parents=True, exist_ok=True)
     traces_path = DATASET_DIR / "traces.jsonl"
@@ -862,7 +1193,34 @@ def main(argv: list[str] | None = None) -> int:
             "must be regenerated and the new number published."
         ),
     )
+    ap.add_argument(
+        "--data-report",
+        action="store_true",
+        help="write docs/reports/coherence-fp-<YYYY>-<MM>.md and exit",
+    )
+    ap.add_argument(
+        "--check-data-report",
+        action="store_true",
+        help="fail if the committed data report is stale; writes nothing",
+    )
     args = ap.parse_args(argv)
+
+    if args.data_report or args.check_data_report:
+        traces, v = build_corpus(args.n, args.seed)
+        path, body = build_data_report(traces, manifest(traces, v, measure(traces)))
+        rel = path.relative_to(REPO_ROOT)
+        if args.check_data_report:
+            current = path.read_text() if path.exists() else ""
+            if current != body:
+                print(f"STALE: {rel} does not match a fresh render.")
+                print("Run `make docs-coherence-fp` and commit the result.")
+                return 1
+            print(f"{rel} is current.")
+            return 0
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body)
+        print(f"wrote {rel}")
+        return 0
 
     if args.reharvest:
         path = write_vocab(harvest_vocab())
