@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > that captured them. Dates are the tag dates; entries are terse, one per merged
 > change.
 
-## [Unreleased]
+## [0.8.18] - 2026-09-05
 
 ### Added
 - **The coherence false-positive rate is published per provenance, not just as a
