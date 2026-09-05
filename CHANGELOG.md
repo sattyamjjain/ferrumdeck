@@ -70,6 +70,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   append-only history, and two artifacts that would stop reproducing if a
   caveat were hand-edited into them ([#57](https://github.com/sattyamjjain/ferrumdeck/issues/57)).
 
+- **`CITATION.cff`** at the repository root. A grep for CITATION returned zero
+  hits, while the repo now publishes a citable measurement — the per-provenance
+  false-positive report and the append-only `docs/eval-health-series.jsonl`
+  behind it. **No DOI**, because there is no deposit backing one; a DOI here
+  would be exactly the fabricated identifier this repository's claims-integrity
+  gate exists to catch. The file says so in a comment, and says where to add one
+  if a deposit is ever made. It also points anyone citing a *measurement* at the
+  report and the series rather than at the software entry, and tells them to
+  read "What this corpus is not" first.
+
 ### Fixed
 - **The coherence monitor's `min_confidence` was a dead knob; the floor was the
   bug, not the default.** `compute_confidence` was

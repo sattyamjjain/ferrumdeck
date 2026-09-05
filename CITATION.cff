@@ -1,0 +1,51 @@
+# How to cite FerrumDeck.
+#
+# No DOI: there is no deposit backing one. A DOI here would be a fabricated
+# identifier, and this repository has a claims-integrity gate specifically to
+# stop that class of claim. If a Zenodo (or equivalent) deposit is ever made,
+# add `doi:` and `identifiers:` then — not before.
+#
+# If you are citing a *measurement* rather than the software, cite the artifact
+# that carries it, not this file. The coherence-monitor false-positive rate is
+# published per provenance in `docs/reports/coherence-fp-2026-09.md`, and every
+# run is recorded, append-only, in `docs/eval-health-series.jsonl` with its
+# measurement date, producing commit and harness version. Read the report's
+# "What this corpus is not" section before quoting the headline figure.
+
+cff-version: 1.2.0
+message: "If you use FerrumDeck in academic work, please cite it as below."
+type: software
+
+title: "FerrumDeck"
+abstract: >-
+  A deterministic, in-path enforcement engine and AgentOps control plane for
+  agentic AI workflows. Every tool call an agent attempts passes through a
+  policy decision before it executes: deny-by-default tool allowlists,
+  five-layer Airlock runtime inspection, budget gates with leases, an R1-R3
+  reversibility ladder, AP2 and x402 payment spend gates, approval gates, and a
+  hash-chained audit trail with out-of-band checkpoint anchoring. Regulatory
+  rules ship as first-class policy modules (EU AI Act Article 50 transparency,
+  Colorado SB 26-189). Governance behaviour is measured by deterministic,
+  offline evaluations committed to the repository rather than asserted in prose.
+
+authors:
+  - family-names: "Jain"
+    given-names: "Sattyam"
+    email: "sattyamjain96@gmail.com"
+    alias: "sattyamjjain"
+
+repository-code: "https://github.com/sattyamjjain/ferrumdeck"
+url: "https://sattyamjjain.github.io/ferrumdeck/"
+license: Apache-2.0
+version: "0.8.18"
+date-released: "2026-09-05"
+
+keywords:
+  - "ai-agents"
+  - "agent-security"
+  - "policy-enforcement"
+  - "agentops"
+  - "llm-security"
+  - "audit-trail"
+  - "eu-ai-act"
+  - "rust"
