@@ -12,7 +12,14 @@ from pathlib import Path
 
 import pytest
 
-from fd_evals.coherence import DEFAULT_LOOKAHEAD, DEFAULT_MIN_CONFIDENCE
+from fd_evals.coherence import (
+    DEFAULT_LOOKAHEAD,
+    DEFAULT_MIN_CONFIDENCE,
+    GENERIC_ERROR,
+    TEST_FAILURE,
+    _compute_confidence,
+    raw_confidence_span,
+)
 from fd_evals.coherence_negatives import (
     DATASET_DIR,
     MAX_CI_WIDTH_FOR_RATE,
@@ -287,13 +294,16 @@ def test_the_data_report_prints_the_zero_real_row_rather_than_omitting_it() -> N
     assert "| `real` | 0 | 0 |" in body
 
 
-def test_the_sweep_brackets_the_shipped_threshold() -> None:
-    """Two thresholds either side of the shipped value, and the shipped value itself."""
+def test_the_sweep_starts_at_the_shipped_threshold_and_climbs() -> None:
+    """The shipped value is the bottom of the scale, so the ladder runs up from it.
+
+    Before 0.8.18 this asserted two rows either side of a shipped 0.5. That
+    shape only made sense while the shipped value sat mid-scale; it now sits at
+    the floor, and every row above it must actually be above it.
+    """
     assert DEFAULT_MIN_CONFIDENCE in SWEEP_THRESHOLDS
-    below = [t for t in SWEEP_THRESHOLDS if t < DEFAULT_MIN_CONFIDENCE]
     above = [t for t in SWEEP_THRESHOLDS if t > DEFAULT_MIN_CONFIDENCE]
-    assert len(below) >= 2, f"want two thresholds below the shipped value, got {below}"
-    assert len(above) >= 2, f"want two thresholds above the shipped value, got {above}"
+    assert len(above) >= 3, f"want at least three thresholds above the shipped value, got {above}"
 
     traces, _ = build_corpus()
     rows = sweep(traces, SWEEP_THRESHOLDS)
@@ -301,22 +311,57 @@ def test_the_sweep_brackets_the_shipped_threshold() -> None:
     assert sum(1 for r in rows if r["shipped"]) == 1
 
 
-def test_the_shipped_min_confidence_is_still_inert() -> None:
-    """Pins the finding the data report publishes.
+def test_the_shipped_min_confidence_is_live() -> None:
+    """The knob must be capable of gating at the scale the config advertises.
 
-    `compute_confidence` floors at ~0.6375 for an emitted span, so every
-    threshold at or below it admits the same spans and the shipped 0.5 changes
-    nothing. If someone raises the default above the floor -- or reshapes the
-    confidence function -- this fails, and the report's "dead knob" paragraph
-    has to be rewritten rather than quietly becoming false.
+    Inverted at 0.8.18. This previously asserted the opposite -- that the
+    shipped `min_confidence` sat below the confidence floor and therefore
+    changed nothing -- which pinned the defect in place: a passing test suite
+    and a threshold no operator could use.
+
+    "Live" means two things, and both are asserted: the shipped default is not
+    stranded below the floor, and moving the threshold up the scale actually
+    removes spans.
     """
     floor = confidence_floor(DEFAULT_LOOKAHEAD)
-    assert DEFAULT_MIN_CONFIDENCE < floor, (
-        f"min_confidence {DEFAULT_MIN_CONFIDENCE} is no longer inert (floor {floor:.4f}); "
-        "update docs/reports/coherence-fp-*.md"
+    assert DEFAULT_MIN_CONFIDENCE >= floor, (
+        f"min_confidence {DEFAULT_MIN_CONFIDENCE} is stranded below the confidence "
+        f"floor {floor:.4f} and can never gate anything. Either the scale is "
+        "compressed again or the default was lowered past it."
     )
 
     traces, _ = build_corpus()
     at_default = measure(traces, min_confidence=DEFAULT_MIN_CONFIDENCE)
-    at_floor = measure(traces, min_confidence=floor)
-    assert at_default.flagged == at_floor.flagged
+    raised = measure(traces, min_confidence=0.5)
+    assert raised.flagged < at_default.flagged, (
+        f"raising min_confidence to 0.5 suppressed nothing "
+        f"({raised.flagged} vs {at_default.flagged} flagged) -- the knob is inert again"
+    )
+
+
+def test_the_raw_heuristic_is_compressed_and_must_stay_rescaled() -> None:
+    """The regression guard behind `test_the_shipped_min_confidence_is_live`.
+
+    Keeps the pre-0.8.18 finding, which documents something real: the raw
+    heuristic `0.6 + proximity + category_bonus` cannot emit below 0.6375 at
+    lookahead 8, so it occupies only the top ~36% of its nominal range. That
+    compression is exactly what made a `[0, 1]` threshold inert, and it is
+    still there in the raw weights -- what changed is that the result is now
+    rescaled before anyone can threshold against it.
+
+    If someone deletes the rescale, this fails alongside the liveness test and
+    names the cause rather than just the symptom.
+    """
+    lowest, highest = raw_confidence_span(DEFAULT_LOOKAHEAD)
+    assert lowest == pytest.approx(0.6375), f"raw floor moved: {lowest}"
+    assert highest == pytest.approx(1.0), f"raw ceiling moved: {highest}"
+    assert lowest > 0.5, (
+        "the raw heuristic no longer sits above 0.5; the historical reason the "
+        "shipped default was inert has changed and the report needs rewriting"
+    )
+
+    # ...and the rescale maps that compressed span onto the full unit interval.
+    assert _compute_confidence(
+        GENERIC_ERROR, DEFAULT_LOOKAHEAD, DEFAULT_LOOKAHEAD
+    ) == pytest.approx(0.0)
+    assert _compute_confidence(TEST_FAILURE, 1, DEFAULT_LOOKAHEAD) == pytest.approx(1.0)

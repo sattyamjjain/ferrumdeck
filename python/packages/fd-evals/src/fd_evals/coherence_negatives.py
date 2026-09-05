@@ -64,7 +64,9 @@ from typing import Any
 from fd_evals.coherence import (
     DEFAULT_LOOKAHEAD,
     DEFAULT_MIN_CONFIDENCE,
+    GENERIC_ERROR,
     TrajectoryEvent,
+    _compute_confidence,
     scan_trajectory,
 )
 from fd_evals.injection_defense import wilson_ci
@@ -849,28 +851,35 @@ DOCS_REPORTS_DIR = REPO_ROOT / "docs/reports"
 # the flag count. The rule withholds a derived figure, never data.
 MAX_CI_WIDTH_FOR_RATE = 0.40
 
-# Swept around the shipped `min_confidence` (DEFAULT_MIN_CONFIDENCE = 0.5): two
-# thresholds below, the shipped value, two above.
-SWEEP_THRESHOLDS: tuple[float, ...] = (0.30, 0.40, 0.50, 0.60, 0.70)
+# The shipped `min_confidence` is 0.0 (admit everything, stated), which is the
+# bottom of the scale -- so this ladder runs UP from the shipped value instead
+# of bracketing it. Before 0.8.18 the shipped 0.5 sat below a 0.6375 floor and
+# every row here printed the same rate; that flatness was the bug, not a finding.
+SWEEP_THRESHOLDS: tuple[float, ...] = (0.00, 0.10, 0.25, 0.50, 0.75)
 
-# Carried past the shipped ladder to show where the knob actually starts to
-# bite. Not a recommendation -- see `confidence_floor`.
-SWEEP_THRESHOLDS_EXTENDED: tuple[float, ...] = (0.75, 0.80, 0.90, 1.00)
+# Carried to the top of the scale. Not a recommendation -- these trade false
+# positives for false negatives and this corpus has no true positives.
+SWEEP_THRESHOLDS_EXTENDED: tuple[float, ...] = (0.90, 0.95, 1.00)
 
 
 def confidence_floor(lookahead: int = DEFAULT_LOOKAHEAD) -> float:
     """The lowest confidence any *emitted* span can carry, at this lookahead.
 
-    `_compute_confidence` is `0.6 + proximity + category_bonus`, and a fact
-    older than the lookahead window is expired before it can pair with an
-    action -- so `gap` never exceeds `lookahead`, and the worst case is a
-    generic-category fact at the window edge. Every threshold at or below this
-    value therefore admits exactly the same spans: `min_confidence` is inert
-    across the whole range, and the shipped 0.5 sits inside it.
+    Derived by evaluating the worst case -- a generic-category fact at the far
+    edge of the lookahead window -- rather than by restating a constant, so it
+    stays correct if the scale is ever reshaped again.
+
+    Since 0.8.18 this is **0.0**: `_compute_confidence` rescales the raw
+    heuristic onto a true `[0, 1]`, so every threshold above the floor removes
+    spans and the knob is live across the whole range.
+
+    Before 0.8.18 it was **0.6375**. The raw heuristic
+    (`0.6 + proximity + category_bonus`) could not produce anything lower, so
+    the shipped `min_confidence = 0.5` sat under the floor and admitted exactly
+    the same spans as 0.3 or 0.6 -- a dead knob that looked like a tuned one.
+    See `raw_confidence_span` for the compression that caused it.
     """
-    la = float(max(lookahead, 1))
-    worst_proximity = (max(la - (la - 1.0), 0.0) / la) * 0.3
-    return 0.6 + worst_proximity
+    return _compute_confidence(GENERIC_ERROR, lookahead, lookahead)
 
 
 def sweep(
@@ -1010,8 +1019,8 @@ def render_data_report(
         "## By threshold",
         "",
         f"The shipped threshold is **`min_confidence = {result.min_confidence}`** "
-        f"(lookahead {result.lookahead}). The headline rate is measured there. Two steps "
-        "either side:",
+        f"(lookahead {result.lookahead}) — admit every emitted span. The headline rate is "
+        "measured there. Carried up the scale:",
         "",
         "| `min_confidence` | Flagged | n | Rate | 95% CI |",
         "| --- | --- | --- | --- | --- |",
@@ -1025,16 +1034,27 @@ def render_data_report(
 
     lines += [
         "",
-        f"**The rate does not move.** That is not a flat response curve — it is a dead "
-        f"knob. `_compute_confidence` is `0.6 + proximity + category_bonus`, and a fact "
-        f"older than the lookahead window is expired before it can pair with an action, so "
-        f"`gap` never exceeds `lookahead` and the lowest confidence any emitted span can "
-        f"carry is **{floor:.4f}**. Every threshold at or below that value admits exactly "
-        f"the same spans. The shipped {result.min_confidence} sits inside that dead zone: "
-        "raising it to 0.6 to suppress false positives, or lowering it to 0.3 to catch "
-        "more, both change nothing.",
+        f"**The knob is live, and the shipped default deliberately does not use it.** "
+        f"The lowest confidence any emitted span can carry is **{floor:.4f}**, and the "
+        f"shipped {result.min_confidence} sits at it, so nothing is suppressed and the "
+        "headline rate above is the raw matcher's output.",
         "",
-        "Carried past the shipped ladder, to the region where the knob does something:",
+        "This was not true before 0.8.18. `_compute_confidence` was "
+        "`0.6 + proximity + category_bonus`, and a fact older than the lookahead window "
+        "expires before it can pair with an action — so `gap` never exceeded `lookahead` "
+        "and no emitted span could score below **0.6375**. The config documented a "
+        "`[0, 1]` threshold and shipped `0.5`, which sat under that floor: every value "
+        "from 0.3 to 0.6 admitted exactly the same spans. The threshold was not tuned "
+        "conservatively, it was disconnected, and the table here printed one flat rate "
+        "that read like a finding. The raw heuristic is now rescaled onto a true "
+        "`[0, 1]` (monotonically — the ordering of spans is unchanged), so a threshold "
+        "means what the config says it means.",
+        "",
+        "The default was **not** moved to a value that gates. That would trade false "
+        "positives for false negatives, and this corpus cannot price that trade — see "
+        "below. `0.0` is the honest default: no suppression, stated.",
+        "",
+        "The top of the scale, where suppression is severe:",
         "",
         "| `min_confidence` | Flagged | n | Rate | 95% CI |",
         "| --- | --- | --- | --- | --- |",

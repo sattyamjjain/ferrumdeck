@@ -7,7 +7,7 @@
 | Measured on | 2026-09-02 |
 | Commit | [`e701ae9cfeb4`](https://github.com/sattyamjjain/ferrumdeck/commit/e701ae9cfeb4faaa5dbb91c70216b7d672b431e1) |
 | Corpus | 240 benign trajectories, seed 20260902 |
-| Detector settings | lookahead 8, min_confidence 0.5 (shipped defaults) |
+| Detector settings | lookahead 8, min_confidence 0.0 (shipped defaults) |
 | Reproduce | `make eval-coherence-fp` |
 
 A **false positive** is a trajectory a careful reader calls benign — at no point does the agent state a blocking fact and then advance as if it were untrue — on which `scan_trajectory` emits at least one divergence. The monitor is a lexical matcher over the run trajectory, so this rate is a property of *the vocabulary it meets*, not of the agent's competence.
@@ -47,25 +47,28 @@ What the trajectory *does*. The rate is not spread evenly across shapes — four
 
 ## By threshold
 
-The shipped threshold is **`min_confidence = 0.5`** (lookahead 8). The headline rate is measured there. Two steps either side:
+The shipped threshold is **`min_confidence = 0.0`** (lookahead 8) — admit every emitted span. The headline rate is measured there. Carried up the scale:
 
 | `min_confidence` | Flagged | n | Rate | 95% CI |
 | --- | --- | --- | --- | --- |
-| 0.30 | 25 | 240 | 10.42% | [7.16%, 14.92%] |
-| 0.40 | 25 | 240 | 10.42% | [7.16%, 14.92%] |
-| 0.50 ← shipped | 25 | 240 | 10.42% | [7.16%, 14.92%] |
-| 0.60 | 25 | 240 | 10.42% | [7.16%, 14.92%] |
-| 0.70 | 22 | 240 | 9.17% | [6.13%, 13.49%] |
+| 0.00 ← shipped | 25 | 240 | 10.42% | [7.16%, 14.92%] |
+| 0.10 | 22 | 240 | 9.17% | [6.13%, 13.49%] |
+| 0.25 | 21 | 240 | 8.75% | [5.79%, 13.01%] |
+| 0.50 | 10 | 240 | 4.17% | [2.28%, 7.50%] |
+| 0.75 | 5 | 240 | 2.08% | [0.89%, 4.78%] |
 
-**The rate does not move.** That is not a flat response curve — it is a dead knob. `_compute_confidence` is `0.6 + proximity + category_bonus`, and a fact older than the lookahead window is expired before it can pair with an action, so `gap` never exceeds `lookahead` and the lowest confidence any emitted span can carry is **0.6375**. Every threshold at or below that value admits exactly the same spans. The shipped 0.5 sits inside that dead zone: raising it to 0.6 to suppress false positives, or lowering it to 0.3 to catch more, both change nothing.
+**The knob is live, and the shipped default deliberately does not use it.** The lowest confidence any emitted span can carry is **0.0000**, and the shipped 0.0 sits at it, so nothing is suppressed and the headline rate above is the raw matcher's output.
 
-Carried past the shipped ladder, to the region where the knob does something:
+This was not true before 0.8.18. `_compute_confidence` was `0.6 + proximity + category_bonus`, and a fact older than the lookahead window expires before it can pair with an action — so `gap` never exceeded `lookahead` and no emitted span could score below **0.6375**. The config documented a `[0, 1]` threshold and shipped `0.5`, which sat under that floor: every value from 0.3 to 0.6 admitted exactly the same spans. The threshold was not tuned conservatively, it was disconnected, and the table here printed one flat rate that read like a finding. The raw heuristic is now rescaled onto a true `[0, 1]` (monotonically — the ordering of spans is unchanged), so a threshold means what the config says it means.
+
+The default was **not** moved to a value that gates. That would trade false positives for false negatives, and this corpus cannot price that trade — see below. `0.0` is the honest default: no suppression, stated.
+
+The top of the scale, where suppression is severe:
 
 | `min_confidence` | Flagged | n | Rate | 95% CI |
 | --- | --- | --- | --- | --- |
-| 0.75 | 17 | 240 | 7.08% | [4.47%, 11.05%] |
-| 0.80 | 15 | 240 | 6.25% | [3.82%, 10.05%] |
-| 0.90 | 5 | 240 | 2.08% | [0.89%, 4.78%] |
+| 0.90 | 0 | 240 | 0.00% | [0.00%, 1.58%] |
+| 0.95 | 0 | 240 | 0.00% | [0.00%, 1.58%] |
 | 1.00 | 0 | 240 | 0.00% | [0.00%, 1.58%] |
 
 These are **not a recommendation**. Every row above trades false positives for false negatives, and this corpus contains no true positives, so it cannot measure what a higher threshold would stop catching. Quoting a lower rate from this table without a matched true-positive corpus would be picking a number, not tuning a detector.

@@ -282,8 +282,16 @@ pub struct CoherenceConfig {
     #[serde(default = "default_coherence_risk_score")]
     pub risk_score: u8,
 
-    /// Minimum confidence in `[0, 1]` required to surface a divergence —
-    /// guards the false-positive rate.
+    /// Minimum confidence in `[0, 1]` required to surface a divergence.
+    ///
+    /// Defaults to `0.0` — admit every emitted span. That is deliberate, not a
+    /// placeholder. Until 0.8.18 this defaulted to `0.5` against a score that
+    /// could never fall below `0.6375`, so it suppressed nothing and no
+    /// operator could tell. The scale is fixed (see `compute_confidence`); the
+    /// default is not "repaired" to a gating value because gating trades false
+    /// positives for false negatives, and the benign corpus behind
+    /// `docs/reports/coherence-fp-*.md` contains no true positives — it cannot
+    /// measure what a higher threshold would stop catching.
     #[serde(default = "default_coherence_min_confidence")]
     pub min_confidence: f64,
 }
@@ -308,7 +316,7 @@ fn default_coherence_risk_score() -> u8 {
 }
 
 fn default_coherence_min_confidence() -> f64 {
-    0.5
+    0.0
 }
 
 // =============================================================================

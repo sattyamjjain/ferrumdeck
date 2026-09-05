@@ -69,6 +69,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   append-only history, and two artifacts that would stop reproducing if a
   caveat were hand-edited into them ([#57](https://github.com/sattyamjjain/ferrumdeck/issues/57)).
 
+### Fixed
+- **The coherence monitor's `min_confidence` was a dead knob; the floor was the
+  bug, not the default.** `compute_confidence` was
+  `0.6 + proximity + category_bonus`, and a fact older than the lookahead window
+  expires before it can pair with an action — so `gap` never exceeded
+  `lookahead` and no emitted span could score below **0.6375** at lookahead 8.
+  The config advertised a `[0, 1]` threshold and shipped `0.5`, which sat under
+  that floor: every value from 0.3 to 0.6 admitted exactly the same spans. The
+  threshold was not conservatively tuned, it was disconnected, and nothing said
+  so.
+
+  **Which side was wrong.** The floor. A score that claims `[0, 1]` and occupies
+  only the top 36% of it is the broken half; the `0.5` default was a coherent
+  intention defeated by it. The raw heuristic is now rescaled onto a true
+  `[0, 1]` in both planes (`fd_policy::airlock::coherence::compute_confidence`
+  and `fd_evals.coherence._compute_confidence`). The rescale is **monotonic** —
+  it changes the numbers, never which span outranks which — so both endpoints
+  are reachable and a configured threshold means what the config says.
+
+  **The default was deliberately NOT repaired to a gating value.** Raising it to
+  0.5 on the corrected scale would have looked like the obvious fix and would
+  have cut the measured false-positive rate from 10.42% to **4.17%** — by
+  suppressing 60% of detections, justified by nothing but the roundness of 0.5.
+  The benign corpus behind `docs/reports/coherence-fp-2026-09.md` contains no
+  true positives, so it cannot measure what a higher threshold stops catching;
+  picking one would be the exact move that report calls "picking a number, not
+  tuning a detector". The default is now `0.0` — admit every emitted span, no
+  suppression, stated — and the knob is live for anyone with evidence to set it.
+
+  **The published rate is unchanged at 10.42% (25/240)** because 0.0 reproduces
+  the old effective behaviour exactly. What changed is that the confidence
+  values carried on emitted spans are now rescaled, and the report's threshold
+  sweep shows a curve instead of one flat line
+  (10.42% → 9.17% → 8.75% → 4.17% → 2.08% across 0.00–0.75)
+  ([#55](https://github.com/sattyamjjain/ferrumdeck/issues/55)).
+- **The test that asserted the bug now asserts the fix.**
+  `test_the_shipped_min_confidence_is_still_inert` pinned the defect in place —
+  a green suite guaranteeing the knob stayed broken. It is now
+  `test_the_shipped_min_confidence_is_live`, which fails if the default is ever
+  stranded below the floor again *or* if raising the threshold stops removing
+  spans. Verified to fail against the pre-fix code with the diagnostic
+  `min_confidence 0.5 is stranded below the confidence floor 0.6375`, and to
+  pass after. The old finding survives as
+  `test_the_raw_heuristic_is_compressed_and_must_stay_rescaled`, because the
+  compression is real and still present in the raw weights — what changed is
+  that it is now rescaled before anyone can threshold against it. Deleting the
+  rescale fails that test by name rather than only its symptom.
+
 ### Changed
 - The README's first screen now links the per-provenance breakdown next to the
   10.42% figure, and the Python-plane note links the page that explains it.

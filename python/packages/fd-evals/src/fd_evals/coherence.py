@@ -51,7 +51,23 @@ BlockingCategory = Literal[
 # Default config values (mirror the Rust `CoherenceConfig::default`).
 DEFAULT_LOOKAHEAD = 8
 DEFAULT_RISK_SCORE = 70
-DEFAULT_MIN_CONFIDENCE = 0.5
+
+# 0.0 = admit every emitted span. This is not a placeholder, it is the claim
+# this repository can actually support.
+#
+# Until 0.8.18 the default was 0.5 on a scale that could never go below 0.6375,
+# so it suppressed nothing and no operator could tell (see `_compute_confidence`).
+# The scale is fixed; the default is deliberately not "repaired" to a value that
+# gates, because gating means trading false positives for false negatives and
+# the benign corpus behind `docs/reports/coherence-fp-*.md` contains NO true
+# positives -- it cannot measure what a higher threshold would stop catching.
+# Picking 0.5 on the corrected scale would drop the measured false-positive rate
+# from 10.42% to 4.17% by suppressing 60% of detections, justified by nothing
+# but the roundness of the number.
+#
+# So: no confidence suppression by default, stated. The knob is live for anyone
+# with evidence to set it.
+DEFAULT_MIN_CONFIDENCE = 0.0
 
 # -- Keyword lists (verbatim from the Rust matcher) ---------------------------
 
@@ -295,12 +311,50 @@ def _clip(text: str) -> str:
     return trimmed[:MAX_QUOTE_CHARS] + "…"
 
 
-def _compute_confidence(category: BlockingCategory, gap: int, lookahead: int) -> float:
+# Raw heuristic weights. These describe how *relatively* confident the matcher
+# is; they are rescaled to a true [0, 1] before anyone sees them.
+_RAW_BASE = 0.6
+_RAW_PROXIMITY_WEIGHT = 0.3
+_RAW_CATEGORY_BONUS = 0.1
+
+
+def raw_confidence_span(lookahead: int = DEFAULT_LOOKAHEAD) -> tuple[float, float]:
+    """The raw heuristic's achievable `(lowest, highest)` output at this lookahead.
+
+    The raw score is `0.6 + proximity + category_bonus`. A fact older than the
+    lookahead window expires before it can pair with an action, so `gap` never
+    exceeds `lookahead`: the worst case is a generic-category fact at the window
+    edge and the best is a specific-category fact adjacent to the action. At
+    lookahead 8 that span is `(0.6375, 1.0)` -- the raw score occupies the top
+    36% of its nominal range and never enters the bottom 64%.
+
+    That compression is why `min_confidence` was inert before 0.8.18: the config
+    documented a `[0, 1]` threshold against a score that could not go below
+    0.6375, so every threshold at or under the floor admitted the same spans.
+    """
     la = float(max(lookahead, 1))
-    base = 0.6
-    proximity = (max(la - (float(gap) - 1.0), 0.0) / la) * 0.3
-    category_bonus = 0.0 if category == GENERIC_ERROR else 0.1
-    return min(max(base + proximity + category_bonus, 0.0), 1.0)
+    lowest = _RAW_BASE + (_RAW_PROXIMITY_WEIGHT / la)
+    highest = _RAW_BASE + _RAW_PROXIMITY_WEIGHT + _RAW_CATEGORY_BONUS
+    return lowest, highest
+
+
+def _compute_confidence(category: BlockingCategory, gap: int, lookahead: int) -> float:
+    """Confidence on a true `[0, 1]` scale.
+
+    Mirrors the Rust `compute_confidence`. The raw heuristic is rescaled from
+    its achievable span onto `[0, 1]`, so the endpoints are reachable and a
+    configured `min_confidence` means what the config says it means. The
+    rescale is monotonic: it changes the numbers, never the ordering, so which
+    span is more confident than which is unchanged.
+    """
+    la = float(max(lookahead, 1))
+    proximity = (max(la - (float(gap) - 1.0), 0.0) / la) * _RAW_PROXIMITY_WEIGHT
+    category_bonus = 0.0 if category == GENERIC_ERROR else _RAW_CATEGORY_BONUS
+    raw = _RAW_BASE + proximity + category_bonus
+
+    lowest, highest = raw_confidence_span(lookahead)
+    scaled = (raw - lowest) / (highest - lowest)
+    return min(max(scaled, 0.0), 1.0)
 
 
 @dataclass(frozen=True)

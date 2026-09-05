@@ -354,16 +354,51 @@ fn step(
 /// Confidence that a closure-while-open pairing is a genuine divergence.
 /// Higher when the contradicting action follows the stated fact closely and
 /// when the fact has a specific (non-generic) category.
+/// Raw heuristic weights. These express how *relatively* confident the matcher
+/// is; they are rescaled to a true `[0, 1]` before anyone sees them.
+const RAW_BASE: f64 = 0.6;
+const RAW_PROXIMITY_WEIGHT: f64 = 0.3;
+const RAW_CATEGORY_BONUS: f64 = 0.1;
+
+/// The raw heuristic's achievable `(lowest, highest)` output at this lookahead.
+///
+/// A fact older than the lookahead window expires before it can pair with an
+/// action, so `gap` never exceeds `lookahead`: the worst case is a generic
+/// fact at the window edge, the best a specific fact adjacent to the action.
+/// At lookahead 8 that span is `(0.6375, 1.0)` — the raw score occupies the top
+/// 36% of its nominal range and never enters the bottom 64%.
+///
+/// That compression is why `min_confidence` was inert before 0.8.18: the config
+/// documented a `[0, 1]` threshold against a score that could not fall below
+/// 0.6375, so every threshold at or under the floor admitted the same spans and
+/// the shipped default of 0.5 gated nothing. The floor was the bug, not the
+/// default — see `CoherenceConfig::min_confidence`.
+fn raw_confidence_span(lookahead: usize) -> (f64, f64) {
+    let la = lookahead.max(1) as f64;
+    let lowest = RAW_BASE + (RAW_PROXIMITY_WEIGHT / la);
+    let highest = RAW_BASE + RAW_PROXIMITY_WEIGHT + RAW_CATEGORY_BONUS;
+    (lowest, highest)
+}
+
+/// Confidence on a true `[0, 1]` scale.
+///
+/// Mirrors the Python `_compute_confidence` in `fd_evals.coherence`. The raw
+/// heuristic is rescaled from its achievable span onto `[0, 1]`, so both
+/// endpoints are reachable and a configured `min_confidence` means what the
+/// config says it means. The rescale is monotonic — it changes the numbers,
+/// never the ordering.
 fn compute_confidence(category: BlockingCategory, gap: u64, lookahead: usize) -> f64 {
     let la = lookahead.max(1) as f64;
-    let base = 0.6;
     // gap == 1 (adjacent) → full proximity; decays toward the window edge.
-    let proximity = ((la - (gap as f64 - 1.0)).max(0.0) / la) * 0.3;
+    let proximity = ((la - (gap as f64 - 1.0)).max(0.0) / la) * RAW_PROXIMITY_WEIGHT;
     let category_bonus = match category {
         BlockingCategory::GenericError => 0.0,
-        _ => 0.1,
+        _ => RAW_CATEGORY_BONUS,
     };
-    (base + proximity + category_bonus).clamp(0.0, 1.0)
+    let raw = RAW_BASE + proximity + category_bonus;
+
+    let (lowest, highest) = raw_confidence_span(lookahead);
+    ((raw - lowest) / (highest - lowest)).clamp(0.0, 1.0)
 }
 
 /// Render an action event for the `contradicting_action` field.
