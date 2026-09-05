@@ -34,31 +34,35 @@ const DEFAULT_SERIES_PATH: &str = "docs/eval-health-series.jsonl";
 /// Series `suite` value carrying the coherence false-positive measurement.
 const FP_SUITE: &str = "coherence_fp";
 
-/// Highest measured false-positive rate at which enforce mode may activate.
-///
-/// **15%.** This is not a tolerance anyone derived. Deriving one honestly would
-/// need the thing we do not have — how many runs an operator puts through the
-/// gate and how quickly a human clears a parked one — and inventing a
-/// principled-sounding number without that input would be the same species of
-/// claim this gate exists to stop.
-///
-/// So it is the pessimistic reading of the measurement that exists: the
-/// 2026-09-02 corpus of 240 benign trajectories measured **10.42%** with a
-/// Wilson 95% interval of **[7.16%, 14.92%]**, and 15% is that interval's upper
-/// bound rounded up. It says: enforcement is permitted while the rate is no
-/// worse than today's data says the true rate plausibly already is, and is
-/// refused the moment it is worse than that.
-///
-/// The comparison below uses the point estimate rather than the row's own upper
-/// bound, because the threshold has already absorbed the sampling error once —
-/// comparing an upper bound against an upper bound would refuse a measurement
-/// identical to the one that set the threshold.
-///
-/// Raising this number is a decision about availability, not a config tweak.
-/// A 10% false-positive rate already means roughly one correct run in ten is
-/// parked; that is published next to the switch rather than buried here, and an
-/// operator who turns enforce on is opting into it knowingly.
-pub const MAX_FP_RATE_FOR_ENFORCE: f64 = 0.15;
+// There is deliberately no maximum-false-positive-rate constant here.
+//
+// Through 0.8.17 this file defined `MAX_FP_RATE_FOR_ENFORCE = 0.15` and refused
+// enforcement above it. That gate was circular: 0.15 was the Wilson 95% upper
+// bound of the single measurement it gated (10.42%, CI [7.16%, 14.92%]) rounded
+// up, so it permitted enforcement whenever the rate was "no worse than today's
+// data says the true rate plausibly already is". It could not fail against the
+// measurement that set it, a detector regressing from 10.42% to 14.9% would
+// still have passed, and if the detector improved the threshold would not have
+// followed.
+//
+// Deriving an honest threshold needs two inputs this project does not have and
+// cannot fabricate: how many runs an operator actually puts through the gate,
+// and how quickly a human clears a parked one. With those, the limit becomes a
+// statement in operator terms -- "no more than N correct runs parked per week,
+// cleared within M minutes" -- and the constant is derived rather than borrowed
+// from a confidence interval. Without them, any number here is invented and
+// wearing the costume of a derivation, which is the exact species of claim this
+// gate exists to stop.
+//
+// So the gate is a REPORTING REQUIREMENT, not a threshold. Enforcement requires
+// that a measurement exists and is fresh -- both independent of what the
+// measurement says -- and the rate is then reported, in operator terms, to
+// whoever turns the switch on. The operator owns the availability decision,
+// because the operator is the only party holding the missing inputs. Refusing
+// on an unmeasured matcher is kept: absence of evidence is still a refusal.
+//
+// Restoring a threshold means supplying the availability budget first. See
+// issue #56.
 
 /// How old the measurement may be before it stops counting as evidence.
 ///
@@ -83,7 +87,8 @@ pub struct FpMeasurement {
 /// is off" without a reason is how an operator concludes the flag is broken.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EnforceDecision {
-    /// Evidence exists, is fresh, and is within the threshold.
+    /// Evidence exists and is fresh. The rate it carries is reported, not
+    /// judged -- see the note on the absent threshold above.
     Allowed(FpMeasurement),
     /// The series file could not be read.
     NoSeries { path: PathBuf, reason: String },
@@ -94,8 +99,6 @@ pub enum EnforceDecision {
         measurement: FpMeasurement,
         age_days: i64,
     },
-    /// A measurement exists and the rate is above [`MAX_FP_RATE_FOR_ENFORCE`].
-    RateTooHigh { measurement: FpMeasurement },
 }
 
 impl EnforceDecision {
@@ -108,14 +111,17 @@ impl EnforceDecision {
     pub fn explain(&self) -> String {
         match self {
             EnforceDecision::Allowed(m) => format!(
-                "allowed: false-positive rate {:.2}% (n={}, Wilson 95% CI [{:.2}%, {:.2}%]) \
-                 from {} is within the {:.0}% limit",
+                "allowed: measured false-positive rate {:.2}% (n={}, Wilson 95% CI \
+                 [{:.2}%, {:.2}%]) from {}. Enforcing at this rate parks roughly {} in every \
+                 100 correct runs at an approval gate. This is reported, not vetted: there is \
+                 no maximum-rate threshold, because deriving one needs gated-run volume and \
+                 time-to-clear, which only you have. You are accepting this rate.",
                 m.rate * 100.0,
                 m.total,
                 m.ci_low * 100.0,
                 m.ci_high * 100.0,
                 m.report,
-                MAX_FP_RATE_FOR_ENFORCE * 100.0
+                (m.rate * 100.0).round() as i64
             ),
             EnforceDecision::NoSeries { path, reason } => format!(
                 "refused: no measurement series at {} ({reason}). Enforce mode gates runs on a \
@@ -137,15 +143,6 @@ impl EnforceDecision {
                  so a rate measured that long ago describes a different matcher. Re-run \
                  `make eval-coherence-fp`.",
                 measurement.report
-            ),
-            EnforceDecision::RateTooHigh { measurement } => format!(
-                "refused: measured false-positive rate {:.2}% (n={}) exceeds the {:.0}% limit. \
-                 Enforcing at this rate would park roughly {} in every 100 correct runs at an \
-                 approval gate.",
-                measurement.rate * 100.0,
-                measurement.total,
-                MAX_FP_RATE_FOR_ENFORCE * 100.0,
-                (measurement.rate * 100.0).round() as i64
             ),
         }
     }
@@ -248,9 +245,8 @@ pub fn decide(path: &Path, now: DateTime<Utc>) -> EnforceDecision {
             age_days,
         };
     }
-    if measurement.rate > MAX_FP_RATE_FOR_ENFORCE {
-        return EnforceDecision::RateTooHigh { measurement };
-    }
+    // No rate comparison: the measurement is reported to the operator, not
+    // judged against a number this project cannot derive. See the note above.
     EnforceDecision::Allowed(measurement)
 }
 
@@ -314,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn a_fresh_measurement_under_the_limit_allows_enforcement() {
+    fn a_fresh_measurement_allows_enforcement() {
         let path = write_series(&[row(
             FP_SUITE,
             0.1042,
@@ -326,39 +322,51 @@ mod tests {
     }
 
     #[test]
-    fn a_rate_above_the_limit_refuses_enforcement() {
-        let path = write_series(&[row(
-            FP_SUITE,
-            MAX_FP_RATE_FOR_ENFORCE + 0.01,
-            "2026-09-02T00:00:00Z",
-            "r.json",
-        )]);
+    fn a_high_rate_is_reported_not_refused() {
+        // Inverted at 0.8.18. This previously asserted that a rate above
+        // `MAX_FP_RATE_FOR_ENFORCE` refused enforcement -- a gate that could
+        // not fail, because the constant was the Wilson upper bound of the
+        // measurement it gated. The rate is now reported to the operator, who
+        // holds the inputs needed to price it. Absence of evidence still
+        // refuses; a number the operator may dislike does not.
+        let path = write_series(&[row(FP_SUITE, 0.42, "2026-09-02T00:00:00Z", "r.json")]);
         let d = decide(&path, now());
-        assert!(!d.allowed());
-        assert!(matches!(d, EnforceDecision::RateTooHigh { .. }));
-        assert!(d.explain().contains("park"));
+        assert!(
+            d.allowed(),
+            "a measured rate must not be vetted: {}",
+            d.explain()
+        );
+
+        let explained = d.explain();
+        assert!(
+            explained.contains("42.00%"),
+            "the rate must be reported verbatim: {explained}"
+        );
+        assert!(
+            explained.contains("park"),
+            "the operator must be told the cost in parked runs: {explained}"
+        );
+        assert!(
+            explained.contains("accepting"),
+            "the operator must be told they own the decision: {explained}"
+        );
     }
 
     #[test]
-    fn the_limit_is_inclusive_at_the_boundary() {
-        // Exactly at the limit is allowed; a hair over is not. Pinned because an
-        // off-by-one here either refuses a measurement identical to the one that
-        // set the threshold, or lets an unbounded rate through.
-        let at = write_series(&[row(
-            FP_SUITE,
-            MAX_FP_RATE_FOR_ENFORCE,
-            "2026-09-02T00:00:00Z",
-            "r.json",
-        )]);
-        assert!(decide(&at, now()).allowed());
-
-        let over = write_series(&[row(
-            FP_SUITE,
-            MAX_FP_RATE_FOR_ENFORCE + f64::EPSILON * 10.0,
-            "2026-09-02T00:00:00Z",
-            "r.json",
-        )]);
-        assert!(!decide(&over, now()).allowed());
+    fn no_rate_threshold_is_reintroduced_without_an_availability_budget() {
+        // The regression guard for issue #56. Two rates an order of magnitude
+        // apart must decide identically, because nothing here is entitled to
+        // judge the value. If someone reinstates a threshold, this fails and
+        // points at the budget that has to exist first.
+        let low = write_series(&[row(FP_SUITE, 0.0001, "2026-09-02T00:00:00Z", "r.json")]);
+        let high = write_series(&[row(FP_SUITE, 0.99, "2026-09-02T00:00:00Z", "r.json")]);
+        assert_eq!(
+            decide(&low, now()).allowed(),
+            decide(&high, now()).allowed(),
+            "a rate comparison is back in the gate. Restoring one needs gated-run \
+             volume and time-to-clear first -- see issue #56."
+        );
+        assert!(decide(&high, now()).allowed());
     }
 
     #[test]
@@ -421,19 +429,19 @@ mod tests {
             m.total
         );
         assert!(
-            m.rate <= MAX_FP_RATE_FOR_ENFORCE,
-            "the published rate {:.4} exceeds the threshold {:.4} that was set from it",
-            m.rate,
-            MAX_FP_RATE_FOR_ENFORCE
+            (0.0..=1.0).contains(&m.rate),
+            "the published rate {:.4} is not a proportion",
+            m.rate
         );
     }
 
     #[test]
-    fn the_threshold_is_the_published_intervals_upper_bound() {
-        // The comment says 15% is the Wilson upper bound of the 2026-09-02
-        // measurement, rounded up. If a later measurement widens past it, that
-        // sentence stops being true and the threshold needs re-justifying
-        // rather than quietly carrying an old rationale.
+    fn the_committed_measurement_is_reported_with_its_interval() {
+        // Replaces `the_threshold_is_the_published_intervals_upper_bound`, which
+        // asserted that the committed interval stayed under the constant derived
+        // from it -- a tautology dressed as a check. What matters now is that
+        // whatever the operator is shown is complete: rate, sample size and
+        // interval, so the number can be argued with.
         let repo =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/eval-health-series.jsonl");
         if !repo.exists() {
@@ -441,11 +449,24 @@ mod tests {
         }
         let m = newest_measurement(&repo).expect("read").expect("some");
         assert!(
-            m.ci_high <= MAX_FP_RATE_FOR_ENFORCE,
-            "the published interval's upper bound {:.4} now exceeds MAX_FP_RATE_FOR_ENFORCE \
-             ({:.4}); the constant's stated justification no longer holds",
-            m.ci_high,
-            MAX_FP_RATE_FOR_ENFORCE
+            m.ci_low <= m.rate && m.rate <= m.ci_high,
+            "the published point estimate {:.4} is outside its own interval [{:.4}, {:.4}]",
+            m.rate,
+            m.ci_low,
+            m.ci_high
         );
+
+        let explained = EnforceDecision::Allowed(m.clone()).explain();
+        let needles = [
+            format!("n={}", m.total),
+            "Wilson 95% CI".to_string(),
+            "park".to_string(),
+        ];
+        for needle in &needles {
+            assert!(
+                explained.contains(needle),
+                "the operator-facing line must carry {needle:?}: {explained}"
+            );
+        }
     }
 }

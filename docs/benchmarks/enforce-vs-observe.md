@@ -128,10 +128,15 @@ measurement of real agent traffic.
 
 This is why `FERRUMDECK_COHERENCE_MODE=enforce` is a *request* rather than a
 switch: the gateway refuses to activate it unless a measurement is in
-`docs/eval-health-series.jsonl`, under `MAX_EVIDENCE_AGE_DAYS`, and below
-`MAX_FP_RATE_FOR_ENFORCE` — a threshold that is the Wilson upper bound rounded
-up, not a tolerance anyone derived. Enforcing on an unmeasured matcher is an
-availability risk of unknown size.
+`docs/eval-health-series.jsonl` and under `MAX_EVIDENCE_AGE_DAYS`. Enforcing on
+an unmeasured matcher is an availability risk of unknown size.
+
+It does **not** refuse on the value of the rate. Through 0.8.17 it did, against
+`MAX_FP_RATE_FOR_ENFORCE = 0.15` — the Wilson upper bound of the measurement it
+gated, rounded up, so the gate could not fail against the number that set it.
+Deriving a real limit needs gated-run volume and time-to-clear, which live with
+the operator and not in this repository, so the gate now reports the rate and
+its cost in parked runs rather than pretending to vet it.
 
 Note the contrast with the injection corpus in the same repository, where the
 in-path gate blocks 17/17 attacks with 8/8 benign utility retained. Both numbers

@@ -154,7 +154,21 @@ activate enforcement when any of these holds:
 | no series file | gating on an unmeasured lexical matcher is an availability risk of unknown size |
 | no `coherence_fp` row | same — the file exists but nothing has measured this detector |
 | measurement older than 14 days | the keyword lists are hand-edited, so an old rate describes a different matcher |
-| rate above `MAX_FP_RATE_FOR_ENFORCE` (15%) | worse than today's data says the true rate plausibly already is |
+
+**There is no maximum-rate condition, and that is deliberate.** Through 0.8.17 a
+fourth row here read *rate above `MAX_FP_RATE_FOR_ENFORCE` (15%)*. That gate was
+circular: 15% was the Wilson 95% upper bound of the one measurement it gated
+(10.42%, CI [7.16%, 14.92%]) rounded up, so it could not fail against the number
+that set it, and a detector regressing to 14.9% would still have passed.
+
+Deriving an honest limit needs two inputs this project does not have: **how many
+runs you put through the gate**, and **how quickly a human clears a parked one**.
+With those the limit is a sentence in your terms — "no more than N correct runs
+parked per week, cleared within M minutes" — and without them any number is
+invented. So the gate reports instead: when it activates it logs the measured
+rate, its sample size, its interval, and the cost in parked runs, and says
+plainly that you are accepting that rate. You hold the missing inputs, so you
+own the decision. Absence of evidence is still a refusal.
 
 A refusal logs at **ERROR** and is reported on `/ready` under
 `coherence_enforcement` as `{requested, active, reason}` — because an operator who
