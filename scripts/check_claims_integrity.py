@@ -8,9 +8,12 @@
      shipped guarantee);
   2. ROADMAP.md no longer references a contradicted feature's tracking issue
      (the two files must not drift);
-  3. the README test-count block disagrees with `test_counts` (headline total +
+  3. a document states a `bound_claims` figure without the caveat markers bound
+     to it (so a number cannot appear without the context that decides what it
+     is worth);
+  4. the README test-count block disagrees with `test_counts` (headline total +
      the liveness caveat);
-  4. with `--recount`: the re-derived test counts disagree with the source.
+  5. with `--recount`: the re-derived test counts disagree with the source.
 
 Default (no flags) does only cheap text checks — no build, no network — so it is
 safe to run on every PR. `--recount` shells out to pytest/cargo/jest to
@@ -71,6 +74,45 @@ def check_markers(src: dict, readme: str, roadmap: str, errors: list[str]) -> No
                 f"[{fid}] ROADMAP.md no longer references issue #{issue} — README "
                 "and ROADMAP have drifted; re-link the tracking issue."
             )
+
+
+def check_bound_claims(src: dict, errors: list[str]) -> None:
+    """Bind a figure to the caveat that qualifies it.
+
+    `key_features` binds a marker to one README bullet. This binds a marker set
+    to a whole document: if `claim` appears anywhere in a file under
+    `applies_to`, every string in `markers` must appear in that file too.
+
+    A missing `applies_to` path is a hard failure rather than a skip. A binding
+    that points at a renamed file enforces nothing and looks identical to one
+    that passes -- the exact failure this file exists to catch.
+    """
+    for bound in src.get("bound_claims", []):
+        bid = bound["id"]
+        claim = bound["claim"]
+        markers = bound["markers"]
+        for rel in bound["applies_to"]:
+            path = ROOT / rel
+            if not path.exists():
+                errors.append(
+                    f"[{bid}] applies_to names {rel!r}, which does not exist. A "
+                    "binding that points at a missing file enforces nothing; fix "
+                    "the path in docs/feature-status.yml or drop the entry."
+                )
+                continue
+            text = path.read_text()
+            if claim not in text:
+                continue
+            missing = [m for m in markers if m not in text]
+            if missing:
+                joined = ", ".join(repr(m) for m in missing)
+                errors.append(
+                    f"[{bid}] {rel} states {claim!r} but is missing its bound "
+                    f"caveat marker(s): {joined}. A document that states this "
+                    "figure must also carry the per-provenance breakdown, "
+                    "because the pooled rate is an average over a corpus mix "
+                    "and not a measurement of real agent traffic."
+                )
 
 
 def check_test_block(src: dict, readme: str, errors: list[str]) -> None:
@@ -236,6 +278,8 @@ def main() -> int:
 
     print("Checking Key Features status markers + README/ROADMAP agreement...")
     check_markers(src, readme, roadmap, errors)
+    print("Checking bound claims (figure <-> required caveat)...")
+    check_bound_claims(src, errors)
     print("Checking README test-count block...")
     check_test_block(src, readme, errors)
     if args.recount:
@@ -248,7 +292,8 @@ def main() -> int:
             print(f"  ::error:: {e}", file=sys.stderr)
         return 1
     print(
-        "\nOK — Key Features, ROADMAP, and the test-count block agree with docs/feature-status.yml."
+        "\nOK — Key Features, ROADMAP, bound claims, and the test-count block "
+        "agree with docs/feature-status.yml."
     )
     return 0
 

@@ -119,10 +119,12 @@ loosest inputs, that cost is measured:
 
 Roughly **one correct run in ten** would be parked at an approval gate. Measured
 at the shipped defaults (`lookahead 8`, `min_confidence 0.5`) over 240 benign
-trajectories, split by provenance and never pooled: `synthetic_grounded` 6.77%
-(13/192), `synthetic_authored` 25.00% (12/48), and **zero** trajectories captured
-from a real agent run — no committed artifact in this repository carries agent
-trajectory text, so the corpus is generated and the manifest says so.
+trajectories, split by provenance and never pooled: `synthetic_grounded: 6.77%`
+(13/192), `synthetic_authored: 25.00%` (12/48), and **`real: n=0`** — zero
+trajectories captured from a real agent run. No committed artifact in this
+repository carries agent trajectory text, so the corpus is generated and the
+manifest says so; the pooled 10.42% is an average over that chosen mix, not a
+measurement of real agent traffic.
 
 This is why `FERRUMDECK_COHERENCE_MODE=enforce` is a *request* rather than a
 switch: the gateway refuses to activate it unless a measurement is in

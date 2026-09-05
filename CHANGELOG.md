@@ -51,9 +51,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fd-runtime` is coupled to a gateway HTTP contract that a pin would make look
   safe. Points callers at `contracts/openapi/control-plane.openapi.yaml` instead.
 
+- **The 10.42% figure is now bound to its `real: n=0` caveat by CI, not by
+  discipline.** `docs/feature-status.yml` gains a `bound_claims` section: where
+  `key_features` binds a marker to one README bullet, this binds a marker set to
+  a whole document — if `10.42%` appears in a file under `applies_to`, that file
+  must also carry `real: n=0`, `synthetic_grounded: 6.77%` and
+  `synthetic_authored: 25.00%`. `check_bound_claims` in
+  `scripts/check_claims_integrity.py` enforces it on every PR. The binding was
+  confirmed RED against the README as it stood before this change and against
+  `docs/benchmarks/enforce-vs-observe.md`, which was also quoting the pooled
+  rate without the breakdown; a gate that passes the moment it is written has
+  not been wired to anything. A missing `applies_to` path is a hard failure
+  rather than a skip, because a binding pointing at a renamed file enforces
+  nothing and looks exactly like one that passes. `CHANGELOG.md`, the generated
+  `docs/reports/coherence-fp-2026-09.md` and the machine-written
+  `evals/reports/coherence_fp-20260902.md` are exempt with recorded reasons —
+  append-only history, and two artifacts that would stop reproducing if a
+  caveat were hand-edited into them ([#57](https://github.com/sattyamjjain/ferrumdeck/issues/57)).
+
 ### Changed
 - The README's first screen now links the per-provenance breakdown next to the
   10.42% figure, and the Python-plane note links the page that explains it.
+- **The first screen now states the breakdown, it does not only link it.** The
+  number a reader meets and the caveat that decides what it is worth are in the
+  same viewport: `real: n=0` is spelled out inline next to 10.42%, followed by
+  `synthetic_grounded: 6.77%` (13/192) and `synthetic_authored: 25.00%` (12/48),
+  and the paragraph now says plainly that the headline is a property of a corpus
+  mix this repository chose rather than an estimate of what a deployed agent
+  would meet. `docs/benchmarks/enforce-vs-observe.md` carries the same canonical
+  phrasing, so one grep covers both.
 
 ### Notes
 - Three findings from the false-positive work were recovered from merged PR
