@@ -1,0 +1,1736 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A deterministic, in-path enforcement plane for AI agents — deny-by-default tool policy, Airlock RASP, per-run budget enforcement, and a hash-chained audit trail.">
+      
+      
+      
+        <link rel="canonical" href="https://sattyamjjain.github.io/ferrumdeck/compliance/safe-evidence-coverage/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>SAFE evidence coverage - FerrumDeck</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#safe-evidence-coverage" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="FerrumDeck" class="md-header__button md-logo" aria-label="FerrumDeck" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            FerrumDeck
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              SAFE evidence coverage
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/sattyamjjain/ferrumdeck" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    sattyamjjain/ferrumdeck
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="FerrumDeck" class="md-nav__button md-logo" aria-label="FerrumDeck" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    FerrumDeck
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/sattyamjjain/ferrumdeck" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    sattyamjjain/ferrumdeck
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Runbooks
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Runbooks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/budget-forecast/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Budget Forecast
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/champion-challenger-promotion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Champion / Challenger Promotion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/claim-grounding-rate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Claim Grounding Rate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/coherence-divergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coherence Divergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/cost-decomposition/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost Decomposition
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/database-migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/gateway-scaling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gateway Scaling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/graduated-response-levels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graduated Response Levels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/harness-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Harness Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/incident-response/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Incident Response
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/policy-conflict-resolution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Policy Conflict Resolution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/routing-decision-audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Routing Decision Audit
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/tool-call-firing-rate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tool-Call Firing Rate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runbooks/worker-failure-recovery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Worker Failure Recovery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Benchmarks
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../BENCHMARK/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Methodology
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../benchmarks/enforce-vs-observe/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Enforce vs Observe
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../benchmarks/enforcement-latency/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Enforcement Latency
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../mcp-trace-conformance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Trace Conformance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../receipts-schema/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Receipts Schema
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Security
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Security
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../security/threat-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Threat Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADRs
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    ADRs
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0001-control-data-plane-separation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR-0001 · Control / Data Plane Separation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0002-redis-streams-for-queues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR-0002 · Redis Streams for Queues
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0003-deny-by-default-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR-0003 · Deny-by-Default Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0004-otel-genai-conventions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR-0004 · OTel GenAI Conventions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0005-colorado-sb26-189-admt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ADR-0005 · Colorado SB26-189 ADMT
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-this-page-exists-and-why-it-leads-with-the-gaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why this page exists, and why it leads with the gaps
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#coverage-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Coverage table
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-each-status-was-determined" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How each status was determined
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-branch-changed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this branch changed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-gaps-found-while-checking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known gaps found while checking
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Known gaps found while checking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#still-open" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Still open
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/sattyamjjain/ferrumdeck/edit/main/docs/compliance/safe-evidence-coverage.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="safe-evidence-coverage">SAFE evidence coverage<a class="headerlink" href="#safe-evidence-coverage" title="Permanent link">&para;</a></h1>
+<p>What the <a href="https://github.com/OpenSecureAIAlliance/RFCs/blob/main/rfc-safe-proposal.md">Shared AI Findings Exchange (SAFE)</a> proposal asks members to preserve, against what
+FerrumDeck's hash-chained audit log actually records — one row per evidence class, with the schema
+location and a status.</p>
+<p>SAFE is a proposal in the Open Secure AI Alliance's <code>RFCs</code> repository (<code>rfc-safe-proposal.md</code>),
+published 2026-08-04. It is not an IETF RFC and carries no formal status. Its <strong>Evidence
+Preservation</strong> section is the eight-item list below, quoted verbatim; the wording in the "What SAFE
+asks for" column is SAFE's, not ours.</p>
+<h2 id="why-this-page-exists-and-why-it-leads-with-the-gaps">Why this page exists, and why it leads with the gaps<a class="headerlink" href="#why-this-page-exists-and-why-it-leads-with-the-gaps" title="Permanent link">&para;</a></h2>
+<p>This repository has a documented run of "exists but never executed" defects: a suite declared and
+never scheduled, 18 test files CI never collected, a generated page built from gitignored files, a
+route returning plausible fixture data. See <a href="../../eval-verdicts/"><code>eval-verdicts.md</code></a> and
+<a href="../../eval-health/"><code>eval-health.md</code></a>.</p>
+<p>The analogue for an evidence claim is worse than a broken test, because it fails silently and only
+at the moment it matters. Claiming coverage of an evidence class that is recorded in a form no
+investigator can use — a boolean where a quantity is needed, an identifier that resolves to
+nothing, a constant that is declared but never written — looks identical to real coverage until
+someone asks the question under time pressure.</p>
+<p>So every status below was checked against a running stack at the commit named, not read off the
+source. Where the answer was "the column exists", the follow-up question was "and is anything ever
+written to it?". Three times, it was not.</p>
+<h2 id="coverage-table">Coverage table<a class="headerlink" href="#coverage-table" title="Permanent link">&para;</a></h2>
+<p><strong>Status</strong> is the verdict at the tip of this branch. Where it changed, the <strong>Baseline</strong> column
+keeps the verdict at commit <code>2266581</code> (the branch point), because the gap analysis is the
+evidence for the work and deleting it would leave a table that looks like it was always true.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>What SAFE asks for</th>
+<th>What the audit log records today</th>
+<th>Where in the schema</th>
+<th>Baseline</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>"Prompts, traces, tool calls, logs, configurations, model and safeguard versions and third-party dependencies"</td>
+<td>Step input/output, model, tool name + version. W3C trace id on audit rows (MCP SEP-414). Tool calls recorded as policy decisions carrying <code>tool_name</code>. <strong>The safeguard configuration is now versioned</strong>: every decision names the content hash of the policy document that produced it. Still no third-party dependency inventory, and prompts are not committed to the chain.</td>
+<td><code>steps.*</code>, <code>audit_events.trace_id</code>, <code>audit_events.details.permissions.policy_hash</code>, <code>policy_documents</code></td>
+<td>PARTIAL</td>
+<td><strong>PARTIAL</strong></td>
+</tr>
+<tr>
+<td>2</td>
+<td>"Agent and workload identities"</td>
+<td>Tenant, project, agent, agent version, run and the API key id that presented the call, on every decision record. Inside <code>details</code>, so covered by the row's <code>record_hash</code>. No secret or secret prefix is ever written.</td>
+<td><code>audit_events.details.permissions.identity</code></td>
+<td>MISSING</td>
+<td><strong>CONFORMS</strong></td>
+</tr>
+<tr>
+<td>3</td>
+<td>"Permissions and credentials available during the run"</td>
+<td>The full allowlist (behind its content hash), budget remaining as quantities rather than a boolean, and the credential id. Reconstructable from the log alone: <code>PoliciesRepo::reconstruct_permissions_at</code> answers "what was this identity permitted to do at time T" by reading <code>audit_events</code> joined to <code>policy_documents</code> and nothing else.</td>
+<td><code>audit_events.details.permissions</code>, <code>policy_documents</code></td>
+<td>MISSING</td>
+<td><strong>CONFORMS</strong></td>
+</tr>
+<tr>
+<td>4</td>
+<td>"Human approval and intervention events"</td>
+<td>All four now written and reachable: escalation (<code>policy.approval_required</code>, with the deadline), approval, denial and timeout — each with the resolving identity and the wall-clock latency. A timeout is attributed to <code>system</code>, which is what distinguishes "somebody decided" from "the clock decided".</td>
+<td><code>audit_events.action</code> (<code>policy.approval_required</code>, <code>approval.*</code>), <code>.details.latency_ms</code>, <code>approval_requests</code></td>
+<td>MISSING</td>
+<td><strong>CONFORMS</strong></td>
+</tr>
+<tr>
+<td>5</td>
+<td>"Files and external artifacts created or modified"</td>
+<td>The control plane records the <em>decision</em> to call a tool, never the tool's effect. <code>steps.output</code> holds whatever the tool returned, unstructured and unindexed. No artifact inventory, no before/after, no content hashes.</td>
+<td><code>steps.output</code> only</td>
+<td>MISSING</td>
+<td><strong>MISSING</strong></td>
+</tr>
+<tr>
+<td>6</td>
+<td>"Detection, containment and recovery events"</td>
+<td>Detection and containment are real: Airlock violations are recorded with risk score, violation type and the blocked payload, and an in-path denial is a first-class event. Recovery has no event type at all.</td>
+<td><code>audit_events.action='airlock.violation_detected'</code>, <code>threats.*</code>, <code>audit_events.action='policy.denied'</code></td>
+<td>PARTIAL</td>
+<td><strong>PARTIAL</strong></td>
+</tr>
+<tr>
+<td>7</td>
+<td>"A complete incident timeline"</td>
+<td>Ordering and tamper-evidence are strong, the escalation hole is closed, and as of 0.8.12 <strong>concurrent writes no longer drop records</strong> (per-tenant advisory lock; 17-of-24 collisions became 0, asserted by <code>audit_chain_collision.rs</code>). One gap remains: several declared action types are still never written — no <code>run.started</code>, <code>step.started</code> or <code>step.failed</code> — so the timeline is ordered and complete <em>for the events that are emitted</em>, and those do not cover the full run lifecycle.</td>
+<td><code>audit_events.occurred_at</code>, <code>.chain_seq</code>, <code>.prev_hash</code>, <code>.record_hash</code></td>
+<td>PARTIAL</td>
+<td><strong>PARTIAL</strong></td>
+</tr>
+<tr>
+<td>8</td>
+<td>"Reproduction testing and remediation evidence"</td>
+<td>Repo-level reproduction is unusually good — every published figure is re-derivable by one command, and eval verdicts are written down with run ids. None of it is linked to a run or an incident.</td>
+<td><code>evals/reports/</code>, <a href="../../eval-verdicts/"><code>eval-verdicts.md</code></a>, <code>make reproduce-readme-figures</code></td>
+<td>PARTIAL</td>
+<td><strong>PARTIAL</strong></td>
+</tr>
+</tbody>
+</table>
+<p>SAFE also requires a preliminary control-failure analysis within 30 days and the reporting of near
+misses. Those are process obligations on a member organisation, not properties of a log, and
+FerrumDeck does not implement them. See <a href="#scope">Scope</a>.</p>
+<h2 id="how-each-status-was-determined">How each status was determined<a class="headerlink" href="#how-each-status-was-determined" title="Permanent link">&para;</a></h2>
+<p>Not from reading the source. Against a stack booted with <code>make dev-up</code> at commit <code>2266581</code>, after a
+full run of <code>tests/security tests/chaos tests/e2e</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>SELECT action, count(*) FROM audit_events GROUP BY action ORDER BY 2 DESC;
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a> policy.denied              | 120
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a> run.created                | 115
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a> airlock.violation_detected |  54
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a> run.completed              |  44
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a> step.completed             |  44
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a> policy.allowed             |  22
+</code></pre></div>
+<p>Six action types written; 24 declared in <code>rust/crates/fd-storage/src/models/audit.rs</code>. That gap is
+the evidence for rows 4 and 7.</p>
+<p>Three findings behind the <strong>MISSING</strong> verdicts, each confirmed against the live stack rather than
+inferred:</p>
+<p><strong><code>policy_decisions</code> is empty, but the API hands out decision ids.</strong> <code>POST /v1/runs/{id}/check-tool</code>
+returns <code>"decision_id": "pdc_01M0DEZ7YER9Y94MACR495D1Q6"</code>. <code>SELECT count(*) FROM policy_decisions</code>
+returns <code>0</code>. <code>PoliciesRepo::create_decision</code> exists and has no callers. The id is a ULID minted in
+memory and discarded — a client that stores it and later asks for the decision gets nothing.</p>
+<p><strong>No approval request is ever created.</strong> <code>PoliciesRepo::create_approval</code> has no callers, there is no
+<code>POST /approvals</code> route, and <code>SELECT count(*) FROM approval_requests</code> returns <code>0</code>. The two
+resolution handlers are well-written and carry the approver identity, but nothing can reach them.</p>
+<p><strong>An escalated call is recorded as an allowed one.</strong> The audit action is derived from the raw
+allowlist verdict rather than the effective one:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kd">let</span><span class="w"> </span><span class="n">audit_action</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">decision</span><span class="p">.</span><span class="n">is_allowed</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">          </span><span class="c1">// &lt;-- raw allowlist decision</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="n">action</span><span class="p">::</span><span class="n">POLICY_ALLOWED</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">decision</span><span class="p">.</span><span class="n">needs_approval</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="n">action</span><span class="p">::</span><span class="n">POLICY_APPROVAL_REQUIRED</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">action</span><span class="p">::</span><span class="n">POLICY_DENIED</span><span class="w"> </span><span class="p">};</span>
+</code></pre></div>
+<p>When the reversibility ladder escalates <code>Allow</code> → <code>RequiresApproval</code>, <code>decision.is_allowed()</code> is
+still true, so the row is written as <code>policy.allowed</code>. Observed directly: a <code>git_read</code> call that the
+gateway gated for approval (<code>"requires_approval": true</code>, <code>"response_level": "require_approval"</code>) was
+written to the chain as <code>policy.allowed</code>. <code>details.effective_decision</code> holds the truth, so the fact
+is recoverable — but <code>action</code> is the indexed, filtered, human-read field, and it says the opposite.
+<code>policy.approval_required</code> has never been written, which is why it does not appear in the counts
+above.</p>
+<h2 id="what-this-branch-changed">What this branch changed<a class="headerlink" href="#what-this-branch-changed" title="Permanent link">&para;</a></h2>
+<p>Rows 2, 3 and 4 moved from <strong>MISSING</strong> to <strong>CONFORMS</strong>. Nothing else moved; rows 5–8 are unchanged
+and are stated as they are.</p>
+<p><strong>Permissions and credentials (rows 2 and 3).</strong> Every decision now carries a <code>permissions</code> block in
+<code>audit_events.details</code>: the identity the decision was made <em>for</em> (tenant, project, agent, agent
+version, run, API key id), the budget remaining as quantities, and a SHA-256 content hash of the
+policy document that produced the decision. The document itself — canonical allowlist, budget caps,
+enforcement mode — is stored once in the new content-addressed <code>policy_documents</code> table, keyed by
+that hash and immutable by trigger.</p>
+<p>The hash rather than the document, for two reasons. An allowlist is unbounded and identical across
+millions of decisions, so inlining it adds bytes and no information. More importantly the hash sits
+<em>inside</em> the audit row and is therefore covered by that row's <code>record_hash</code> and the per-tenant
+chain, so editing the allowlist a decision was made under leaves either a hash that resolves to
+nothing or a broken chain. An inline copy would be one more mutable blob.</p>
+<p>The invariant — <em>given only the audit log and the policy map, a reader can reconstruct what this
+identity was permitted to do at time T</em> — is asserted by
+<code>rust/crates/fd-storage/tests/permission_reconstruction.rs</code> against a real database, across a policy
+change, which is the case that matters: an agent permitted to write on Monday and not on Tuesday.
+The reconstruction ships as <code>PoliciesRepo::reconstruct_permissions_at</code> rather than living in the
+test, because a capability only a test can perform is not a capability an investigator has. CI executes
+that test: it is <code>#[ignore]</code>d for the database, and until this branch nothing in CI ran <code>--ignored</code>,
+so the assertion existed and had never once been made. The <code>live-stack-tests</code> job now runs it
+against the migrated schema and checks each test reported by name. Its SQL
+reads two tables and names neither <code>agents</code> nor <code>runs</code>, so the answer survives the agent being
+deleted or re-permissioned.</p>
+<p><strong>Human approval and intervention (row 4).</strong> The gap was larger than "a missing field". No approval
+request was ever created — <code>create_approval</code> had no callers and there is no <code>POST /approvals</code> route
+— so <code>approval_requests</code> was empty in every deployment, <code>GET /approvals</code> always returned <code>[]</code>, and
+the two resolution handlers could not be reached. <code>approval.expired</code> had never been written since
+the schema was created. Escalations were recorded as <code>policy.allowed</code>.</p>
+<p>So this branch wired the gate open as well as recording it: the two paths that park a run in
+<code>WaitingApproval</code> now create the policy-decision and approval rows and write
+<code>policy.approval_required</code> with the deadline; the two auto-expiry paths write <code>approval.expired</code>
+instead of silently resolving the row; and approve, deny and expire share one event builder that
+carries the resolving identity and <code>latency_ms</code>. Adding the expiry event without wiring creation
+would have been the same defect this repository keeps finding — code that exists and never runs.</p>
+<p>Latency is not decoration. An approval that took 40 minutes and one that took 4 seconds are
+different facts about the control, and only one of them is a control that works under load.</p>
+<p><strong>Also fixed, incidentally.</strong> The dev seed registered its four tools without a <code>reversibility</code>, so
+they inherited the column default <code>irreversible</code> and every tool on the demo agent's own allowlist
+required approval — the allow path was undemonstrable and several security tests were failing
+against a correctly-functioning engine. Migration <code>20260819000002</code> classifies them
+(<code>git_read</code>/<code>test_run</code> reversible, <code>git_write</code> costly, <code>github_create_pr</code> left irreversible so the
+R3 gate still has something to demonstrate).</p>
+<h2 id="known-gaps-found-while-checking">Known gaps found while checking<a class="headerlink" href="#known-gaps-found-while-checking" title="Permanent link">&para;</a></h2>
+<p>Two of the three gaps recorded here at 0.8.11 were closed in 0.8.12. They are
+kept, struck through in prose rather than deleted, because a page that only ever
+shows what is currently fine teaches a reader nothing about what to check.</p>
+<p><strong>~~The anti-RCE layer is name-matched and matches nothing on a seeded stack.~~
+Fixed in 0.8.12.</strong> Layer 1 and Layer 3 both filtered by tool name against
+default lists of literal guesses — eight shell-shaped names and eight
+HTTP-shaped ones — neither of which matched a domain-named registry. Both
+inspected zero of the four seeded tools. Both defaults are now empty, meaning
+inspect everything; the same payload moved from <code>risk_score: 0</code> to
+<code>risk_score: 90, violation: rcepattern</code>. Narrowing is still supported and is
+reported per layer at boot and on <code>GET /ready</code>. <strong>Airlock still defaults to
+<code>shadow</code></strong>, so a detected violation is recorded and not blocked — detection and
+refusal are different, and the second is <code>FERRUMDECK_AIRLOCK_MODE=enforce</code>.</p>
+<p><strong>~~Concurrent audit writes to one tenant collide and are dropped.~~ Fixed in
+0.8.12.</strong> A transaction-scoped per-tenant advisory lock makes read-tip-then-insert
+atomic. The 24-writer race that previously lost 17 events now loses none, with a
+contiguous <code>chain_seq</code> asserted. Residual: a write failing for a non-collision
+reason is still dropped by the fire-and-forget caller (logged at ERROR with
+tenant and index), and anything bypassing <code>AuditRepo::create</code> is outside the
+guarantee.</p>
+<p><strong>~~A NUL byte in a tool name reaches Postgres.~~ Fixed in 0.8.12.</strong> <code>tool_name</code>
+now rejects the whole C0/C1 control range plus DEL at validation, returning 422
+with the offending code point instead of a 500 from the database driver.</p>
+<h3 id="still-open">Still open<a class="headerlink" href="#still-open" title="Permanent link">&para;</a></h3>
+<p><strong>Most declared audit actions are never written.</strong> 24 action constants are
+defined in <code>fd-storage</code>; a full run exercises 6. <code>run.started</code>, <code>step.started</code>
+and <code>step.failed</code> in particular have never been emitted, so the timeline in row
+7 covers decisions and completions but not the full lifecycle. This is the
+largest remaining item on this page.</p>
+<p><strong>No artifact inventory (row 5).</strong> The control plane records the decision to
+call a tool, never the tool's effect. Closing it means capturing what a tool
+changed, which is a data-model question, not a logging one.</p>
+<p><strong>No third-party dependency inventory (row 1).</strong> An SBOM would close the
+"third-party dependencies" half of that class.</p>
+<h2 id="scope">Scope<a class="headerlink" href="#scope" title="Permanent link">&para;</a></h2>
+<p>FerrumDeck is an enforcement engine and an evidence producer. It is not a compliance product, it
+does not file reports, and it is not a member of the Open Secure AI Alliance. This page exists so
+that anyone assessing FerrumDeck against SAFE can see exactly which evidence classes its log covers
+and which it does not, without having to take a marketing claim on trust.</p>
+<p>A <strong>CONFORMS</strong> on this page means "the log records this, in a form an investigator could use, and a
+test asserts it stays that way". It does not mean the deploying organisation is SAFE-conformant;
+that depends on process obligations no library can discharge.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Licensed under Apache-2.0
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.top", "navigation.footer", "navigation.tracking", "content.code.copy", "content.action.edit", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
