@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > that captured them. Dates are the tag dates; entries are terse, one per merged
 > change.
 
-## [Unreleased]
+## [0.8.19] - 2026-09-06
 
 ### Added
 - **The eval harness stops discarding the agent text it already parsed, so the
