@@ -23,6 +23,7 @@ from fd_evals.coherence import (
 from fd_evals.coherence_negatives import (
     DATASET_DIR,
     MAX_CI_WIDTH_FOR_RATE,
+    PROVENANCES,
     SHAPE_MIX,
     SWEEP_THRESHOLDS,
     TARGET_TRACES,
@@ -30,6 +31,7 @@ from fd_evals.coherence_negatives import (
     build_corpus,
     build_data_report,
     confidence_floor,
+    load_real_traces,
     manifest,
     measure,
     sweep,
@@ -170,8 +172,19 @@ def test_the_committed_report_matches_a_fresh_measurement() -> None:
 
 
 def test_the_corpus_size_matches_the_target() -> None:
+    """TARGET_TRACES sizes the *generated* arm; real traces are additive.
+
+    Split rather than relaxed to `>=`: the seeded synthetic corpus must stay
+    exactly TARGET_TRACES (that is what makes the measurement reproducible),
+    and the real arm must account for every trace beyond it. A loose bound
+    would hide a generator that quietly produced the wrong number.
+    """
     traces, _ = build_corpus()
-    assert len(traces) == TARGET_TRACES
+    synthetic = [t for t in traces if t.provenance != "real"]
+    real = [t for t in traces if t.provenance == "real"]
+    assert len(synthetic) == TARGET_TRACES
+    assert len(traces) == TARGET_TRACES + len(real)
+    assert len(real) == len(load_real_traces())
 
 
 def test_the_report_carries_no_timestamp_so_it_stays_byte_stable() -> None:
@@ -229,7 +242,7 @@ def test_a_measurement_never_reads_git(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("fd_evals.coherence_negatives.subprocess.run", explode)
     traces, _ = build_corpus()
-    assert len(traces) == TARGET_TRACES
+    assert len([t for t in traces if t.provenance != "real"]) == TARGET_TRACES
 
 
 def test_the_frozen_vocabulary_is_committed_and_stamped() -> None:
@@ -287,11 +300,50 @@ def test_the_data_report_withholds_a_rate_it_cannot_support() -> None:
         assert "%" not in row.split("|")[4], f"{k} printed a percentage: {row}"
 
 
-def test_the_data_report_prints_the_zero_real_row_rather_than_omitting_it() -> None:
-    """`real` is 0. A missing row reads as an oversight; a printed zero is a fact."""
+def test_every_provenance_arm_is_reported_even_when_empty() -> None:
+    """An empty arm prints an explicit zero rather than vanishing.
+
+    A missing row reads as an oversight; a printed zero reads as a fact. Tested
+    against a corpus with the real arm removed, because that is the state the
+    invariant is about — the committed corpus now has real traces, so asserting
+    on it would stop exercising the empty case.
+
+    Also pins the JSON/markdown agreement: `by_provenance` used to omit an empty
+    arm while the markdown synthesised the row, so the two artifacts disagreed
+    about whether `real` existed at all.
+    """
     traces, v = build_corpus()
-    _, body = build_data_report(traces, manifest(traces, v, measure(traces)))
+    synthetic_only = [t for t in traces if t.provenance != "real"]
+    result = measure(synthetic_only)
+
+    assert set(PROVENANCES) <= set(result.by_provenance)
+    assert result.by_provenance["real"] == {
+        "successes": 0,
+        "total": 0,
+        "rate": 0.0,
+        "ci95_low": 0.0,
+        "ci95_high": 0.0,
+    }
+
+    _, body = build_data_report(synthetic_only, manifest(synthetic_only, v, result))
     assert "| `real` | 0 | 0 |" in body
+
+
+def test_the_real_arm_is_loaded_not_generated() -> None:
+    """`real` traces must come off disk, and must carry a reader's judgement.
+
+    The distinction is the point of the arm: a generated "real" trace would be
+    a lie about provenance, and an unjudged one would turn a benign corpus into
+    "whatever runs happened to be lying around".
+    """
+    real = load_real_traces()
+    if not real:
+        pytest.skip("no real traces committed")
+    for tr in real:
+        assert tr.provenance == "real"
+        assert tr.why_benign.strip(), f"{tr.id} carries no benign judgement"
+        assert tr.events, f"{tr.id} has no events"
+        assert tr.sources, f"{tr.id} does not say where it came from"
 
 
 def test_the_sweep_starts_at_the_shipped_threshold_and_climbs() -> None:

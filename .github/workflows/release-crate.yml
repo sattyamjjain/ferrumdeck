@@ -78,6 +78,14 @@ jobs:
       # ferrumdeck` cannot resolve `ferrumdeck-audit` and the release half-lands
       # (core + policy published, audit + umbrella not). This step is what makes a
       # `v*.*.*` tag publish all four crates instead of failing at the umbrella.
+      # ferrumdeck-dag was omitted from this walk entirely and drifted six
+      # releases behind (0.8.12 while the workspace shipped 0.8.18) -- the same
+      # failure as ferrumdeck-otel below, one release later, because that fix
+      # appended a line instead of removing the silence. It has no workspace
+      # dependencies, so it can publish first.
+      - name: Publish ferrumdeck-dag
+        run: cargo publish -p ferrumdeck-dag --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
+
       - name: Publish ferrumdeck-core
         run: cargo publish -p ferrumdeck-core --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
 
@@ -100,3 +108,11 @@ jobs:
 
       - name: Publish ferrumdeck (umbrella)
         run: cargo publish -p ferrumdeck --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
+
+      # The walk's failure mode was silence: a crate missing from the list above
+      # simply was not published and the release still went green. This makes it
+      # loud. It reads the publishable set from the manifests (anything without
+      # `publish = false`), so a crate added later is covered without anyone
+      # remembering to extend a second list.
+      - name: Assert every publishable crate is current on crates.io
+        run: python scripts/check_published_versions.py

@@ -17,6 +17,7 @@ from fd_evals.harness import HarnessConfig
 from fd_evals.harness_delta import HarnessDelta
 from fd_evals.scorers.base import BaseScorer, CompositeScorer
 from fd_evals.task import EvalResult, EvalRunSummary, EvalTask, ScorerResult
+from fd_evals.trajectory import extract_trajectory, persistence_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class EvalRunner:
         model: str | None = None,
         harness_config: HarnessConfig | None = None,
         require_all_pass: bool = False,
+        persist_trajectory: bool | None = None,
     ):
         """Initialize the eval runner.
 
@@ -69,6 +71,12 @@ class EvalRunner:
                 clearing 0.5. Suites set this via
                 ``settings.require_all_scorers_pass``. Defaults False so
                 existing callers keep their current pass semantics.
+            persist_trajectory: Opt in to writing the agent's statement/action
+                text into each result (`fd_evals.trajectory`). ``None`` (the
+                default) defers to ``FD_EVALS_PERSIST_TRAJECTORY``; ``False``
+                forces it off even if the environment asks. Off unless
+                requested — persisting raw model output is a data-handling
+                decision the operator makes, not a default.
         """
         self.scorers = scorers or []
         self.control_plane_url = (
@@ -79,6 +87,7 @@ class EvalRunner:
         self.model = model
         self.harness_config = harness_config
         self.require_all_pass = require_all_pass
+        self.persist_trajectory = persist_trajectory
         self._composite_scorer = (
             CompositeScorer(self.scorers, name="EvalScorer", require_all_pass=require_all_pass)
             if self.scorers
@@ -201,6 +210,14 @@ class EvalRunner:
         if not error:
             claim_grounding = compute_claim_grounding(actual_output, run_context.get("steps", []))
 
+        # Persist the agent text the line above just parsed and threw away, so
+        # the coherence corpus can have a `real` provenance arm at all. OPT-IN
+        # (see `fd_evals.trajectory`): `None` unless the operator asked, and
+        # `to_dict` then omits the key entirely.
+        trajectory = None
+        if not error and persistence_enabled(self.persist_trajectory):
+            trajectory = extract_trajectory(actual_output, run_context.get("steps", []))
+
         return EvalResult(
             task_id=task.id,
             task_name=task.name,
@@ -215,6 +232,7 @@ class EvalRunner:
             error=error,
             trace_id=run_context.get("trace_id"),
             claim_grounding=claim_grounding,
+            trajectory=trajectory,
         )
 
     def _execute_run(

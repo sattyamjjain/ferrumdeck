@@ -64,7 +64,7 @@ Two modes, mirroring the Airlock shadow/enforce convention:
 
 - **`shadow` (default)** — the chosen rung is **recorded + surfaced** (audit
   details, SSE, the run's `response_level`), but the run is **never gated**.
-  Safe for the heuristic's false-positive rate, which is **10.42%** (25/240 benign
+  Safe for the heuristic's false-positive rate, which is **10.20%** (25/245 benign
   trajectories, Wilson 95% CI [7.16%, 14.92%] — `make eval-coherence-fp`).
 - **`enforce`** (`FERRUMDECK_COHERENCE_MODE=enforce`) — an **R3** divergence
   **gates the run**: its status is set to `WaitingApproval` for human review
@@ -83,7 +83,7 @@ The `shadow`/`enforce` switch is exactly the DeepMind **AI Control Roadmap**
   reviews after the fact. The roadmap deems R1 acceptable for **low-risk,
   easily reversible** actions — which is the right default here because the
   detector is a lexical heuristic whose **measured** false-positive rate is
-  **10.42%** (Wilson 95% CI [7.16%, 14.92%]), so you do not want it halting runs
+  **10.20%** (Wilson 95% CI [7.01%, 14.63%]), so you do not want it halting runs
   unattended.
 - **`enforce` ≈ R3 (synchronous).** An R3 divergence (default severity → R3)
   **blocks before the run proceeds**: the run is set to `WaitingApproval` for
@@ -96,7 +96,7 @@ The `shadow`/`enforce` switch is exactly the DeepMind **AI Control Roadmap**
 take irreversible, high-consequence actions (prod deploys, payments, data
 deletion, external comms) and where a false-positive gate (a run parked at
 `WaitingApproval` until a human clears it) is an acceptable cost. Price that cost
-with the measured rate rather than a feeling: at **10.42%**, roughly **one correct
+with the measured rate rather than a feeling: at **10.20%**, roughly **one correct
 run in ten** is parked, so `enforce` needs someone actually watching the approval
 queue. Keep the
 default `shadow` for exploratory / reversible workloads where you want the

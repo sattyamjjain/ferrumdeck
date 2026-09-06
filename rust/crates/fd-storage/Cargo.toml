@@ -1,5 +1,9 @@
 [package]
 name = "fd-storage"
+# Internal to the workspace: binds the engine to a specific Postgres schema and
+# Redis layout, so it is not meaningful outside this deployment. See
+# `scripts/check_published_versions.py` for why this is declared and not implied.
+publish = false
 description = "FerrumDeck storage layer: PostgreSQL repositories and migrations"
 version.workspace = true
 edition.workspace = true

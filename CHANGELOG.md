@@ -15,6 +15,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > that captured them. Dates are the tag dates; entries are terse, one per merged
 > change.
 
+## [Unreleased]
+
+### Added
+- **The eval harness stops discarding the agent text it already parsed, so the
+  coherence corpus can have a `real` provenance arm at all.** The `real` row had
+  been **n=0** since the report was created, and the stated reason — no committed
+  artifact carries agent trajectory text — was accurate but described a *writer*
+  bug, not a shortage of runs. `claim_grounding.compute_from_run` was already
+  receiving the run's final output and its tool-step outputs, splitting the
+  output into claims, counting them, and dropping the text: a committed report
+  carries `"claims_total": 17` beside `"output_tokens": 237`. Seventeen
+  statements were extracted and thrown away. `fd_evals.trajectory` now keeps
+  them, in the exact `{"kind": "statement"|"action", ...}` shape
+  `BenignTrace.to_events()` consumes, using the **same** split-and-filter rule
+  that produces `claims_total` so the two views of a run cannot drift into
+  different notions of "a claim".
+
+  **It is opt-in, and that is the point.** Persisting model output writes raw,
+  unredacted agent text to disk — a data-handling change, not a bug fix — so it
+  must never begin because a dependency moved. Off unless the operator asks, via
+  `fd-eval run --persist-trajectory` or `FD_EVALS_PERSIST_TRAJECTORY=1`. When
+  off, the `trajectory` key is absent entirely and a record is byte-identical to
+  a pre-0.8.19 one. `test_persistence_is_off_unless_asked` guards the default;
+  `--no-persist-trajectory` beats a stray environment variable.
+- **`load_real_traces` — a loader, deliberately not a ninth shape builder.** A
+  real trajectory is read, never generated. It reads a *committed* file
+  (`evals/datasets/coherence-negatives/real-traces.jsonl`) rather than scanning
+  `evals/reports/`, because scanning would let the nightly change the
+  measurement, and a number that moves with whichever runs happen to be on disk
+  is not a measurement. Every real trace must carry a `why_benign` judgement or
+  the loader refuses it: a benign corpus is one a reader vetted, not whatever was
+  lying around.
+- **`scripts/check_published_versions.py`** (`make check-published-versions`, and
+  a step in the release workflow) — asserts every publishable crate is both wired
+  into the publish walk and live on crates.io at the workspace version.
+
+### Changed
+- **Five real trajectories are committed, and the headline moved: 10.42%
+  (25/240) → 10.20% (25/245).** Captured through the new opt-in path from real
+  Anthropic-backed runs against a live control plane on 2026-09-06. **No `real`
+  rate is published**, and the arm carries a warning rather than a number: all
+  five trajectories contain **zero tool actions** — the agent answered in prose
+  without reaching a tool call — and a coherence divergence requires a stated
+  blocking fact *followed by an advancing action*. Their 0 flagged is arithmetic,
+  not evidence the monitor is clean on real traffic. The arm is published at its
+  true n so the plumbing is visible and the remaining gap is nameable. What it
+  needs next is real runs that actually call tools.
+- **`by_provenance` in the JSON now carries every arm explicitly, including
+  zeros.** `evals/reports/coherence_fp-*.json` omitted an empty arm while the
+  rendered markdown synthesised a `real` row at 0, so the two artifacts disagreed
+  about whether the arm existed. `measure()` emits all of `PROVENANCES`; the
+  markdown's special case is gone. A missing key reads as an oversight and a zero
+  reads as a fact — the same reason the markdown always printed it.
+- **`ferrumdeck-dag` is published rather than abandoned.** It sat on crates.io at
+  **0.8.12** while the workspace shipped 0.8.18 — six versions and 15 days
+  behind — because it was never in the publish walk at all. This is the second
+  time: `ferrumdeck-otel` drifted five releases behind for the same reason and
+  was fixed at 0.8.17 by appending one line, which left the *failure mode*
+  — silence — completely intact, so the next crate was stranded identically. It
+  has full publish metadata and a standalone, dependency-free scheduler, so
+  marking it `publish = false` would have left a permanently stale 0.8.12 on
+  crates.io that no CHANGELOG note can fix for someone browsing there.
+  Publishing it is the honest disposition.
+- **What "publishable" means is now declared, not implied.** `fd-storage`,
+  `fd-registry` and the gateway carry `publish = false` with a reason; anything
+  without it must be in the walk and current on crates.io. The check reads the
+  manifests, so a crate added later is covered without anyone remembering to
+  extend a second list.
+- The data report's shape sentence is counted rather than asserted — it read
+  "four of the eight" while the corpus had nine shapes.
+
+### Notes
+- **Issue [#9](https://github.com/sattyamjjain/ferrumdeck/issues/9) is scheduled**
+  to milestone `0.8.20 — narrowing auto-apply`, due 2026-09-20. Forty days open
+  with three triage passes already on it; the scope was settled on 2026-09-01
+  (narrowing-only, with reversibility, apply-time re-check and failure atomicity
+  as acceptance criteria), so what it lacked was a date, not more analysis. A
+  fourth triage would have been a slower way of saying it is not scheduled. No
+  code in this release.
+- Trajectory persistence does **not** yet clear #9's standing blocker. No eval
+  would notice a policy change that made the agent worse at its job, and five
+  action-free trajectories measure nothing about policy deltas. It is a first
+  step toward eval signal derived from what the agent actually said.
+
 ## [0.8.18] - 2026-09-05
 
 ### Added
