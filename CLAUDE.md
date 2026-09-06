@@ -166,7 +166,7 @@ Dashboard / API clients
 - Errors: `thiserror` in libraries, `anyhow` in applications
 - IDs: ULID-based, strongly typed with prefixes (`run_`, `stp_`, `agt_`) via `define_id!` in fd-core
 - DB: SQLx with compile-time checked queries (`cargo sqlx prepare --workspace`; `SQLX_OFFLINE=true` to build without a DB)
-- Published crates rename on crates.io — `fd-core` → `ferrumdeck-core`, `fd-policy` → `ferrumdeck-policy`, `fd-audit` → `ferrumdeck-audit` — while lib/import paths stay `fd_core`, `fd_policy`, `fd_audit`. `fd-otel` → `ferrumdeck-otel` is also published, but the release workflow does not carry it (it publishes core → policy → audit → umbrella only), so it sits at 0.8.12. `fd-dag`, `fd-storage`, `fd-registry` are unpublished.
+- Published crates rename on crates.io — `fd-core` → `ferrumdeck-core`, `fd-policy` → `ferrumdeck-policy`, `fd-audit` → `ferrumdeck-audit`, `fd-otel` → `ferrumdeck-otel`, `fd-dag` → `ferrumdeck-dag` — while lib/import paths stay `fd_core`, `fd_policy`, `fd_audit`, `fd_otel`, `fd_dag`. The publishable set is declared by the *absence* of `publish = false` in each crate's `Cargo.toml`; `fd-storage`, `fd-registry` and the gateway carry it and are never published. `scripts/check_published_versions.py` (`make check-published-versions`, and a step in the release workflow) asserts every publishable crate is both wired into the publish walk and live on crates.io at the workspace version — added after `ferrumdeck-otel` drifted five releases behind and `ferrumdeck-dag` then drifted six, because the walk's failure mode was silence.
 - Lint: `cargo clippy --workspace --all-targets -- -D warnings`
 
 ### Python

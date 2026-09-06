@@ -1,7 +1,7 @@
 # FerrumDeck - Development Makefile
 # ================================
 
-.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image eval-health eval-health-check eval-coherence-fp docs-coherence-fp docs-coherence-fp-check eval-series eval-series-check check-suite-reachability check-route-backing reproduce-readme-figures test-live-stack
+.PHONY: help dev-up dev-down build test fmt lint clean install quickstart dashboard run-dashboard run-gateway run-worker pull-mcp-image eval-health eval-health-check eval-coherence-fp docs-coherence-fp docs-coherence-fp-check eval-series eval-series-check check-suite-reachability check-route-backing reproduce-readme-figures test-live-stack check-published-versions
 
 # Default target
 help:
@@ -432,6 +432,15 @@ ci-check: check-claims check-changelog-issues eval-health-check eval-series-chec
 check-claims:
 	@echo "Checking claims integrity (README/ROADMAP vs docs/feature-status.yml)..."
 	uv run python scripts/check_claims_integrity.py
+
+# Release-walk integrity: every crate without `publish = false` must be a step
+# in .github/workflows/release-crate.yml AND live on crates.io at the workspace
+# version. The walk's failure mode was silence -- ferrumdeck-otel drifted five
+# releases behind, then ferrumdeck-dag drifted six -- and this makes it loud.
+# `--offline` checks the wiring only, which is what CI can do before a tag.
+check-published-versions:
+	@echo "Checking every publishable crate is current on crates.io..."
+	uv run python scripts/check_published_versions.py
 
 # Changelog honesty: every open/closed issue claim in the CHANGELOG [Unreleased]
 # section must match live GitHub issue state (guards against the class where an

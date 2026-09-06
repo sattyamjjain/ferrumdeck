@@ -146,6 +146,19 @@ def run_eval(
             ),
         ),
     ] = None,
+    persist_trajectory: Annotated[
+        bool,
+        typer.Option(
+            "--persist-trajectory/--no-persist-trajectory",
+            help=(
+                "Write the agent's statement/action text into each result as a "
+                "`trajectory` field. OFF by default: this records RAW MODEL OUTPUT "
+                "to disk, which is a data-handling decision, not a bug fix. Enables "
+                "the coherence corpus's `real` provenance arm. Also settable with "
+                "FD_EVALS_PERSIST_TRAJECTORY=1."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Run an evaluation against a dataset or suite.
 
@@ -217,6 +230,9 @@ def run_eval(
         api_key=api_key,
         use_mock=mock,
         require_all_pass=bool(loaded_suite and loaded_suite.require_all_scorers_pass),
+        # `True` forces on; `False` defers to FD_EVALS_PERSIST_TRAJECTORY so the
+        # env var still works when the flag is left at its default.
+        persist_trajectory=True if persist_trajectory else None,
     )
 
     summary = runner.run_eval(

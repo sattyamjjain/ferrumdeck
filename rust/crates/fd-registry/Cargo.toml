@@ -1,5 +1,12 @@
 [package]
 name = "fd-registry"
+# Internal to the workspace: the gateway owns the registry's HTTP surface and
+# fd-storage owns its persistence, so there is no standalone consumer. Declared
+# explicitly rather than left implicit — `scripts/check_published_versions.py`
+# treats the absence of this line as "this crate must be on crates.io at the
+# workspace version", which is how ferrumdeck-otel (0.8.17) and ferrumdeck-dag
+# (0.8.18) each drifted six releases behind without anything noticing.
+publish = false
 description = "FerrumDeck registry: versioned agents, tools, prompts"
 version.workspace = true
 edition.workspace = true

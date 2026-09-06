@@ -500,7 +500,7 @@ wheels = [
 
 [[package]]
 name = "fd-cli"
-version = "0.8.18"
+version = "0.8.19"
 source = { editable = "python/packages/fd-cli" }
 dependencies = [
     { name = "fd-runtime" },
@@ -519,7 +519,7 @@ requires-dist = [
 
 [[package]]
 name = "fd-evals"
-version = "0.8.18"
+version = "0.8.19"
 source = { editable = "python/packages/fd-evals" }
 dependencies = [
     { name = "fd-runtime" },
@@ -561,7 +561,7 @@ provides-extras = ["dev", "schema"]
 
 [[package]]
 name = "fd-mcp-router"
-version = "0.8.18"
+version = "0.8.19"
 source = { editable = "python/packages/fd-mcp-router" }
 dependencies = [
     { name = "mcp" },
@@ -576,7 +576,7 @@ requires-dist = [
 
 [[package]]
 name = "fd-mcp-tools"
-version = "0.8.18"
+version = "0.8.19"
 source = { editable = "python/packages/fd-mcp-tools" }
 dependencies = [
     { name = "mcp" },
@@ -587,7 +587,7 @@ requires-dist = [{ name = "mcp", specifier = ">=1.28.1" }]
 
 [[package]]
 name = "fd-runtime"
-version = "0.8.18"
+version = "0.8.19"
 source = { editable = "python/packages/fd-runtime" }
 dependencies = [
     { name = "httpx" },
@@ -608,7 +608,7 @@ requires-dist = [
 
 [[package]]
 name = "fd-worker"
-version = "0.8.18"
+version = "0.8.19"
 source = { editable = "python/packages/fd-worker" }
 dependencies = [
     { name = "fd-mcp-router" },
@@ -644,7 +644,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "ferrumdeck"
-version = "0.8.18"
+version = "0.8.19"
 source = { editable = "." }
 
 [package.dev-dependencies]

@@ -30,11 +30,13 @@ the weighting rather than having to reverse-engineer it.
 
 ## Provenance
 
-No committed artifact in this repository carries real agent trajectory text:
-`evals/reports/*.json` store scorer results, tokens and timings, never the
-model's output. So the count of trajectories captured verbatim from a real agent
-run is **zero**, and the manifest says so rather than letting "grounded in real
-text" drift into "real".
+Until 0.8.19 no committed artifact carried real agent trajectory text:
+`evals/reports/*.json` stored scorer results, tokens and timings, never the
+model's output, so the `real` arm was **zero**. That was a writer bug, not a
+scarcity of runs -- the harness already parsed the text to count claims and then
+discarded it. `fd_evals.trajectory` now persists it behind an explicit opt-in,
+and `load_real_traces` reads the committed result. The arm is small and is
+reported at its true n rather than being turned into a rate.
 
 What is real is the **vocabulary**. Statement and action text is drawn from
 material actually in this repository — real git commit subjects, the real tool
@@ -42,7 +44,8 @@ allowlist in `evals/agents/safe-pr-agent/config.yaml`, real CI output — becaus
 for a lexical matcher the language is the thing under test. Each trace records
 which of these it used. `provenance` distinguishes:
 
-- ``real`` — captured verbatim from a real agent run. Currently 0.
+- ``real`` — captured verbatim from a real agent run. Loaded from
+  `evals/datasets/coherence-negatives/real-traces.jsonl`, never generated.
 - ``synthetic_grounded`` — assembled by this generator; every string drawn from
   real repository text.
 - ``synthetic_authored`` — assembled by this generator; strings written by hand
@@ -589,6 +592,92 @@ BUILDERS = {
 }
 
 
+# =============================================================================
+# Real trajectories — loaded, never generated
+# =============================================================================
+
+#: Committed, frozen set of trajectories captured from real agent runs.
+REAL_TRACES_PATH = Path("evals/datasets/coherence-negatives/real-traces.jsonl")
+
+
+def real_trace_from_record(
+    record: dict[str, Any],
+    *,
+    why_benign: str,
+    source: str,
+    trace_id: str | None = None,
+) -> dict[str, Any]:
+    """Convert one persisted eval-result dict into a real-trace entry.
+
+    ``record`` is an element of ``results`` in an ``evals/reports/eval_*.json``
+    written with trajectory persistence enabled (see `fd_evals.trajectory`).
+
+    ``why_benign`` is **required and cannot be derived**. A benign corpus is
+    defined by a careful reader judging that the agent never states a blocking
+    fact and then advances as if it were untrue. Auto-admitting real runs would
+    turn "trajectories a human vetted" into "trajectories that happened to be
+    lying around", and the false-positive rate would stop meaning anything.
+    """
+    events = record.get("trajectory")
+    if not events:
+        raise ValueError(
+            f"record {record.get('run_id')!r} carries no `trajectory`. Re-run the "
+            "eval with --persist-trajectory (or FD_EVALS_PERSIST_TRAJECTORY=1); "
+            "without it the harness parses the agent text and discards it."
+        )
+    if not why_benign.strip():
+        raise ValueError("why_benign is required: a benign corpus is a judged corpus")
+    return {
+        "id": trace_id or f"real_{record.get('run_id', 'unknown')}",
+        "shape": "observed",
+        "provenance": "real",
+        "why_benign": why_benign.strip(),
+        "sources": [source],
+        "events": events,
+        "n_events": len(events),
+    }
+
+
+def load_real_traces(path: Path | None = None, repo: Path = REPO_ROOT) -> list[BenignTrace]:
+    """Read the committed real trajectories.
+
+    A **loader**, deliberately not a ninth ``shape_*`` builder: a real
+    trajectory is read, not generated, and nothing here may synthesise one. If
+    the file is absent the corpus simply has no real arm and the report says
+    ``real: n=0`` — which is the honest state, not an error.
+
+    Reads a committed file rather than scanning ``evals/reports/`` so the corpus
+    stays reproducible. Scanning the reports directory would let the nightly
+    change the measurement, and a number that moves depending on which runs
+    happen to be on disk is not a measurement.
+    """
+    target = path or (repo / REAL_TRACES_PATH)
+    if not target.exists():
+        return []
+    out: list[BenignTrace] = []
+    for line in target.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        raw = json.loads(line)
+        if not raw.get("why_benign", "").strip():
+            raise ValueError(
+                f"real trace {raw.get('id')!r} has no why_benign. Every trace in a "
+                "benign corpus must carry the reader's judgement that it is benign."
+            )
+        out.append(
+            BenignTrace(
+                id=raw["id"],
+                shape=raw.get("shape", "observed"),
+                provenance="real",
+                why_benign=raw["why_benign"],
+                sources=raw.get("sources", []),
+                events=raw["events"],
+            )
+        )
+    return out
+
+
 def build_corpus(n: int = TARGET_TRACES, seed: int = SEED, repo: Path = REPO_ROOT):
     """Deterministically assemble the benign corpus in the declared mix."""
     rng = random.Random(seed)
@@ -615,6 +704,10 @@ def build_corpus(n: int = TARGET_TRACES, seed: int = SEED, repo: Path = REPO_ROO
                 events=events,
             )
         )
+    # Real trajectories are appended, not interleaved: they are read from a
+    # committed file, so the synthetic arm keeps its exact seeded composition
+    # and the real arm is visibly additive.
+    traces += load_real_traces(repo=repo)
     return traces, v
 
 
@@ -702,7 +795,10 @@ def measure(
         rate=ci.rate,
         ci_low=ci.ci_low,
         ci_high=ci.ci_high,
-        by_provenance={k: _rate_block(sum(v), len(v)) for k, v in sorted(prov.items())},
+        by_provenance={
+            k: _rate_block(sum(prov.get(k, [])), len(prov.get(k, [])))
+            for k in (*PROVENANCES, *sorted(set(prov) - set(PROVENANCES)))
+        },
         by_shape={k: _rate_block(sum(v), len(v)) for k, v in sorted(shape.items())},
         examples=examples,
         lookahead=lookahead,
@@ -724,9 +820,9 @@ def manifest(traces: list[BenignTrace], v: Vocab, result: FalsePositiveResult) -
         "provenance_counts": prov_counts,
         "provenance_meaning": {
             "real": (
-                "captured verbatim from a real agent run. ZERO: no committed artifact in "
-                "this repository carries agent trajectory text -- evals/reports/*.json hold "
-                "scorer results, tokens and timings, never the model's output."
+                "captured verbatim from a real agent run, loaded from "
+                "evals/datasets/coherence-negatives/real-traces.jsonl. Persisted by "
+                "fd_evals.trajectory behind an explicit opt-in; read, never generated."
             ),
             "synthetic_grounded": (
                 "assembled by the generator; every statement/action string drawn from real "
@@ -800,11 +896,11 @@ def render_markdown(result: FalsePositiveResult, man: dict[str, Any], day: str) 
     lines += [
         "",
         f"**Trajectories captured from a real agent run: {man['provenance_counts']['real']}.** "
-        "No committed artifact in this repository carries agent trajectory text, so the "
-        "corpus is generated. What is real is the vocabulary — statement and action strings "
-        "are drawn from this repository's own git commit subjects and the safe-pr-agent tool "
-        "allowlist, because for a lexical matcher the language is the thing under test. The "
-        "two provenances are reported separately above and are never pooled silently.",
+        "The rest of the corpus is generated, and what is real about it is the vocabulary — "
+        "statement and action strings are drawn from this repository's own git commit "
+        "subjects and the safe-pr-agent tool allowlist, because for a lexical matcher the "
+        "language is the thing under test. The provenances are reported separately above "
+        "and are never pooled silently.",
         "",
         "## By shape",
         "",
@@ -850,6 +946,14 @@ DOCS_REPORTS_DIR = REPO_ROOT / "docs/reports"
 # the interval spans half the unit interval. Suppressed rows still print n and
 # the flag count. The rule withholds a derived figure, never data.
 MAX_CI_WIDTH_FOR_RATE = 0.40
+
+# Every provenance arm the corpus knows about. Emitted in this order whether or
+# not the corpus currently holds any trace of that kind, so `by_provenance` in
+# the JSON carries an explicit zero for an empty arm rather than omitting the
+# key. The markdown already printed `real` at 0 for this reason; the JSON did
+# not, so the two disagreed on whether the arm existed. A missing key reads as
+# an oversight and a zero reads as a fact.
+PROVENANCES: tuple[str, ...] = ("real", "synthetic_authored", "synthetic_grounded")
 
 # The shipped `min_confidence` is 0.0 (admit everything, stated), which is the
 # bottom of the scale -- so this ladder runs UP from the shipped value instead
@@ -900,6 +1004,12 @@ def sweep(
             }
         )
     return rows
+
+
+def _silent_shapes(result: FalsePositiveResult) -> int:
+    """How many shapes never produced a single flag. Counted so the prose cannot
+    drift from the table beneath it."""
+    return sum(1 for b in result.by_shape.values() if b["successes"] == 0)
 
 
 def _pct(x: float) -> str:
@@ -974,19 +1084,34 @@ def render_data_report(
     ]
 
     real_n = prov_counts.get("real", 0)
-    if "real" not in result.by_provenance:
-        lines.append(f"| `real` | 0 | {real_n} | — | no traces |")
+    # No special case for a missing `real` row any more: `measure` emits every
+    # arm in PROVENANCES, so an empty arm carries an explicit zero in the JSON
+    # too. The markdown used to synthesise the row the JSON was omitting, which
+    # is how the two artifacts came to disagree about whether the arm existed.
     for k, b in result.by_provenance.items():
         rate, ci = _rate_cells(b)
         lines.append(f"| `{k}` | {b['successes']} | {b['total']} | {rate} | {ci} |")
 
     lines += [
         "",
-        f"- **`real` — captured verbatim from a real agent run: {real_n}.** No committed "
-        "artifact in this repository carries agent trajectory text (`evals/reports/*.json` "
-        "hold scorer results, tokens and timings, never the model's output), so there is "
-        "nothing to draw from. The row is printed at n=0 rather than omitted, because a "
-        "missing row reads as an oversight and a zero reads as a fact.",
+        f"- **`real` — captured verbatim from a real agent run: {real_n}.** Persisted by "
+        "`fd_evals.trajectory` behind an explicit opt-in "
+        "(`fd-eval run --persist-trajectory`) and loaded from "
+        "`evals/datasets/coherence-negatives/real-traces.jsonl`. Until 0.8.19 this was 0, "
+        "and the reason was a writer bug rather than a shortage of runs: the harness "
+        "already split the agent's output into claims to compute `claim_grounding`, "
+        "reported the count, and dropped the text. **Read the next paragraph before "
+        "drawing anything from this row.**",
+        "",
+        f"  > **These {real_n} trajectories contain no actions at all.** Every one is the "
+        "agent responding in prose — asking a clarifying question, outlining a plan — "
+        "without reaching a tool call. A coherence divergence requires a stated blocking "
+        "fact *followed by an advancing action*, so a trajectory with zero actions is "
+        "**structurally incapable of being flagged**. Their 0 flagged is therefore not "
+        "evidence that the monitor is clean on real traffic; it is arithmetic. The arm is "
+        "published at its true n so the plumbing is visible and the gap is nameable, not "
+        "because it measures anything yet. What it needs is real runs that actually call "
+        "tools.",
         "- **`synthetic_grounded`** — assembled by the generator, every statement and action "
         "string drawn from real repository text: this repo's own `git log` subjects and the "
         "`safe-pr-agent` tool allowlist. For a lexical matcher the language is the thing "
@@ -998,8 +1123,11 @@ def render_data_report(
         "",
         "## By shape",
         "",
-        "What the trajectory *does*. The rate is not spread evenly across shapes — four of "
-        "the eight never fire at all, and the headline number is carried by two.",
+        # Counted, not asserted: this sentence said "four of the eight" while the
+        # corpus had nine shapes, because adding one did not touch the prose.
+        f"What the trajectory *does*. The rate is not spread evenly across shapes — "
+        f"{_silent_shapes(result)} of the {len(result.by_shape)} never fire at all, and the "
+        "headline number is carried by two.",
         "",
         "| Shape | Flagged | n | Rate | 95% CI |",
         "| --- | --- | --- | --- | --- |",
@@ -1097,10 +1225,12 @@ def render_data_report(
         "",
         "Read this before quoting the headline figure.",
         "",
-        "- **Not a sample of real agent traffic.** `real` is 0. Every trajectory is "
-        "assembled by a generator. The *vocabulary* is real; the *trajectories* are not. A "
-        "production agent's phrasing distribution is unknown, and this number does not "
-        "estimate it.",
+        f"- **Not a sample of real agent traffic.** {real_n} of {result.total} "
+        "trajectories were captured from real runs, and those carry no tool actions, so "
+        "they cannot fire the detector. The headline is still effectively a measurement "
+        "over generated trajectories: the *vocabulary* is real, the *trajectories* mostly "
+        "are not. A production agent's phrasing distribution is unknown, and this number "
+        "does not estimate it.",
         "- **Not a precision or an F-score.** There are no true positives here. The corpus "
         "is all-negative by construction, so it measures the false-positive rate and "
         "nothing else. It says how often the monitor stops a correct run; it says nothing "

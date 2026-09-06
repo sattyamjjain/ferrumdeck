@@ -1,5 +1,12 @@
 {
   "by_provenance": {
+    "real": {
+      "ci95_high": 0.43449149475208104,
+      "ci95_low": 0.0,
+      "rate": 0.0,
+      "successes": 0,
+      "total": 5
+    },
     "synthetic_authored": {
       "ci95_high": 0.3878464374792707,
       "ci95_low": 0.1492048880971003,
@@ -50,6 +57,13 @@
       "rate": 0.0,
       "successes": 0,
       "total": 46
+    },
+    "observed": {
+      "ci95_high": 0.43449149475208104,
+      "ci95_low": 0.0,
+      "rate": 0.0,
+      "successes": 0,
+      "total": 5
     },
     "partial_failure_disclaimed": {
       "ci95_high": 0.13798057582897535,
@@ -196,12 +210,12 @@
     }
   ],
   "false_positive_rate": {
-    "ci95_high": 0.14924912020839565,
-    "ci95_low": 0.07155651754988678,
+    "ci95_high": 0.14629352621809297,
+    "ci95_low": 0.07007544102854106,
     "ci_method": "wilson_95",
-    "rate": 0.10416666666666667,
+    "rate": 0.10204081632653061,
     "successes": 25,
-    "total": 240
+    "total": 245
   },
   "manifest": {
     "declared_mix": {
@@ -226,14 +240,14 @@
       "tool_names_write": 15,
       "transcript_lines": 605
     },
-    "n_traces": 240,
+    "n_traces": 245,
     "provenance_counts": {
-      "real": 0,
+      "real": 5,
       "synthetic_authored": 48,
       "synthetic_grounded": 192
     },
     "provenance_meaning": {
-      "real": "captured verbatim from a real agent run. ZERO: no committed artifact in this repository carries agent trajectory text -- evals/reports/*.json hold scorer results, tokens and timings, never the model's output.",
+      "real": "captured verbatim from a real agent run, loaded from evals/datasets/coherence-negatives/real-traces.jsonl. Persisted by fd_evals.trajectory behind an explicit opt-in; read, never generated.",
       "synthetic_authored": "assembled by the generator; strings written by hand to cover a structural shape no harvested text produced.",
       "synthetic_grounded": "assembled by the generator; every statement/action string drawn from real repository text (git commit subjects, the safe-pr-agent tool allowlist)."
     },
@@ -244,6 +258,7 @@
       "commit_message_names_fixed_bug": 17,
       "handoff_then_unrelated_closure": 24,
       "multi_step_tool_sequence": 46,
+      "observed": 5,
       "partial_failure_disclaimed": 24,
       "retry_then_resolve": 36,
       "vocabulary_trap_statement": 24

@@ -109,13 +109,20 @@ class EvalResult:
     # available; `to_dict` emits the key only when present so legacy readers
     # are unaffected.
     claim_grounding: ClaimGrounding | None = None
+    # Persisted agent trajectory, in the coherence event shape
+    # (`fd_evals.trajectory`). OPT-IN: populated only when the operator asks
+    # for it, because writing raw model output to disk is a data-handling
+    # decision, not a default. Additive Option-equivalent — `to_dict` emits the
+    # key only when present, so a run without it is byte-identical to a
+    # pre-0.8.19 record.
+    trajectory: list[dict[str, str]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization.
 
-        ``call_records``, ``cost_breakdown`` and ``claim_grounding`` are
-        emitted only when present so the wire shape stays byte-identical for
-        runs that predate each rollout.
+        ``call_records``, ``cost_breakdown``, ``claim_grounding`` and
+        ``trajectory`` are emitted only when present so the wire shape stays
+        byte-identical for runs that predate each rollout.
         """
         out: dict[str, Any] = {
             "task_id": self.task_id,
@@ -148,6 +155,8 @@ class EvalResult:
             out["cost_breakdown"] = self.cost_breakdown.to_dict()
         if self.claim_grounding is not None:
             out["claim_grounding"] = self.claim_grounding.to_dict()
+        if self.trajectory is not None:
+            out["trajectory"] = self.trajectory
         return out
 
 

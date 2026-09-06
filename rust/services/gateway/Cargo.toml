@@ -1,5 +1,7 @@
 [package]
 name = "gateway"
+# A binary service, not a library. Never published.
+publish = false
 description = "FerrumDeck API Gateway service"
 version.workspace = true
 edition.workspace = true
