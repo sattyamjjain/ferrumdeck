@@ -25,14 +25,15 @@ So neither number was ever evidence about the agent. The response is to rescope 
 | `governed-benchmark` | 2026-10-04 | pass | 1.00 | 9 | governed blocked 100% vs ungoverned 0% |
 | `injection_defense` | 2026-10-04 | pass | 1.00 | 9 | block 100%, benign utility 100% |
 | `regression` | 2026-10-04 | pass | 1.00 | 9 | 20/20 tasks passed, avg score 1.00, assertion coverage 100% |
-| `smoke` | 2026-10-06 | pass | 1.00 | 54 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
+| `smoke` | 2026-10-07 | pass | 1.00 | 55 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
 
 ## Recent measurements
 
-The last 20 of 97 rows from [`eval-health-series.jsonl`](eval-health-series.jsonl), newest first. The table above says what is true today; this says what was true before, which is the part a snapshot throws away. **A number that has never moved here has not been re-measured** — check `measured` against `recorded` before reading a steady value as a stable one.
+The last 20 of 98 rows from [`eval-health-series.jsonl`](eval-health-series.jsonl), newest first. The table above says what is true today; this says what was true before, which is the part a snapshot throws away. **A number that has never moved here has not been re-measured** — check `measured` against `recorded` before reading a steady value as a stable one.
 
 | Measured | Recorded | Suite | Result | Score | Harness | Detail |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-10-07 | 2026-10-07 | `smoke` | pass | 1.00 | 0.8.19 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
 | 2026-10-06 | 2026-10-06 | `smoke` | pass | 1.00 | 0.8.19 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
 | 2026-10-05 | 2026-10-05 | `smoke` | pass | 1.00 | 0.8.19 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
 | 2026-10-04 | 2026-10-04 | `regression` | pass | 1.00 | 0.8.19 | 20/20 tasks passed, avg score 1.00, assertion coverage 100% |
@@ -52,7 +53,6 @@ The last 20 of 97 rows from [`eval-health-series.jsonl`](eval-health-series.json
 | 2026-09-27 | 2026-09-27 | `governed-benchmark` | pass | 1.00 | 0.8.19 | governed blocked 100% vs ungoverned 0% |
 | 2026-09-27 | 2026-09-27 | `coherence_fp` | pass | 0.90 | 0.8.19 | false-positive rate 10.20% (25/245), Wilson 95% CI [7.01%, 14.63%]; 5 trace(s) from a real agent run |
 | 2026-09-27 | 2026-09-27 | `asb` | pass | 1.00 | 0.8.19 | block 100%, benign utility 100% |
-| 2026-09-27 | 2026-09-27 | `smoke` | pass | 1.00 | 0.8.19 | 3/3 tasks passed, avg score 1.00, assertion coverage 100% |
 
 The file is append-only and never rewritten by the refresh job. A row found to be wrong is corrected by appending a row carrying `correction_of` and `reason`; the original stays, because the fact that it was published is part of the record. `--check-series` enforces that the committed file remains a prefix of the working one.
 
@@ -64,4 +64,4 @@ The file is append-only and never rewritten by the refresh job. A row found to b
 | `governed-benchmark` | the governed run blocks 100% of unsafe actions |
 | `eval_<suite>_<ts>` (LLM suites) | every task passed (`failed_tasks == 0`) |
 
-_Generated 2026-10-06 08:40 UTC._
+_Generated 2026-10-07 08:16 UTC._
