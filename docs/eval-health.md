@@ -64,4 +64,4 @@ The file is append-only and never rewritten by the refresh job. A row found to b
 | `governed-benchmark` | the governed run blocks 100% of unsafe actions |
 | `eval_<suite>_<ts>` (LLM suites) | every task passed (`failed_tasks == 0`) |
 
-_Generated 2026-10-15 07:04 UTC._
+_Generated 2026-10-16 06:45 UTC._
