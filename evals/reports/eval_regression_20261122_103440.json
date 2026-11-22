@@ -1,0 +1,958 @@
+{
+  "run_id": "eval_0ea4cc1da02c",
+  "dataset_name": "safe-pr-agent",
+  "total_tasks": 20,
+  "passed_tasks": 20,
+  "failed_tasks": 0,
+  "pass_rate": 100.0,
+  "average_score": 1.0,
+  "assertion_coverage": 1.0,
+  "total_cost_cents": 0.46,
+  "total_input_tokens": 11004,
+  "total_output_tokens": 7599,
+  "total_execution_time_ms": 142095,
+  "results": [
+    {
+      "task_id": "task_001",
+      "task_name": "Add README badge",
+      "run_id": "run_01M81D51TK2TAHBA57KETRS9CN",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 6089,
+      "input_tokens": 541,
+      "output_tokens": 245,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:34:47.402043+00:00",
+      "claim_grounding": {
+        "claims_total": 17,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_002",
+      "task_name": "Fix typo in docs",
+      "run_id": "run_01M81D57QJBK9NM4CF5RVMR2XA",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 6044,
+      "input_tokens": 547,
+      "output_tokens": 271,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:34:53.446561+00:00",
+      "claim_grounding": {
+        "claims_total": 18,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_003",
+      "task_name": "Add type hints",
+      "run_id": "run_01M81D5DMD4AEJYFY0GNMC9GVK",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 4031,
+      "input_tokens": 542,
+      "output_tokens": 167,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:34:57.477980+00:00",
+      "claim_grounding": {
+        "claims_total": 13,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_004",
+      "task_name": "Create .gitignore",
+      "run_id": "run_01M81D5HJDVZD4JV1X75VSKT5Z",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 6038,
+      "input_tokens": 552,
+      "output_tokens": 275,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:35:03.516662+00:00",
+      "claim_grounding": {
+        "claims_total": 17,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_005",
+      "task_name": "Add docstrings",
+      "run_id": "run_01M81D5QF45CMF002CADZ67RSE",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 4028,
+      "input_tokens": 550,
+      "output_tokens": 172,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:35:07.545327+00:00",
+      "claim_grounding": {
+        "claims_total": 13,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_006",
+      "task_name": "Fix linting errors",
+      "run_id": "run_01M81D5VD0CBXRF62104YX09V8",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 4029,
+      "input_tokens": 542,
+      "output_tokens": 187,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:35:11.574645+00:00",
+      "claim_grounding": {
+        "claims_total": 14,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_007",
+      "task_name": "Add unit test",
+      "run_id": "run_01M81D5ZAX5VYPB0Q29Z25050N",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 5035,
+      "input_tokens": 542,
+      "output_tokens": 226,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:35:16.609986+00:00",
+      "claim_grounding": {
+        "claims_total": 17,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_008",
+      "task_name": "Refactor duplicate code",
+      "run_id": "run_01M81D6489NZPDB160RRC4JVQG",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 7076,
+      "input_tokens": 555,
+      "output_tokens": 306,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:35:23.686833+00:00",
+      "claim_grounding": {
+        "claims_total": 19,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_009",
+      "task_name": "Add error handling",
+      "run_id": "run_01M81D6B5EAXF51XF1NV3WSNKR",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 7042,
+      "input_tokens": 550,
+      "output_tokens": 314,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:35:30.729341+00:00",
+      "claim_grounding": {
+        "claims_total": 18,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_010",
+      "task_name": "Update dependencies",
+      "run_id": "run_01M81D6J1H3QNF3418DXX6HX6C",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 5033,
+      "input_tokens": 558,
+      "output_tokens": 225,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:35:35.762690+00:00",
+      "claim_grounding": {
+        "claims_total": 17,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_011",
+      "task_name": "Implement new endpoint",
+      "run_id": "run_01M81D6PYTAG8TSDJE0XMJN1NS",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 6056,
+      "input_tokens": 555,
+      "output_tokens": 286,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:35:41.819832+00:00",
+      "claim_grounding": {
+        "claims_total": 22,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_012",
+      "task_name": "Add logging",
+      "run_id": "run_01M81D6WW34D0DSW6KDFS8MNH2",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 14069,
+      "input_tokens": 542,
+      "output_tokens": 952,
+      "cost_cents": 0.04,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:35:55.889261+00:00",
+      "claim_grounding": {
+        "claims_total": 41,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_013",
+      "task_name": "Fix security vulnerability",
+      "run_id": "run_01M81D7AKTXJ78QXE85MT3RW5H",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 7044,
+      "input_tokens": 552,
+      "output_tokens": 374,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:36:02.934221+00:00",
+      "claim_grounding": {
+        "claims_total": 28,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_014",
+      "task_name": "Add caching",
+      "run_id": "run_01M81D7HFYG9ZCJE7GSG4GM8D9",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 4067,
+      "input_tokens": 555,
+      "output_tokens": 164,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:36:07.001811+00:00",
+      "claim_grounding": {
+        "claims_total": 12,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_015",
+      "task_name": "Implement pagination",
+      "run_id": "run_01M81D7NF1JPVR8F6SKYR00Q47",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 6040,
+      "input_tokens": 551,
+      "output_tokens": 307,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:36:13.042265+00:00",
+      "claim_grounding": {
+        "claims_total": 20,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_016",
+      "task_name": "Add rate limiting",
+      "run_id": "run_01M81D7VBS6R928KY7QD88SQ9E",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 8150,
+      "input_tokens": 553,
+      "output_tokens": 377,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:36:21.193070+00:00",
+      "claim_grounding": {
+        "claims_total": 23,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_017",
+      "task_name": "Database migration",
+      "run_id": "run_01M81D83AG6PTNKPDBATQEASX7",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 9055,
+      "input_tokens": 551,
+      "output_tokens": 418,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:36:30.248333+00:00",
+      "claim_grounding": {
+        "claims_total": 32,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_018",
+      "task_name": "Add webhook handler",
+      "run_id": "run_01M81D8C5GQAQBFA3S6ZZQHX3X",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 15072,
+      "input_tokens": 549,
+      "output_tokens": 1119,
+      "cost_cents": 0.04,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:36:45.321395+00:00",
+      "claim_grounding": {
+        "claims_total": 64,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_019",
+      "task_name": "Async refactor",
+      "run_id": "run_01M81D8TWH4HNWYRECX8HRMBH2",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 11055,
+      "input_tokens": 551,
+      "output_tokens": 871,
+      "cost_cents": 0.04,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:36:56.377402+00:00",
+      "claim_grounding": {
+        "claims_total": 46,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    },
+    {
+      "task_id": "task_020",
+      "task_name": "Multi-file refactor",
+      "run_id": "run_01M81D95P19581DGNK3ZM8H4N1",
+      "passed": true,
+      "total_score": 1.0,
+      "scorer_results": [
+        {
+          "scorer_name": "PolicyCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All 6 policy checks passed",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "BudgetCompliance",
+          "passed": true,
+          "score": 1.0,
+          "message": "All budget limits respected",
+          "details": {},
+          "skipped": false
+        },
+        {
+          "scorer_name": "ExpectedOutputMatch",
+          "passed": true,
+          "score": 1.0,
+          "message": "Output matched all expectations",
+          "details": {},
+          "skipped": false
+        }
+      ],
+      "execution_time_ms": 7042,
+      "input_tokens": 566,
+      "output_tokens": 343,
+      "cost_cents": 0.02,
+      "error": null,
+      "trace_id": null,
+      "timestamp": "2026-11-22T10:37:03.420051+00:00",
+      "claim_grounding": {
+        "claims_total": 24,
+        "claims_grounded": 0,
+        "rate": 0.0,
+        "below_threshold": true,
+        "threshold": 0.7
+      }
+    }
+  ],
+  "started_at": "2026-11-22T10:34:41.312281+00:00",
+  "completed_at": "2026-11-22T10:37:03.420059+00:00"
+}
